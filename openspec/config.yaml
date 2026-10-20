@@ -1,0 +1,136 @@
+schema: spec-driven
+
+project:
+  name: final
+  root: 'C:\proyectos\final'
+  stage: bootstrap
+  brief: 'PFM — Django backend + PostgreSQL/SQLite + React frontend + Git/GitHub + public deployment (VPS or cloud)'
+  state: 'Target stack declared by the project brief. The repository contains only .git: no source code, dependency manifest, CI config, or test suite exists yet.'
+
+context: |
+  Target stack: Django 5.2 backend (Python 3.14) + React frontend (Node 24)
+  Data: PostgreSQL (production) / SQLite (local development)
+  VCS: Git + GitHub
+  Deployment: public VPS or cloud
+  Architecture: not yet decided — the repository contains no code
+  Testing: pytest + Django test runner (backend), Vitest (frontend) — PENDING scaffolding
+  Style: not yet decided — the repository contains no code
+
+strict_tdd: false
+strict_tdd_reason: >-
+  Zero project roots were discovered because the repository is empty, so no
+  workspace-level test command can be verified to cover the in-scope project
+  set. Strict TDD stays false until scaffolding exists and a single
+  workspace-level command is confirmed to cover every in-scope project.
+
+artifact_store:
+  mode: openspec
+  planning_home: 'C:\proyectos\final\openspec'
+  engram_mirror: true
+  engram_project: final
+
+projects: []
+# Populate with one entry per discovered project root after scaffolding.
+# Each entry keeps its OWN stack, test command, test layers, coverage command
+# and quality-tool commands. Never collapse several projects into one runner,
+# and never synthesize a combined command from independent project commands.
+# Example shape:
+#   - path: backend
+#     stack: python-django
+#     test_command: 'python -m pytest'
+#     coverage_command: 'python -m pytest --cov'
+#     layers: { unit: pytest, integration: pytest-django, e2e: null }
+
+testing:
+  status: pending-scaffolding
+  detected: '2026-10-19'
+  strict_tdd: false
+  strict_tdd_reason: >-
+    No project root was discovered, therefore no test command could be
+    verified by execution against a real project. Host tooling is verified;
+    project wiring is not.
+
+  discovery:
+    method: 'bounded scan of the workspace root and at most two directory levels below it'
+    roots_scanned: ['C:\proyectos\final']
+    markers_checked: [package.json, pyproject.toml, setup.cfg, requirements.txt, pytest.ini, tox.ini, go.mod, Cargo.toml, Makefile]
+    projects_discovered: 0
+    note: 'Repository contains only .git. No project root was discovered.'
+
+  host_toolchain:
+    python:
+      interpreter: 'C:\Python314\python.exe'
+      version: '3.14.7'
+      pytest: '9.1.1'
+      pytest_django: 'installed'
+      pytest_cov: '7.1.0'
+      coverage: '7.16.1'
+      django: '5.2.8'
+      mypy: '2.3.1'
+      black: 'not installed'
+      ruff: 'not on PATH'
+    node:
+      node: 'v24.21.0'
+      npm: '11.19.0'
+      vitest: 'not installed'
+      playwright: 'not installed'
+      typescript: '5.6.3 (global)'
+      pnpm: '9.15.0 (global)'
+    docker: 'not installed'
+
+  target_stack_runners:
+    - path: backend
+      stack: python-django
+      status: pending-scaffolding
+      planned_test_command: 'python -m pytest'
+      alternate_test_command: 'python manage.py test'
+      detection: 'pyproject.toml [tool.pytest.ini_options] | pytest.ini | setup.cfg [tool:pytest] | tox.ini; confirm with `python -m pytest --collect-only -q`'
+      note: 'pytest is NOT exposed as a standalone PATH executable on this host, so the `python -m pytest` form is mandatory.'
+    - path: frontend
+      stack: react
+      status: pending-scaffolding
+      planned_test_command: 'npm test'
+      detection: 'package.json scripts.test (expect vitest) | vite.config.ts test block'
+      note: 'Vitest is NOT installed on this host and must be added to devDependencies during scaffolding.'
+    - path: e2e
+      stack: cross-stack
+      status: pending-scaffolding
+      planned_test_command: 'npx playwright test'
+      detection: 'playwright.config.ts | package.json scripts.e2e'
+      note: 'Playwright is NOT installed on this host.'
+
+  coverage:
+    backend_planned: 'python -m pytest --cov'
+    frontend_planned: 'npm test -- --coverage'
+    verified: false
+
+  quality_tools:
+    backend_planned: { linter: ruff, type_checker: mypy, formatter: black }
+    frontend_planned: { linter: eslint, type_checker: 'tsc --noEmit', formatter: prettier }
+    verified: false
+
+rules:
+  proposal:
+    - Include a rollback plan for risky changes
+    - Name which target-stack component the change touches (backend, frontend, deployment)
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns
+      - Refresh the testing-capability cache once scaffolding creates a dependency manifest
+    tdd: false
+    test_command: ''
+  verify:
+    test_command: ''
+    build_command: ''
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

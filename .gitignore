@@ -1,0 +1,4 @@
+# Local resolver cache for the skill registry.
+# The versioned, canonical registry lives at openspec/skill-registry.md
+# and is mirrored to Engram under topic_key: skill-registry.
+.atl/
