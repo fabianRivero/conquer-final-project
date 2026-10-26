@@ -34,7 +34,7 @@ The honest answer: a SQL `CHECK` constraint sees **one row**, never an aggregate
 | `DayClose.(shop, date)` unique | **DB `UniqueConstraint`** | per-row uniqueness ✓ |
 | **`outstanding > credit_limit`** | **server, inside `transaction.atomic()`** | cross-row aggregate — a `CHECK` **cannot** express it |
 | **customer is `suspendido`** | **server, inside `transaction.atomic()`** | cross-row aggregate — a `CHECK` **cannot** express it |
-| **`occurred_at ≤ now`** | serializer validator → **422** | `now()` is not immutable; a Postgres `CHECK` may not call it without an `IMMUTABLE` wrapper, which would freeze time. The `occurred_at ≤ created_at` constraint is the honest DB-level approximation. |
+| **the client sends `occurred_at`** | **serializer → 422 `campo_no_admitido`** | the write API does not accept it; the server stamps `now()`. `now()` is not immutable, so a Postgres `CHECK` may not call it without an `IMMUTABLE` wrapper, which would freeze time — the `occurred_at ≤ created_at` constraint is the honest DB-level backstop |
 
 So: the DB is a **safety net for the per-row invariants**, and the **transactional server-side check is the enforcement point for the cross-row rules**. The proposal's sentence «una `CheckConstraint` es la red de seguridad» (`submission-notes.md` §7, question 3) is therefore **overstated and must be corrected** to: *«la regla se evalúa en el servidor, dentro de la misma transacción del cargo, devuelve 422 y no crea asiento; la base de datos solo puede vigilar los invariantes por fila (importe positivo, tipo permitido, fecha no futura, fecha de cierre única)»*. **Flagged for correction** — it is a wording fix in `proposal.md` / `submission-notes.md`, not a design change. The spec wording in CB-07 («MUST be backed by a database-level `CheckConstraint`») is satisfied by the `occurred_at ≤ created_at` + `amount > 0` + `kind` constraints backing the refusal at row level, with the suspension decision itself made transactionally; the design states this explicitly rather than pretending a constraint can see the aggregate.
 
@@ -54,7 +54,7 @@ backend/tienda/api/exceptions.py
 
 wired in `config/settings.py` via `REST_FRAMEWORK["EXCEPTION_HANDLER"] = "tienda.api.exceptions.exception_handler"`.
 
-- **422** = every *validation* failure: a domain rule (`limite_superado`, `antiguedad_superada`, `importe_no_positivo`, `fecha_futura`) **and** a serializer field error. Rationale: CB-09 lists field-level invariants (`amount > 0`, allowed `kind`, `occurred_at ≤ now`) and demands 422 for them, so 400 must not be reachable through those fields.
+- **422** = every *validation* failure: a domain rule (`limite_superado`, `antiguedad_superada`, `importe_no_positivo`, `campo_no_admitido`) **and** a serializer field error. Rationale: CB-09 lists field-level invariants (`amount > 0`, allowed `kind`) and demands 422 for them, and the write API must reject an attempt to set `occurred_at`, so 400 must not be reachable through those fields.
 - **400** survives only for a **malformed request body** (`ParseError`: invalid JSON) — that is not a validation failure.
 - **403** = role denial / CSRF failure. **404** = unknown id. **405** = wrong method on a known path — and note that `LedgerEntry` exposes **only** `GET` (read) and `POST` (append); there is no `PUT`/`PATCH`/`DELETE` route for the ledger at all.
 
@@ -62,7 +62,7 @@ The `detail` payload of a domain error is a **Spanish, human-readable** message 
 
 ```json
 { "codigo": "limite_superado",
-  "detail": "El cliente «Marta (Pº 2)» tiene un límite de crédito de 20,00 € y un saldo pendiente de 25,00 €. El cargo no se ha registrado." }
+  "detail": "El cliente «Marta — panadería» tiene un límite de crédito de 20,00 € y un saldo pendiente de 25,00 €. El cargo no se ha registrado." }
 ```
 
 Because the write surface is **JSON only** (no server-rendered CRUD forms), there is exactly one status-code contract. That is deliberate: a second, HTML form path would be a second place where 400 and 422 could diverge.
@@ -118,6 +118,7 @@ C:\proyectos\final\
 │  │  ├─ __init__.py
 │  │  ├─ apps.py
 │  │  ├─ admin.py                       # owner-only admin
+│  │  ├─ auth_views.py                  # LoginView que escribe shop_id en la sesion (§7.4)
 │  │  ├─ models.py                      # Shop, Customer, LedgerEntry, CashMovement, DayClose
 │  │  ├─ domain/                        # << NUCLEO PURO — sin ORM, sin Django
 │  │  │  ├─ __init__.py
@@ -131,7 +132,8 @@ C:\proyectos\final\
 │  │  │  ├─ customers.py                # crear cliente, cambiar limite, anular suspension
 │  │  │  ├─ ledger.py                   # record_cargo, record_pago, record_nota_credito
 │  │  │  ├─ cash.py                     # record_movement
-│  │  │  └─ close.py                    # close_day
+│  │  │  ├─ close.py                    # close_day
+│  │  │  └─ shop_context.py             # current_shop(request) — el ambito de los datos (§7.4)
 │  │  ├─ api/
 │  │  │  ├─ __init__.py
 │  │  │  ├─ urls.py                     # DRF router, sin rutas de escritura de la libreta
@@ -233,7 +235,7 @@ class LedgerLine:
     id: int
     kind: EntryKind
     amount: Decimal
-    occurred_at: datetime          # naive, hora local de la tienda
+    occurred_at: datetime          # aware, ya convertida a la zona de la tienda; la conversion la hace el servicio
     description: str = ""
 
 @dataclass(frozen=True)
@@ -259,6 +261,12 @@ class CustomerState:
     credit_a_favor: Decimal                 # > 0 si el saldo es negativo
 ```
 
+### 3.1.b Zona horaria
+
+`USE_TZ = True`: the database stores every instant in **UTC**, and `settings.TIME_ZONE` is the shop's timezone. The **service layer** (`tienda/services/`) is the only code allowed to convert a UTC instant into the shop's local timezone before calling any pure function — `django.utils.timezone` must **never** be imported inside `tienda/domain/`, so R11 stays true and the AST test keeps enforcing it.
+
+Consequence: a "day" always means a **calendar day of the shop**, DST included. A charge made at 00:30 in Madrid on 1 June is stored as 22:30 UTC on 31 May, but it belongs to **1 June** for the ageing rule — so the 7 / 30 / 90 boundaries cannot drift by one because of a timezone. The conversion happens exactly once, at the service boundary, before the domain sees the value; the domain never learns that UTC exists.
+
 ### 3.2 The four required signatures (+ two helpers)
 
 ```python
@@ -282,7 +290,10 @@ def bucket_of(age_days: int) -> Bucket:
     """vigente <= 7 d · envejecido 8-30 d · viejo 31-90 d · cronico > 90 d."""
 
 def age_in_days(occurred_at: datetime, at: datetime) -> int:
-    """Diferencia en dias calendario: (at.date() - occurred_at.date()).days."""
+    """Diferencia en dias calendario: (at.date() - occurred_at.date()).days.
+
+    Ambos valores llegan YA convertidos a la zona de la tienda y son aware;
+    la conversion UTC -> zona de la tienda la hace el servicio, nunca el dominio."""
 
 # domain/evaluation.py
 def evaluate_customer(
@@ -348,6 +359,7 @@ erDiagram
         decimal opening_cash
         string currency
         bool is_demo
+        string usuarios
         datetime created_at
     }
     Customer {
@@ -396,6 +408,7 @@ erDiagram
         datetime closed_at
     }
 
+    User ||--o{ Shop : "usuarios (M2M)"
     Shop ||--o{ Customer : "contiene"
     Shop ||--o{ LedgerEntry : "registra"
     Shop ||--o{ CashMovement : "registra"
@@ -409,7 +422,7 @@ erDiagram
 
 ### 4.2 Entity tables
 
-**`Shop`** — one row in the MVP.
+**`Shop`** — one row in the MVP; the accounts allowed to use it are listed in `usuarios`.
 
 | Field | Type | Null | Default | Constraints / notes |
 |---|---|---|---|---|
@@ -418,6 +431,7 @@ erDiagram
 | `opening_cash` | `DecimalField(12,2)` | no | `0.00` | caja inicial; `>= 0` CHECK |
 | `currency` | `CharField(3)` | no | `"EUR"` | |
 | `is_demo` | `BooleanField` | no | `False` | marca el conjunto sembrado; unico punto de borrado (seed) |
+| `usuarios` | `ManyToManyField(User)` | no | — | the accounts allowed to use this shop. The relation lives on `Shop`, so the Django `User` model is **not modified** — Django only adds the reverse accessor `user.shops`, and no column is added to `auth_user`. The MVP assigns each account to exactly one shop (§7.4) |
 | `created_at` | `DateTimeField` | no | `auto_now_add` | |
 
 Indexes: PK only.
@@ -428,7 +442,7 @@ Indexes: PK only.
 |---|---|---|---|---|
 | `id` | `BigAutoField` | no | PK | |
 | `shop_id` | `FK(Shop)` | no | — | `on_delete=CASCADE`; ambito de los datos (D11) |
-| `alias` | `CharField(120)` | no | — | texto libre, nunca un nombre real |
+| `alias` | `CharField(120)` | no | — | free text chosen by the owner. The app **never asks for** identifying data (no DNI/NIE, no address, no photograph, no bank details) and **does not validate** that the alias is a pseudonym — the minimisation is **by omission from the form, not by validation** (CB-10; memoria §3.6). The shop's own shorthand is the expected practice, and the seeded aliases contain no locator |
 | `phone` | `CharField(32)` | **yes** | `None` | opcional |
 | `credit_limit` | `DecimalField(12,2)` | **yes** | `None` | `None` = «sin límite» (estado explicito); CHECK `credit_limit >= 0` |
 | `status` | `CharField(12)` | no | `"activo"` | `activo` \| `suspendido`; CHECK in set |
@@ -439,8 +453,8 @@ Indexes: PK only.
 | `suspended_override_by_id` | `FK(User)` | **yes** | `None` | quien la anulo (CB-08) |
 | `created_at` | `DateTimeField` | no | `auto_now_add` | |
 
-Constraints: `CheckConstraint(credit_limit__gte=0)` · `CheckConstraint(status__in=['activo','suspendido'])` · `CheckConstraint(suspended_reason__in=['limite_superado','antiguedad_superada'])`.
-Indexes: `(shop, alias)` · `Index(status)` (used to filter the ladder's suspended rows) · `Index(suspended_override_at)` (the override is rare and queried on detail).
+Constraints: `UniqueConstraint(shop, alias)` — two customers of the same shop cannot share an alias · `CheckConstraint(credit_limit__gte=0)` · `CheckConstraint(status__in=['activo','suspendido'])` · `CheckConstraint(suspended_reason__in=['limite_superado','antiguedad_superada'])`.
+Indexes: the `UniqueConstraint(shop, alias)` doubles as the `(shop, alias)` lookup index · `Index(status)` (used to filter the ladder's suspended rows) · `Index(suspended_override_at)` (the override is rare and queried on detail).
 
 **`LedgerEntry`** — append-only.
 
@@ -452,7 +466,7 @@ Indexes: `(shop, alias)` · `Index(status)` (used to filter the ladder's suspend
 | `kind` | `CharField(12)` | no | — | `cargo` \| `pago` \| `nota_credito`; CHECK in set |
 | `amount` | `DecimalField(12,2)` | no | — | CHECK `amount > 0` |
 | `description` | `TextField` | no | `""` | texto libre («2 L de leche + pan») |
-| `occurred_at` | `DateTimeField` | no | — | UTC, `USE_TZ=True`; CHECK `occurred_at <= created_at` |
+| `occurred_at` | `DateTimeField` | no | — | UTC en la base de datos (`USE_TZ=True`); el servicio lo convierte a la zona de la tienda antes de invocar el dominio (§3.1.b). El cliente **nunca** lo fija: la API lo sella con `now()`; CHECK `occurred_at <= created_at` |
 | `author_id` | `FK(User)` | no | — | `on_delete=PROTECT` |
 | `created_at` | `DateTimeField` | no | `auto_now_add` | instante de insercion |
 
@@ -490,7 +504,7 @@ Indexes: `(shop, occurred_at)`.
 
 Indexes: the `UniqueConstraint(shop, date)` doubles as the index for «el cierre de hoy».
 
-**`User`** — Django's `auth.User`, unmodified, with exactly two groups: `dueno` and `dependiente`. `PBKDF2PasswordHasher` is **not** overridden: Django 5.2.8's default is `pbkdf2_sha256` with **1 000 000 iterations** (verified on the host toolchain), which is what RAC-06 requires.
+**`User`** — Django's `auth.User`, unmodified, with exactly two groups: `dueno` and `dependiente`. The relation to the shop lives on `Shop.usuarios`, so `auth_user` gains **no column** and the Django `User` model is not touched (§7.4). `PBKDF2PasswordHasher` is **not** overridden: Django 5.2.8's default is `pbkdf2_sha256` with **1 000 000 iterations** (verified on the host toolchain), which is what RAC-06 requires.
 
 ### 4.3 Why the ladder and the ageing stay cheap
 
@@ -506,10 +520,10 @@ Order of operations for `record_pago` / `record_cargo`:
 
 1. `transaction.atomic()` opens.
 2. `Customer.objects.select_for_update().get(pk=..., shop=shop)` — the row lock serialises concurrent writes for the same customer.
-3. Load the customer's `LedgerEntry` rows ordered by `(occurred_at, id)`.
+3. Load the customer's `LedgerEntry` rows ordered by `(occurred_at, id)` and **convert them to the shop's local timezone (aware)** before any pure function is called (§3.1.b).
 4. `allocate_payments(...)` and `evaluate_customer(...)` — **pure**, no further queries.
 5. Rule check → `DomainValidationError` ⇒ **rollback, no row** (CB-07).
-6. `INSERT` the `LedgerEntry`.
+6. `INSERT` the `LedgerEntry` with `occurred_at` = the server's `now()`. The value is **never** taken from the request body: the write API does not accept `occurred_at` (CB-09), and a request that carries it is rejected with 422 `campo_no_admitido` before the transaction opens.
 7. Recompute the state with the new entry included and reconcile the stored audit fields (`status`, `suspended_at`, `suspended_reason`, `suspended_by`).
 8. `COMMIT`.
 
@@ -532,7 +546,7 @@ sequenceDiagram
     D->>F: registra un cargo de 25,00 EUR
     F->>V: POST /api/v1/clientes/3/libreta/ con X-CSRFToken y cookie de sesion
     V->>V: SessionAuthentication, CSRF valido, IsAuthenticated, RoleRequired dueno
-    V->>S: record_cargo(customer, 25.00, occurred_at, author)
+    V->>S: record_cargo(customer, 25.00, author)
     S->>DB: BEGIN y SELECT customer WHERE id=3 FOR UPDATE
     S->>DB: SELECT ledgerentry WHERE customer_id=3 ORDER BY occurred_at, id
     S->>P: evaluate_customer(lines, credit_limit, at=now)
@@ -560,12 +574,12 @@ sequenceDiagram
     D->>F: registra un pago de 20,00 EUR
     F->>V: POST /api/v1/clientes/3/libreta/ con X-CSRFToken y cookie de sesion
     V->>V: SessionAuthentication, CSRF valido, IsAuthenticated, RoleRequired dueno
-    V->>S: record_pago(customer, 20.00, occurred_at, author)
+    V->>S: record_pago(customer, 20.00, author)
     S->>DB: BEGIN y SELECT customer WHERE id=3 FOR UPDATE
     S->>DB: SELECT ledgerentry WHERE customer_id=3 ORDER BY occurred_at, id
     S->>A: allocate_payments(cargos, pagos)
     A-->>S: cargo de 45 dias liquidado, cargo de 10 dias pendiente 10.00, residual 0.00
-    S->>DB: INSERT ledgerentry kind=pago amount=20.00 author=dueno
+    S->>DB: INSERT ledgerentry kind=pago amount=20.00 occurred_at=now author=dueno
     S->>E: evaluate_customer(lines con el pago, credit_limit=null, at=now)
     E-->>S: outstanding=10.00, antiguedad_max_dias=10, estado=activo
     S->>DB: UPDATE customer SET status=activo, suspended_at=NULL, suspended_reason=NULL
@@ -582,11 +596,13 @@ The **derived** status (from `evaluate_customer`) is the truth: it decides wheth
 
 | Transition | Written by | Stored effect |
 |---|---|---|
-| rule fires → `suspendido` | the write whose own effect triggered it (e.g. a back-dated `cargo`) | `status='suspendido'`, `suspended_at=now`, `suspended_reason=<cause>`, `suspended_by=<author or NULL>` |
+| rule fires → `suspendido` | **never a write** — with the no-back-dating rule (CB-09) no write can create an ageing suspension, so the automatic suspension is **derived on read** (ADR-8) | the stored fields keep the last recorded episode (the seed writes it for the seeded history); the API always returns the **derived** `estado` / `motivo` |
 | `pago` → `activo` | the `pago` transaction | `status='activo'`, `suspended_at=NULL`, `suspended_reason=NULL`, `suspended_by=NULL` |
 | owner override (CB-08) | the override endpoint | `status='activo'`, the three auto fields cleared, `suspended_override_at=now`, `suspended_override_by=<owner>` |
 
 The seed writes the auto-suspension fields of the canonical customer directly (`suspended_at` = the seed instant, `suspended_reason='antiguedad_superada'`, `suspended_by=NULL`), because the seed creates the history that the rule would have created.
+
+**Consequence of the no-back-dating rule (CB-09).** Because the write API stamps `occurred_at = now()`, no write can push a charge into the past and therefore no write can *create* an ageing suspension; the automatic suspension is a **derived-on-read** fact (ADR-8). The stored `suspended_at` / `suspended_reason` / `suspended_by` record the last episode the application itself wrote — the seed writes it for the seeded history — and the owner override writes `suspended_override_at` / `suspended_override_by`. The **derived** status and reason are what the API returns and what the server acts on, so a stored trail can never make the rule behave differently from the truth.
 
 **The override is real, not decorative.** If the status were re-derived on every read with no notion of an override, CB-08 would be meaningless: the owner would lift the suspension and the next read would say `suspendido` again. The rule the design adopts: `evaluate_customer(..., override=True)` returns `activo`; the override authorises **one** further `cargo`, and it stops being load-bearing as soon as a `cargo` exists with `occurred_at >= suspended_override_at` (a pure derivation from the ledger — no stored flag). The audit fields are never erased, so the trail CB-08 asks for survives. **RATIFIED 2026-10-20** — the "one further `cargo`" rule is the DECIDED business rule, not an open question. A permanent override is explicitly rejected: it would let a suspension be lifted once and never re-derive, which defeats the rule the product exists to enforce.
 
@@ -594,12 +610,12 @@ The seed writes the auto-suspension fields of the canonical customer directly (`
 
 ## 6. API contract
 
-All endpoints are under `/api/v1/`, all require a **session**; all writes require `X-CSRFToken`; there is **no pagination anywhere** (a bare JSON list, no metadata object — this removes the `next`/`previous` URLs from the payload surface entirely).
+All **API** endpoints are under `/api/v1/`, all require a **session**; all writes require `X-CSRFToken`; there is **no pagination anywhere** (a bare JSON list, no metadata object — this removes the `next`/`previous` URLs from the payload surface entirely). Two routes sit **outside** `/api/v1/` by design: `/health/` (the liveness probe — it must not require a session, RAC-04) and `/app/posicion/` (the HTML mount point — it is not an API).
 
 | # | Method | Path | Roles (`dueno` / `dependiente`) | Request body | Response | Status |
 |---|---|---|---|---|---|---|
 | 1 | GET | `/health/` | public | — | `{"status":"ok"}` | 200 · (liveness only, **no DB**) |
-| 2 | GET | `/app/posicion/` | both (page) | — | HTML with the React mount point + CSRF token | 200 · 302 to login |
+| 2 | GET | `/app/posicion/` | both (page) | — | HTML with the React mount point + CSRF token | 200 · 302 to login (no session, or a session without `shop_id` — §7.4) |
 | 3 | GET | `/api/v1/posicion/` | both (**shape differs**) | — | §6.2 | 200 · 403 |
 | 4 | POST | `/api/v1/caja/` | both | `kind, concept, amount, occurred_at` | the movement | 201 · 422 · 403 |
 | 5 | GET | `/api/v1/cierre/` | both | — | `{date, esperado, contado, desviacion}` | 200 · 403 |
@@ -608,10 +624,17 @@ All endpoints are under `/api/v1/`, all require a **session**; all writes requir
 | 8 | POST | `/api/v1/clientes/` | dueno | `alias, phone?, credit_limit?` | the customer | 201 · 422 · 403 |
 | 9 | GET | `/api/v1/clientes/{id}/` | dueno | — | customer + `libreta` + derived state + `suspension` audit | 200 · 403 · 404 |
 | 10 | PATCH | `/api/v1/clientes/{id}/` | dueno | `credit_limit` | the customer | 200 · 422 · 403 |
-| 11 | POST | `/api/v1/clientes/{id}/libreta/` | dueno | `kind, amount, occurred_at, description?` | `{entry, estado, antiguedad_max_dias, outstanding}` | 201 · **422** · 403 |
+| 11 | POST | `/api/v1/clientes/{id}/libreta/` | dueno | `kind, amount, description?` — the server stamps `occurred_at = now()`; the field is **not accepted** | `{entry, estado, antiguedad_max_dias, outstanding}` | 201 · **422** · 403 |
 | 12 | POST | `/api/v1/clientes/{id}/suspension/anular/` | dueno | — | the customer | 200 · 403 |
 
 `403` for a `dependiente` is **server-side and total**: the credit-book endpoints (7–12) are unreachable, and there is **no** `PUT`/`PATCH`/`DELETE` route for `LedgerEntry` at all — the ledger is append-only at the URL surface.
+
+**A deliberate asymmetry: the ledger is immutable in time, the cash box is not.** The ledger's write endpoint (11) does **not** accept `occurred_at` — the server stamps it — while the cash box's endpoint (4) **does** accept it. The two fields break different rules, so they get different contracts:
+
+- Back-dating a `cargo` would make the FIFO allocation re-assign an earlier `pago` (R1, now closed by refusing the field). It is therefore **not expressible**: the oldest unpaid charge is always the earliest *recorded* one, and the allocation is stable.
+- Back-dating a `CashMovement` re-allocates **nothing** — it only moves a point on the historical `caja` series. And recording yesterday's cash sale the next morning is a real operation a shop actually does, so forbidding it would be forbidding the business.
+
+The rule in one line: **the ledger is immutable in time; the cash box is not.** A panel question about the difference has this answer.
 
 ### 6.1 The exact payload of `GET /api/v1/posicion/` — `dueno`
 
@@ -624,7 +647,7 @@ All endpoints are under `/api/v1/`, all require a **session**; all writes requir
   "clientes": [
     {
       "id": 3,
-      "alias": "Marta (Pº 2)",
+      "alias": "Marta — panadería",
       "pendiente": "30.00",
       "limite": null,
       "antiguedad_max_dias": 45,
@@ -645,6 +668,8 @@ All endpoints are under `/api/v1/`, all require a **session**; all writes requir
 
 The ladder is sorted by `antiguedad_max_dias` **descending** and only contains customers with `pendiente > 0`. `limite: null` is the explicit «sin límite» state and renders as no marker.
 
+`serie_caja` carries **one entry per calendar day for the last 30 days**, ascending by `dia` — the example shows a single entry only to keep the payload short. Days with no movement are present with the value carried forward, so the chart always has a full x-axis (§8.5).
+
 ### 6.2 The exact payload of `GET /api/v1/posicion/` — `dependiente`
 
 ```json
@@ -664,7 +689,7 @@ The ladder is sorted by `antiguedad_max_dias` **descending** and only contains c
 | cargo por encima del limite | 422 | `{"codigo":"limite_superado","detail":"…límite de crédito de 20,00 €… no se ha registrado."}` |
 | cargo a cliente suspendido | 422 | `{"codigo":"antiguedad_superada","detail":"…45 días… no se ha registrado."}` |
 | `amount <= 0` | 422 | `{"codigo":"importe_no_positivo",…}` |
-| `occurred_at` en el futuro | 422 | `{"codigo":"fecha_futura",…}` |
+| el cliente envía `occurred_at` | 422 | `{"codigo":"campo_no_admitido","detail":"…la fecha del asiento la fija el servidor; el cliente no la envía…"}` |
 | `kind` desconocido | 422 | `{"codigo":"tipo_desconocido",…}` |
 | cierre duplicado para la misma fecha | 422 | `{"codigo":"cierre_duplicado",…}` |
 | JSON malformado | 400 | `ParseError` por defecto de DRF |
@@ -679,7 +704,7 @@ The ladder is sorted by `antiguedad_max_dias` **descending** and only contains c
 
 Two **independent** layers, because each covers a gap the other leaves:
 
-1. **View level — `RoleRequired` / `IsDueno`** (`api/permissions.py`). A DRF permission class plus a Django `login_required` + `user_passes_test` mixin on the template views. Every one of the twelve endpoints declares its role explicitly. A `dependiente` calling `/api/v1/clientes/` gets **403 with no partial data**, and the queryset is additionally scoped to the `Shop` of the session (there is no owner FK — D11 — so scoping is by shop + role).
+1. **View level — `RoleRequired` / `IsDueno`** (`api/permissions.py`). A DRF permission class plus a Django `login_required` + `user_passes_test` mixin on the template views. Every one of the twelve endpoints declares its role explicitly. A `dependiente` calling `/api/v1/clientes/` gets **403 with no partial data**, and the queryset is additionally scoped to `request.session["shop_id"]` — the one source of the data scope, resolved by `current_shop(request)` (§7.4). There is no owner FK on any data entity (D11), so the scope is the **shop of the session plus the role**.
 2. **Serializer level — the field allowlist** (`api/serializers.py`). This is the layer that actually guarantees RAC-03. Two serializer classes:
 
 ```python
@@ -710,7 +735,7 @@ The view picks the class by role. In `PosicionDependienteSerializer` the `client
 | Unauthenticated | `DEFAULT_PERMISSION_CLASSES = ["rest_framework.permissions.IsAuthenticated"]` → **403**, no rows (RAC-04). `/health/` is deliberately **outside** `/api/v1/` so it does not violate RAC-04 |
 | CSRF | DRF's `SessionAuthentication` enforces CSRF on every unsafe method; Django's `CsrfViewMiddleware` covers the template views. A mutation without `X-CSRFToken` → **403** and no row (RAC-05) |
 | Passwords | Django 5.2 default `PBKDF2PasswordHasher` (`pbkdf2_sha256`, **1 000 000 iterations** — verified on the host). No plaintext is stored, logged or returned (RAC-06) |
-| Data minimisation | The model has **no** field for a national ID, address, photograph, bank detail or sensitive-category data. `alias` + optional `phone` only (CB-10, SEC-3) |
+| Data minimisation | The model has **no** field for a national ID, address, photograph, bank detail or sensitive-category data. `alias` + optional `phone` only (CB-10, SEC-3). The minimisation is **by omission from the form, not by validation**: the app never asks for identifying data, and it does **not** validate that the `alias` is a pseudonym — the owner chooses free text and the shop's own shorthand is the expected practice. The seeded aliases contain no locator (no street, no portal, no flat number) — §10.3 |
 | SQL injection | ORM only; no raw SQL anywhere. The only raw SQL in the project is the `CHECK` expressions in the migrations (RAC-07) |
 | XSS | Django templates render with `{{ }}` (autoescaped); React renders **text nodes only** — `dangerouslySetInnerHTML` is never used, so a hostile alias renders as inert text (RAC-07) |
 | Production config | `DEBUG` defaults to **False** and is read from the env; `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` are read from the env; `SECRET_KEY` comes from the env and is generated by Render (`generateValue: true`); every dependency is pinned to an exact version (RAC-08) |
@@ -746,6 +771,33 @@ sequenceDiagram
     A-->>B: 200 con la forma que permite ese rol
     B-->>D: el tablero renderiza exactamente lo recibido y nada mas
 ```
+
+### 7.4 The shop of the session
+
+Every queryset is scoped to `request.session["shop_id"]` — and to **nothing else**: never to a URL segment, never to a body field, never to a header. The value is written **once**, at successful authentication: the login view resolves the account's single shop and stores its id in the session; an account with no shop cannot log in.
+
+```python
+# tienda/services/shop_context.py
+def current_shop(request) -> Shop:
+    """The one shop of this session. The only source of the data scope."""
+    shop_id = request.session.get("shop_id")
+    if shop_id is None:
+        raise PermissionDenied("La sesion no tiene tienda")
+    return Shop.objects.get(pk=shop_id)
+```
+
+```python
+# tienda/auth_views.py  — subclass of django.contrib.auth.views.LoginView
+def form_valid(self, form):
+    response = super().form_valid(form)
+    shops = list(self.request.user.shops.all())
+    if len(shops) != 1:
+        raise PermissionDenied("La cuenta no esta vinculada a una tienda")
+    self.request.session["shop_id"] = shops[0].pk
+    return response
+```
+
+**Why this shape.** The relation lives on `Shop` (`Shop.usuarios`, a `ManyToManyField`), **not** on `User`: the Django `User` model stays **unmodified** — Django only adds the reverse accessor `user.shops`, and no column is added to `auth_user`. The scope is explicit and auditable in one place: a single helper resolves it and every view goes through it. Adding a second shop later requires **no** change to the queries — only the login rule would change (one shop → the account's chosen shop), and the data model already supports it.
 
 ---
 
@@ -800,7 +852,7 @@ The trade-off is accepted knowingly: no hover tooltip (not required), and the y-
 |---|---|---|
 | Hero equation | three large figures with `+` and `=` between them | `caja`, `fiado_pendiente`, `posicion_real`; the third carries the explanatory line |
 | Escalera de riesgos | one row per debtor, ordered by `antiguedad_max_dias` desc | ageing ribbon = a stacked bar with 4 segments sized in euros; a vertical marker line for `limite` (absent when `limite` is `null`); a status chip `Activo` / `Suspendido` |
-| Área de dos series | two paths over the last 30 days | lower band = `Caja`, upper line = `Posición real`; the band between them is filled and labelled as the `fiado pendiente` |
+| Área de dos series | two paths over the last 30 days | one point per calendar day, **including days with no movement, where the value is carried forward**; lower band = `Caja`, upper line = `Posición real`; the band between them is filled and labelled as the `fiado pendiente` |
 | Cierre de hoy | one card | `Esperado` / `Contado` / `Desviación`; the deviation chip turns amber when it is not zero |
 
 **No table anywhere** (PB-01) — the ladder is a ranked list of ribbons, not a grid.
@@ -907,10 +959,12 @@ frontend/dist --> STATIC_ROOT --> WhiteNoise --> SAME ORIGIN
 `python manage.py seed_demo` must be safe to run on every deploy (PB-05).
 
 1. Wrapped in **one** `transaction.atomic()` — a partial seed is impossible.
-2. **Users** are created with `get_or_create(username=…)` and assigned to the group `dueno` / `dependiente` — exactly one account per role, and re-running never duplicates or deletes them (RAC-09).
-3. **The demo dataset** hangs off one `Shop` row flagged `is_demo=True`. The seed deletes that shop — and only that shop — and recreates it: 9 customers with plausible aliases, ~65 `LedgerEntry` rows, ~45 `CashMovement` rows, 6 `DayClose` rows, all dates computed **relative to the day of execution**.
-4. The counts are **deterministic**, so a second run yields the same counts: shops 1, customers 9, entries ~65, movements ~45, closes 6 — «the counts … are unchanged and each seed account exists once per role» ✓.
-5. The deletion is the **only** deletion in the codebase. It is a whole-shop cascade, it is confined to `is_demo=True`, and it is the documented exception to CB-01: the ledger's append-only rule governs the **application surface** (no endpoint, service function or ORM path in `tienda/services/` or `tienda/api/` updates or deletes a `LedgerEntry`); the seed is an administrative fixture generator that owns its own shop and must re-date its data on every deploy. Without it, PB-05's «dates relative to the day of execution» and «counts unchanged» cannot both hold.
+2. **Users** are created with `get_or_create(username=…)`, assigned to the group `dueno` / `dependiente`, and linked to the demo shop through `Shop.usuarios` — exactly one account per role, and re-running never duplicates or deletes them (RAC-09). The link is what lets the login view write `shop_id` into the session (§7.4).
+3. **The demo dataset** hangs off one `Shop` row flagged `is_demo=True`. The seed deletes that shop — and only that shop — and recreates it: **9 customers with distinct aliases and no locator** — `Marta — panadería`, `Hassan`, `Familia Ruiz`, `Sr. Ramos`, `Lucía`, `Javi del taller`, `Nuria`, `Kiosco 24h`, `Paco — carnicería` (the shop's own shorthand; never a street, a portal or a flat number) — ~65 `LedgerEntry` rows, ~45 `CashMovement` rows, 6 `DayClose` rows, all dates computed **relative to the day of execution**. The `UniqueConstraint(shop, alias)` (§4.2) holds because the nine aliases are distinct.
+4. **Historical dates are written directly into the rows, bypassing the API on purpose.** The write API does not accept `occurred_at` (CB-09), so the seed cannot use it to create a 45-day-old `cargo`; it writes the historical instants into the model rows itself, inside the same transaction. That is the only path in the codebase that dates a row in the past, and it is confined to the demo dataset.
+5. The seed also guarantees the window the board needs: the `serie_caja` carries **30 consecutive daily points**, one per calendar day for the last 30 days up to the execution day, **including the days with no movement, where the value is carried forward** (§6.1, §8.5). The seed guarantees the underlying movements span that window; the API fills the gaps by carrying the last value forward.
+6. The counts are **deterministic**, so a second run yields the same counts: shops 1, customers 9, entries ~65, movements ~45, closes 6 — «the counts … are unchanged and each seed account exists once per role» ✓.
+7. The deletion is the **only** deletion in the codebase. It is a whole-shop cascade, it is confined to `is_demo=True`, and it is the documented exception to CB-01: the ledger's append-only rule governs the **application surface** (no endpoint, service function or ORM path in `tienda/services/` or `tienda/api/` updates or deletes a `LedgerEntry`); the seed is an administrative fixture generator that owns its own shop and must re-date its data on every deploy. Without it, PB-05's «dates relative to the day of execution» and «counts unchanged» cannot both hold.
 
 ### 10.4 Availability (PB-07)
 
@@ -954,7 +1008,7 @@ frontend/dist --> STATIC_ROOT --> WhiteNoise --> SAME ORIGIN
 *Context:* RAC-03 demands that no JSON path of a `dependiente` payload carries customer data. *Decision:* two serializer classes with disjoint field lists; the `dependiente` class has no credit-book field at all. *Trade-off:* two schemas to keep in sync when the payload evolves. *Consequence:* "no alias in ANY JSON path" becomes a structural property of the code rather than a promise about it.
 
 **ADR-7 — FIFO, not LIFO or pro-rata.**
-*Context:* which charges a payment retires. *Decision:* FIFO — the oldest charge first; the surplus stays as credit in the customer's favour. *Trade-off:* FIFO does not necessarily match what the owner remembers doing. *Consequence:* the oldest debt is the one that ages into suspension, so FIFO and the ageing rule reinforce each other; LIFO would let the old debt rot and pro-rata would need a per-payment allocation that CB-02 forbids storing.
+*Context:* which charges a payment retires. *Decision:* FIFO — the oldest charge first; the surplus stays as credit in the customer's favour. *Trade-off:* FIFO does not necessarily match what the owner remembers doing. *Consequence:* the oldest debt is the one that ages into suspension, so FIFO and the ageing rule reinforce each other; LIFO would let the old debt rot and pro-rata would need a per-payment allocation that CB-02 forbids storing. Because the write API does not accept `occurred_at`, the oldest charge is always the earliest **recorded** one and the allocation is **stable** (R1 resolved).
 
 **ADR-8 — No background worker; expiry is evaluated on read.**
 *Context:* the auto-suspension rule has to fire "without human action". *Decision:* no Celery, no Redis, no cron — the status is **derived on every read** and re-evaluated inside every write transaction. *Trade-off:* nothing is *pushed* — nobody is notified the moment a customer crosses 30 days. *Consequence:* zero extra infrastructure, zero extra failure modes, and the suspension is exactly as up to date as the last read. (Notifications are out of scope by the non-goal list.)
@@ -976,6 +1030,9 @@ frontend/dist --> STATIC_ROOT --> WhiteNoise --> SAME ORIGIN
 
 **ADR-14 — Per-row DB constraints + a transactional cross-row check.**
 *Context:* CB-07 asks for a database-level backstop. *Decision:* `CHECK` constraints for `amount > 0`, allowed `kind`, `credit_limit ≥ 0`, `occurred_at ≤ created_at` and `UNIQUE (shop, date)` on `DayClose`; the limit and suspension rules are enforced inside `transaction.atomic()` on the server. *Trade-off:* the DB does not enforce the business rule on its own — a direct SQL writer could still violate it. *Consequence:* the rule is enforced exactly where it can see the aggregate, and the DB still blocks the malformed rows. The honest wording for the memoria is in §1.2.
+
+**ADR-15 — The shop of the session, on `Shop`, not on `User`.**
+*Context:* every queryset must be scoped to the shop of the session, but the Django `User` model carries no relation to `Shop`. *Decision:* `shop_id` lives in the **session**, written at login; the relation lives on `Shop` as `Shop.usuarios` (a `ManyToManyField`), so the Django `User` model stays unmodified. *Trade-off:* an account belonging to two shops cannot log in without a rule to pick one — the MVP assigns exactly one shop per account. *Consequence:* `auth_user` gains no column (only the reverse accessor `user.shops`), the data scope has exactly one source (`request.session["shop_id"]`, resolved by `current_shop(request)` — §7.4), and a second shop later requires no change to the queries.
 
 ---
 
@@ -1002,12 +1059,12 @@ The design introduces **routing** (Django URLs + a DRF router) and **process int
 | CB-01 | §4.2, §5, §6 | append-only ledger: `LedgerEntryQuerySet.update()/delete()` raise, `save()` refuses an existing pk, **no** `PUT`/`PATCH`/`DELETE` route, corrections appended as `nota_credito`; the seed's demo-shop cascade is the single documented administrative exception (§10.3) |
 | CB-02 | §3.2, §3.3, §4.2 | `outstanding(lines, at)` = Σcargos − Σpagos − Σnotas; **no balance column exists** on any model; a negative result is `credit_a_favor`, not an error |
 | CB-03 | §3.2, §3.3 | `allocate_payments` — FIFO by `(occurred_at, id)`; the surplus becomes `Allocation.residual` (credit in the customer's favour) |
-| CB-04 | §3.2, §3.3, §6.1 | `bucket_of` (7/30/90 boundaries) + per-charge ageing in `evaluate_customer`; the four bucket totals sum exactly to the outstanding; `antiguedad_max_dias` is a separate reported metric |
+| CB-04 | §3.1.b, §3.2, §3.3, §6.1 | `bucket_of` (7/30/90 boundaries) + per-charge ageing in `evaluate_customer`; the ages are calendar days **of the shop**, so the boundary cannot drift with the timezone (§3.1.b); the four bucket totals sum exactly to the outstanding; `antiguedad_max_dias` is a separate reported metric |
 | CB-05 | §4.2, §6 | `credit_limit` nullable with `CHECK ≥ 0`; `None` = «sin límite» and never triggers `limite_superado`; `PATCH /api/v1/clientes/{id}/` persists the new value and touches no entry |
 | CB-06 | §3.2, §5.c, §6.1 | `evaluate_customer` derives the status on every read (no human action); `suspended_reason` ∈ {`limite_superado`, `antiguedad_superada`}; `null` limit never fires the limit cause |
 | CB-07 | §5, §5.a, §6.3 | the limit/suspension check runs **inside** `transaction.atomic()` → `DomainValidationError` → **422** naming the cause → rollback → **no row**; DB `CHECK`s back the row-level invariants (§1.2) |
 | CB-08 | §5.c, §6 (endpoint 12) | `POST /api/v1/clientes/{id}/suspension/anular/` sets `suspended_override_at` / `suspended_override_by` and clears the auto fields; no ledger row is rewritten; `evaluate_customer(override=True)` honours it |
-| CB-09 | §1.2, §4.2, §6.3 | `amount > 0`, allowed `kind`, `occurred_at ≤ now` and a non-null author are validated before the insert and answered **422**; DB `CHECK`s on `amount > 0`, `kind` and `occurred_at ≤ created_at` |
+| CB-09 | §1.2, §4.2, §6.3 | `amount > 0`, allowed `kind` and a non-null author are validated before the insert and answered **422**; the write API **does not accept** `occurred_at` — the server stamps `now()` and a request that carries it is rejected with `campo_no_admitido`; DB `CHECK`s on `amount > 0`, `kind` and `occurred_at <= created_at` |
 | CB-10 | §4.2, §7.2 | the `Customer` model has only `alias` + optional `phone` — no DNI/NIE, address, photograph, bank detail or sensitive-category field exists |
 | CB-11 | §3.1, §3.2, §9.1 | `backend/tienda/domain/` is import-free of Django; the four functions take plain values; `test_domain_is_orm_free.py` enforces the rule by AST and pytest-django blocks DB access in the `unit` suite |
 | CB-12 | §4.2, §5.c, §6 | `Customer` carries `suspended_at`, `suspended_reason`, `suspended_by`, `suspended_override_at`, `suspended_override_by`; none of them lives in the ledger; the trail is readable on `GET /api/v1/clientes/{id}/` |
@@ -1017,8 +1074,8 @@ The design introduces **routing** (Django URLs + a DRF router) and **process int
 | CP-04 | §4.2, §5, §6 | `DayClose` stores `expected_cash` (derived inside the transaction), `counted_cash` and `variance = esperado − contado`; both `esperado` and `desviacion` are server-computed, never client-supplied; `UNIQUE (shop, date)` rejects the second close |
 | CP-05 | §6 (endpoints 5–6) | the close endpoints accept both roles; the payload of the `dependiente` holds **only** `esperado`, `contado`, `desviacion` (+ the date) |
 | CP-06 | §3.2, §3.3 | `real_position(caja, outstanding_total) -> Decimal` — a pure function, unit-tested without a database |
-| RAC-01 | §7.1, §12 | `RoleRequired` / `IsDueno` on **every** view (HTML and DRF); the matrix is enforced server-side, never by hiding a control |
-| RAC-02 | §6, §7.1 | the credit-book endpoints return **403 with no partial data** to a `dependiente`; every queryset is scoped to the session's `Shop` (no owner FK — D11) |
+| RAC-01 | §7.1, §7.4, §12 | `RoleRequired` / `IsDueno` on **every** view (HTML and DRF); the matrix is enforced server-side, never by hiding a control; the shop scope comes from `request.session["shop_id"]`, resolved by `current_shop(request)` (§7.4) |
+| RAC-02 | §6, §7.1, §7.4 | the credit-book endpoints return **403 with no partial data** to a `dependiente`; every queryset is scoped to the session's shop through `current_shop(request)` → `request.session["shop_id"]` (§7.4) — never to a URL segment, a body field or a header; there is no owner FK on any data entity (D11) |
 | RAC-03 | §6.2, §7.1 | the `dependiente` payload is produced by a **disjoint serializer schema** with no credit-book field; pagination is disabled, so there is no metadata object; the RED test walks the whole JSON tree |
 | RAC-04 | §7.2 | `IsAuthenticated` + `SessionAuthentication` → **403** with no rows for any `/api/v1/` request without a session; `/health/` sits **outside** `/api/v1/` |
 | RAC-05 | §7.2 | DRF's `SessionAuthentication` enforces CSRF on every unsafe method and Django's `CsrfViewMiddleware` covers the templates; a missing/invalid `X-CSRFToken` → **403** and no row |
@@ -1042,7 +1099,7 @@ The design introduces **routing** (Django URLs + a DRF router) and **process int
 
 | # | Risk | Honest cost | Mitigation / status |
 |---|---|---|---|
-| R1 | **A back-dated `cargo` re-allocates an earlier `pago`.** The FIFO allocation is recomputed from the ledger, so a `cargo` recorded today with `occurred_at` older than an existing `pago` can change that payment's assignment. | The history of a payment is not immutable — only the rows are. Storing per-payment allocations would fix it, but that is a stored balance and CB-02 forbids it. | Accepted. The UI records `occurred_at = now` by default and warns when back-dating before an existing `pago`. The MVP demo never back-dates. Documented in the memoria §3.8 as a known limitation. |
+| R1 | **RESOLVED — back-dating is not expressible.** The write API does not accept `occurred_at`; the server stamps the instant, so a `cargo` can never be dated before an existing `pago` and the FIFO allocation is **stable**: the oldest unpaid charge is always the earliest **recorded** one. | The shop cannot retroactively record last Tuesday's purchase. If it must, it is a `cargo` recorded today whose `description` explains it. | **No longer a risk** — the hazard cannot be expressed. The `nota de crédito` remains the way to correct a mistake and the ledger remains **append-only**. The limitation is a product decision and goes to the memoria §3.8 as such, not as a defect. |
 | R2 | **The `dependiente` payload shape is a hand-maintained contract.** Two serializers must be kept in sync with the product spec. | A new credit-book field added to the owner serializer but forgotten in the allowlist policy could leak. | The `dependiente` schema has **no** credit-book field, so the failure mode is a missing feature, not a leak; the whole-tree RED test fails on any new key. |
 | R3 | **The override semantics were a business decision.** The specs say the owner can lift a suspension but do not say for how long. | A permanent override would defeat the rule, so it was rejected. | **DECIDED 2026-10-20**: the override authorises exactly one further `cargo` and then stops being load-bearing; derived from the ledger with no stored flag; the audit trail survives. |
 | R4 | **The free tier can sleep.** 15-minute idle sleep + GitHub Actions jitter. | A "loading" page during the defense costs credibility. | Keep-alive every 8 min + the documented manual wake-up (~1 min before the defense). The board's own 20 s poll also keeps an open tab awake. |
@@ -1052,7 +1109,7 @@ The design introduces **routing** (Django URLs + a DRF router) and **process int
 | R8 | **The `serie_caja` is dropped for the `dependiente`.** | The helper's board is thinner than the owner's. | Deliberate: RAC-03 says «only `caja` and the close figures». The strictest reading is safer than an argument. |
 | R9 | **One screen of board, one chart, hand-rolled.** | No tooltips, no axis niceties; ~80 lines of geometry to own. | The 15 % rubric weight is on React data consumption, not chart sophistication; the risk is bounded to one component. |
 | R10 | **The seed deletes and recreates the demo shop.** | It is a `DELETE` on `LedgerEntry` rows, in tension with CB-01's literal wording. | Confined to `is_demo=True`, atomic, documented as the single administrative exception (§10.3), and the wording is explicit in the memoria so no reviewer reads it as a hole in the append-only rule. |
-| R11 | **The domain module must stay pure, forever.** One convenience import of `django.utils.timezone` inside `domain/` would silently break the unit level. | Architectural decay is the classic failure mode of a "pure core". | The AST architecture test fails the build; the mapping layer (services) is the only place allowed to know about timezones. |
+| R11 | **The domain module must stay pure, forever.** One convenience import of `django.utils.timezone` inside `domain/` would silently break the unit level — and, worse, would put the UTC→shop conversion *inside* the pure core, reintroducing the one-day drift at the 30-day boundary. | Architectural decay is the classic failure mode of a "pure core". | The AST architecture test fails the build; the **service layer is the only place allowed to know about the timezone** — it converts UTC into the shop's local aware datetime before calling any pure function (§3.1.b), and `domain/` never imports `django.utils.timezone`. |
 | R12 | **The panel may ask for things the design deliberately left out**: the action chip (`Recordar`/`Cobrar hoy`), the hero's "versus yesterday" delta chip, and the sidebar drawer with the customer's full ledger. | Three visible, attractive features that are not in any requirement. | **Not designed.** Recorded here so they can be added deliberately later (each is a small addition: one field, one component). The side drawer *is* in scope as the container for the live-demo `pago` form. |
 
 ---

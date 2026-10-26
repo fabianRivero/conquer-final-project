@@ -148,15 +148,15 @@ The owner MUST be able to set a suspended customer back to `activo`; the overrid
 
 ### Requirement: CB-09 — Ledger entries are validated
 
-Every entry MUST have `amount > 0`, a `kind` in {`cargo`, `pago`, `nota_credito`}, an `occurred_at` not in the future and an author; a rejected entry MUST NOT be persisted and MUST be answered with HTTP 422.
+Every entry MUST have `amount > 0`, a `kind` in {`cargo`, `pago`, `nota_credito`} and an author; a rejected entry MUST NOT be persisted and MUST be answered with HTTP 422. The write API MUST NOT accept `occurred_at` — the server MUST stamp it with the current instant — and a request that carries `occurred_at` MUST be rejected with HTTP 422.
 
 **Verification:** integration
 
 #### Scenario: A future-dated entry is rejected
 
-- GIVEN a form dated after the current moment
+- GIVEN a request that carries an `occurred_at` dated before or after the current moment
 - WHEN it is submitted
-- THEN the response is 422 and no `LedgerEntry` is created
+- THEN the response is 422 with `codigo` `campo_no_admitido` and no `LedgerEntry` is created
 
 ### Requirement: CB-10 — The credit book minimises personal data
 

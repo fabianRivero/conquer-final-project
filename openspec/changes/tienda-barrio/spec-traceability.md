@@ -22,7 +22,7 @@
 | CB-06 | F4, F2 | F4-AC1 (45-day auto-suspension, no human action), F2-AC5 (`limite_superado`), F4-AC2 (cause reported) | unit, integration |
 | CB-07 | F2, F4 | F2-AC1 (422 naming the limit, no row), F4-AC2 (refused, no entry) | integration |
 | CB-08 | F4 | F4-AC4 (override → `activo`, who + when) | integration |
-| CB-09 | F3 | F3-AC5 (future-dated entry rejected) | integration |
+| CB-09 | F3 | F3-AC5 (the write API does not accept `occurred_at`; the server stamps it) | integration |
 | CB-10 | F2 | F2 (data minimisation), SEC-3 | integration |
 | CB-11 | F3, F4 | PURE-1 (`allocate_payments`, `bucket_of`, `evaluate_customer`) | unit |
 | CB-12 | F4 | F4-AC4 (audit trail fields), D8 | integration |

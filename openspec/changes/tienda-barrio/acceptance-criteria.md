@@ -59,9 +59,8 @@ Los criterios se expresan en forma **Dado / Cuando / Entonces** y son la base de
 - **F3-AC4.** **Dado** cualquier asiento registrado,
   **cuando** se intenta modificarlo o borrarlo,
   **entonces** la operación no existe: el libro es **de solo apuntación** (append-only).
-- **F3-AC5.** **Dado** una fecha de asiento posterior al momento actual,
-  **cuando** se valida el formulario,
-  **entonces** se rechaza con error de validación.
+- **F3-AC5.** **Dado** que la API de escritura de la libreta **no admite** `occurred_at` —el servidor lo fija con el instante actual—, **cuando** se envía una petición que lo incluye, con una fecha anterior o posterior al momento actual,
+  **entonces** se rechaza con **HTTP 422** (`codigo` `campo_no_admitido`) y no se crea ningún asiento: una fecha de asiento retroactiva o futura no es expresable.
 
 ### F4 — Antigüedad y suspensión automática
 
@@ -128,9 +127,9 @@ Los criterios se expresan en forma **Dado / Cuando / Entonces** y son la base de
 
 | Entidad | Campos | Relaciones y reglas |
 | --- | --- | --- |
-| `Shop` | `id`, `name`, `opening_cash`, `currency`, `created_at` | Una sola fila en el MVP. 1—N todas las entidades siguientes. |
-| `Customer` | `id`, `FK shop`, `alias`, `phone` (opcional), `credit_limit` (nulo = «sin límite»), `status` (`activo`/`suspendido`), `suspended_at`, `suspended_reason` (`limite_superado`/`antiguedad_superada`), `suspended_by`, `suspended_override_at`, `suspended_override_by`, `created_at` | 1—N `LedgerEntry`. `credit_limit ≥ 0`. Sin datos identificativos: sin DNI/NIE, sin dirección, sin fotografía. Los campos de suspensión registran **quién** y **cuándo**, sin entidad nueva y sin mutar el libro. |
-| `LedgerEntry` | `id`, `FK shop`, `FK customer`, `kind` (`cargo`/`pago`/`nota_credito`), `amount`, `description`, `occurred_at`, `FK author`, `created_at` | N—1 `Customer`, N—1 `User`. **Append-only**: sin `UPDATE` ni `DELETE` en la capa de servicio. `amount > 0`. `occurred_at ≤ now`. |
+| `Shop` | `id`, `name`, `opening_cash`, `currency`, `usuarios` (M2M `User`), `created_at` | Una sola fila en el MVP. 1—N todas las entidades siguientes. La relación con las cuentas vive en `Shop`, así que el `User` de Django **no se modifica** (solo aparece el accessor inverso `user.shops`); cada cuenta pertenece a una sola tienda y el ámbito de los datos es el `shop_id` de la sesión. |
+| `Customer` | `id`, `FK shop`, `alias`, `phone` (opcional), `credit_limit` (nulo = «sin límite»), `status` (`activo`/`suspendido`), `suspended_at`, `suspended_reason` (`limite_superado`/`antiguedad_superada`), `suspended_by`, `suspended_override_at`, `suspended_override_by`, `created_at` | 1—N `LedgerEntry`. `credit_limit ≥ 0`. `alias` **único por tienda** (`UniqueConstraint(shop, alias)`). Minimización de datos **por omisión del formulario, no por validación**: la aplicación nunca pide datos identificativos (sin DNI/NIE, sin dirección, sin fotografía, sin datos bancarios) y no valida que el alias sea un seudónimo — lo elige el dueño y la abreviatura de la tienda es la práctica esperada; los alias sembrados no llevan localizador. Los campos de suspensión registran **quién** y **cuándo**, sin entidad nueva y sin mutar el libro. |
+| `LedgerEntry` | `id`, `FK shop`, `FK customer`, `kind` (`cargo`/`pago`/`nota_credito`), `amount`, `description`, `occurred_at`, `FK author`, `created_at` | N—1 `Customer`, N—1 `User`. **Append-only**: sin `UPDATE` ni `DELETE` en la capa de servicio. `amount > 0`. `occurred_at` **lo fija el servidor** (`now()`): la API no lo admite y una petición que lo envíe se rechaza con 422 (`campo_no_admitido`). |
 | `CashMovement` | `id`, `FK shop`, `kind` (`entrada`/`salida`), `concept`, `amount`, `occurred_at`, `FK author`, `created_at` | N—1 `User`. `amount > 0`. `occurred_at ≤ now`. |
 | `DayClose` | `id`, `FK shop`, `date` (única por tienda), `expected_cash`, `counted_cash`, `variance`, `FK closed_by`, `closed_at` | N—1 `User`. `date` única por tienda. `variance` calculada, no introducida a mano. |
 | `User` | usuario de Django con grupo `dueno` o `dependiente` | N—1 en `LedgerEntry`, `CashMovement` y `DayClose` (autor registrado en cada escritura). |
