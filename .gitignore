@@ -2,3 +2,7 @@
 # The versioned, canonical registry lives at openspec/skill-registry.md
 # and is mirrored to Engram under topic_key: skill-registry.
 .atl/
+
+# Local CodeGraph index: a rebuildable SQLite cache of the workspace, never
+# a source of truth. The same reasoning as .atl/ above.
+.codegraph/

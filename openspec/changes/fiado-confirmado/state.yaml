@@ -1,0 +1,423 @@
+schema: gentle-ai.sdd-state/v1
+change: fiado-confirmado
+created: '2026-10-27'
+phase: apply
+next_expected: implementation
+status: active
+
+knowledge_basis:
+  declared: '2026-10-29'
+  mode: design-hypothesis
+  statement: >-
+    The change is built on a declared design hypothesis about the shop credit
+    practice, not on field evidence. No interview with shop owners was run for
+    this variant. The four Regla gates are therefore design decisions under
+    hypothesis, not interview findings: Regla 4 builds the client surface,
+    Regla 5 builds the catalogue and CargoLinea, Regla 6 keeps
+    existencias_registradas as an optional ceiling, and N5 leaves the
+    conditional facilitation capability out of scope.
+  cut_mechanism: >-
+    The reduction mechanism stays live. A future validation round that
+    contradicts any gate applies exactly the cut described in design §19: a
+    Regla-4 cut reduces the scope to fiado desglosado, a Regla-5 cut removes
+    Producto and CargoLinea with the whole product-catalogue spec directory,
+    and a Regla-6 cut removes StockMovement with CP-07. Regla 6 cannot be cut
+    while Regla 5 survives, because StockMovement to Producto is a PROTECT
+    foreign key.
+  instrument: >-
+    evidence-annex.md is retained as a validation instrument that was NOT
+    executed. Every one of its fields stays PENDING and it contains no quote,
+    figure or answer. The instrument's checklist and its Reglas are annotated
+    as not executed.
+  artefacts_changed:
+    - proposal.md
+    - evidence-annex.md
+    - design.md
+
+tasks:
+  outcome: done
+  completed: '2026-10-29'
+  bytes: 27984
+  lines: 138
+  words: 3613
+  task_count: 71
+  phases: 7
+  guard_lines:
+    decision_needed_before_apply: Yes
+    chained_prs_recommended: Yes
+    chain_strategy: feature-branch-chain
+    budget_400_line_risk: High
+  estimated_changed_lines: 7000-11000
+  suggested_work_units: 7
+  engram_mirror: sdd/fiado-confirmado/tasks
+  gate: >-
+    Two fresh-context validation rounds against the design, the task-source
+    index and the proposal. The first found a BLOCKER - the nine credential
+    RED tests sat after the credential code while the artifact claimed the
+    opposite - and a CRITICAL on two paths that a task read but did not create.
+    The second found that task 2.2 still instructed storing Customer.status
+    and Customer.suspended_reason, which design D1 derives and the design's
+    never-stored list forbids. All findings were fixed in the artifact and the
+    final round passed.
+
+design:
+  outcome: done
+  completed: '2026-10-29'
+  bytes: 79971
+  lines: 619
+  sections: 19
+  adrs: 24
+  entities: 12
+  transactional_rules: 17
+  error_codes: 14
+  traceability: 53 of 53
+  conditional_requirements: 19
+  verification_layers:
+    unit: 13
+    integration: 46
+    e2e: 4
+    layer_entries: 63
+  engram_mirror:
+    - sdd/fiado-confirmado/design
+    - sdd/fiado-confirmado/design-part-2
+    - sdd/fiado-confirmado/design-part-3
+    - sdd/fiado-confirmado/design-part-4
+  gate: >-
+    Seven fresh-context validation rounds against the proposal, the eight specs
+    and the requirement index. The final round returned pass: every one of the
+    53 requirements has a substantive design home, the matrix matches the index
+    exactly, and every codigo_error has a producing rule. The rounds before it
+    found real defects that were fixed, not argued away.
+
+failures:
+  - phase: sdd-design
+    code: sdd_task_result_empty
+    schema: gentle-ai.sdd-task-result-failure/v1
+    status: blocked
+    artifact_written: none
+    dispatched: true
+    session: ses_e7bfc326cffez7D3Bw5x3DThcq
+    observed: >-
+      The agent dispatched and ran 17 steps. Steps 1 to 16 were the four skill
+      reads plus the twelve mandated artefact reads. Step 17 stalled for two
+      minutes and eighteen seconds and then the loop exited without a message.
+      The runtime logged no error and no provider rejection.
+    cause: >-
+      Established from the runtime log. The child did not die while reading; it
+      died while generating. At step 17 it held roughly sixty thousand tokens of
+      accumulated context and had to emit the whole design in a single tool
+      call, so the generation was aborted and the loop exited with no message.
+      The fix is therefore two-sided: shrink the input and shrink the output.
+    not_retried: true
+    recovery: >-
+      Owner authorised a retry. Two input digests were produced first to cut
+      the child's reading, and the retry mandates a chunked write through a
+      draft path so a partial design is recoverable and never mistaken for a
+      complete one.
+    retry:
+      input_digests:
+        - artifact: legacy-design-digest.md
+          bytes: 17998
+          source: openspec/changes/tienda-barrio/design.md
+        - artifact: decisions-digest.md
+          bytes: 33622
+          source: openspec/changes/fiado-confirmado/exploration.md
+      output_mitigation: >-
+        design.md is composed into design.draft.md in bounded chunks and only
+        renamed to design.md once complete, so the dispatcher never sees a
+        truncated design as done.
+
+  - phase: sdd-design
+    code: sdd_task_dispatch_latched
+    schema: gentle-ai.sdd-task-result-failure/v1
+    status: blocked
+    dispatched: false
+    observed: >-
+      The retry was not dispatched. SDD launches stay latched for a phase after
+      that phase returns a terminal task-result failure, so a failed phase is
+      never silently retried and no later phase advances on top of it. No
+      provider call, no subagent and no artifact write happened for this
+      launch.
+    recovery: >-
+      A new session is required. The latch is a runtime rule, not a choice:
+      relaunching in this session cannot dispatch.
+
+  - phase: sdd-design
+    code: sdd_task_result_empty
+    schema: gentle-ai.sdd-task-result-failure/v1
+    status: blocked
+    artifact_written: none
+    dispatched: true
+    session: ses_e7b4131bbffeSMlTURT2TaJt41
+    attempt: 2
+    observed: >-
+      Attempt 2 ran in a fresh session with the reduced read set. The child read
+      every mandated input in seven steps and eighteen seconds, then stalled for
+      two minutes and sixteen seconds on step 7 and the loop exited without a
+      message. No write was ever attempted: the runtime log carries no write
+      permission evaluation and no touched file for design.draft.md.
+    cause: >-
+      PROVEN from the runtime database, not inferred. The last assistant message
+      of both attempts ends with step-finish reason "length" and the token
+      counters reasoning=31999, output=1. The generation was terminated by a
+      length limit while the model was still inside its reasoning channel, before
+      it emitted a single visible token.
+    not_retried: true
+    recovery: >-
+      The phase is latched for the rest of this session. A new session is
+      required to dispatch sdd-design at all.
+
+root_cause:
+  established: '2026-10-28'
+  evidence_source: >-
+    The opencode runtime database (message and part tables) for the child
+    sessions ses_e7bfc326cffez7D3Bw5x3DThcq (attempt 1) and
+    ses_e7b4131bbffeSMlTURT2TaJt41 (attempt 2).
+  finding: >-
+    Both attempts terminate with step-finish reason "length" at reasoning=31999
+    tokens and output=1 token. The model spends its entire reasoning budget
+    before emitting any content.
+  disproves: >-
+    The earlier hypothesis recorded in this file - that the child died because
+    input plus output exceeded the model window. Halving the input from ~220 KB
+    to ~120 KB and changing the output from one 45 KB write to 10 KB chunks did
+    not move the failure by one second: both attempts stall at ~2m15s and abort
+    with the same counters.
+  explains: >-
+    The abort happens on the FIRST generation step, before any write tool call
+    exists, so no chunking strategy can affect it. The trigger is the model
+    deciding to derive the whole design inside reasoning: the captured
+    reasoning tail begins "Let me now count the requirements across the 8 specs
+    to build the traceability matrix of 53" and then enumerates every
+    requirement ID one by one.
+  model: >-
+    minimax-coding-plan/MiniMax-M3.1-Flash, inherited because no agent in
+    opencode.jsonc carries a model assignment. agent.sdd-design.model is
+    undefined, so the phase inherits the session default.
+  mitigation_class: >-
+    Eliminate the derivation, do not shrink the payload. Pre-compute what the
+    model would otherwise have to reason about, and give the phase a model whose
+    reasoning budget is not the binding constraint.
+
+resume:
+  session_required: true
+  reason: >-
+    The sdd-design phase is latched in the session that produced the terminal
+    failure. Start a new session; the dispatcher will report next_recommended:
+    design and the phase will dispatch normally.
+  launch_prompt_file: >-
+    openspec/changes/fiado-confirmado/design-launch-prompt.md — the exact,
+    ready-to-paste prompt for the sdd-design launch. It has been rewritten
+    after the second failure: the earlier "smaller input, chunked output"
+    mitigations are kept but are NOT the fix, and the prompt now carries the
+    three that are grounded in the proven cause — a pre-computed requirement
+    index, one section per generation turn, and a model assignment for the
+    phase.
+  session_cache_carried_in_state: >-
+    The new session has no session cache, so the SDD session preflight must be
+    answered again. The answers are already recorded in this file under
+    `session` (pace interactive, artifact store hybrid, delivery strategy
+    ask-on-risk) — re-confirm them rather than re-derive them.
+  engram_mirror_complete: >-
+    Every artifact of this change is mirrored in Engram under project `final`:
+    sdd/fiado-confirmado/explore and explore-continued, proposal,
+    evidence-annex, preproposal, spec, and design-retry. A new session can
+    restore the full context from memory without reading the raw files.
+  state_on_disk:
+    complete:
+      - artifact: exploration.md
+      - artifact: proposal.md
+      - artifact: evidence-annex.md
+      - artifact: preproposal.md
+      - artifact: specs/ (8 specs, 53 requirements, 86 scenarios)
+    input_digests:
+      - artifact: legacy-design-digest.md
+        bytes: 17998
+        purpose: >-
+          Condenses the abandoned change's 95 KB design — section structure, 15
+          ADRs, data model, security architecture, landmine list, pure-rules
+          module, API routes, deployment spine — plus a per-ADR verdict of what
+          still holds, what is amended and what the new scope breaks.
+      - artifact: decisions-digest.md
+        bytes: 33622
+        purpose: >-
+          Condenses the exploration — owner's decisions, D1-D10, the T1-T7
+          resolutions with constraints and rejected alternatives, the
+          capabilities, the out-of-scope list, the inheritance map, the twelve
+          open items, the interview rules and the scoring.
+      - artifact: requirement-index.md
+        bytes: 5855
+        purpose: >-
+          Machine-derived from the eight specs. Lists all 53 requirements with
+          their ID, title, verification level, scenario count and conditional
+          marker. It removes the 53-requirement derivation that exhausted the
+          model's reasoning budget in both failed attempts. An independent parse
+          confirms 53 requirements, 19 conditional and 86 scenarios, matching
+          the spec phase's own numbers.
+    missing:
+      - artifact: design.md
+  launch_recipe:
+    read_set:
+      - openspec/changes/fiado-confirmado/legacy-design-digest.md
+      - openspec/changes/fiado-confirmado/decisions-digest.md
+      - openspec/changes/fiado-confirmado/requirement-index.md
+      - openspec/changes/fiado-confirmado/specs/{8 capability ids}/spec.md
+      - openspec/changes/fiado-confirmado/proposal.md (Alcance minimo, Entidades de datos, El precio del alcance, No negociables)
+    forbidden_reads:
+      - openspec/changes/tienda-barrio/design.md
+      - openspec/changes/fiado-confirmado/exploration.md
+      - openspec/changes/fiado-confirmado/evidence-annex.md
+    model_requirement: >-
+      The phase MUST run on the assigned model. agent.sdd-design.model is set to
+      minimax-coding-plan/MiniMax-M3 in the global opencode.jsonc, because the
+      inherited minimax-coding-plan/MiniMax-M3.1-Flash exhausted its 32,000-token
+      reasoning budget in both failed attempts. The opencode-go credential is
+      expired, so no model from that provider is available.
+    write_protocol: >-
+      One section per generation turn, never one turn for the whole design. The
+      first turn MUST be the technical approach section and nothing else. Each
+      turn appends exactly one section to design.draft.md with Edit, in the
+      order of the section list, and the turn's reasoning is limited to that
+      section. This exists because the previous failure was a reasoning-budget
+      abort on the first turn, before any write call.
+    prohibited_reasoning: >-
+      The model MUST NOT enumerate, count or re-derive the 53 requirements in
+      its reasoning. requirement-index.md already lists every ID, title,
+      conditional marker and verification level; the traceability matrix is a
+      lookup and a copy, never a derivation.
+    size_target: 26000-34000 bytes
+    final_response: >-
+      A compact envelope of at most about 40 lines. Never repeat the design
+      body inline.
+    required_content:
+      - The ten open decisions the previous attempt never reached, each with choice, rejected alternatives and rationale.
+      - The requirement to design traceability matrix covering all 53 requirements.
+      - The threat matrix applied from the skill reference.
+      - The language contract: prose in English, every domain identifier in Spanish.
+
+paused:
+  reason: >-
+    The owner chose to stop after the specification phase. The planning set is
+    delivered as exploration, proposal, interview instrument and 8 specs; the
+    technical design and the task breakdown are deliberately not written.
+  decided_by: user
+  resume_at: sdd-design
+
+completed:
+  - artifact: exploration.md
+    phase: explore
+    outcome: done
+  - artifact: proposal.md
+    phase: propose
+    outcome: done
+  - artifact: evidence-annex.md
+    phase: propose
+    outcome: done
+  - artifact: preproposal.md
+    phase: preproposal-gate
+    outcome: done
+    schema: gentle-ai.sdd-preproposal/v1
+    revision: 1
+  - artifact: specs/
+    phase: spec
+    outcome: done
+    requirements: 53
+    scenarios: 86
+    conditional_requirements: 19
+    domains:
+      - cash-position
+      - payments-and-ageing
+      - itemised-charges
+      - client-accounts-and-credentials
+      - product-catalogue
+      - client-confirmation
+      - dispute-resolution
+      - confirmation-facilitation
+  - artifact: design.md
+    phase: design
+    outcome: done
+    bytes: 79971
+    sections: 19
+    adrs: 24
+    traceability: 53 of 53
+  - artifact: tasks.md
+    phase: tasks
+    outcome: done
+    bytes: 27984
+    tasks: 71
+    phases: 7
+    chain_strategy: feature-branch-chain
+
+open_for_design:
+  - Customer.status stored column vs. a suspension status derived on read.
+  - The 422 error field renamed codigo_error because codigo is now the client credential.
+  - occurred_at rejection scoped to the ledger write APIs only, not to CashMovement.
+  - A Regla-5 cut leaves product-catalogue orphaned; the whole directory is deleted.
+  - Whether the client sees their own credit_limit (exploration open item 6).
+
+corrections:
+  - artifact: exploration.md
+    section: '§4 / T7.1'
+    detail: >-
+      The table quoted interview question 5 from memory instead of from
+      evidence-annex.md. Corrected to the verbatim original: "¿alguien puede
+      saber quién te debe o cuánto hay en el almacén?". The new annex already
+      carried the correct verbatim text.
+
+relationships:
+  supersedes:
+    - tienda-barrio
+  dependsOn: []
+  amends: []
+  conflictsWith: []
+
+session:
+  pace: interactive
+  delivery_strategy: ask-on-risk
+  review_policy:
+    max_changed_lines_per_pr: 400
+  artifact_store:
+    mode: hybrid
+    declared_in_config: openspec
+    engram_mirror: true
+    engram_project: final
+    planning_home: C:\proyectos\final\openspec
+
+product_decisions:
+  - id: reframe-project
+    status: confirmed
+    by: user
+    decision: >-
+      The project is replanned from scratch. The fiado confirmed by the client
+      becomes the central product, not an addendum to `tienda-barrio`.
+  - id: change-identity
+    status: confirmed
+    by: user
+    decision: >-
+      New change `fiado-confirmado`. It supersedes `tienda-barrio`, whose
+      proposal, specs and design are abandoned rather than amended.
+  - id: inventory-depth
+    status: confirmed
+    by: user
+    decision: >-
+      Inventory is tracked by movement: a product catalogue with prices, charge
+      lines on every cargo, and stock derived from recorded movements.
+  - id: client-statement-reading
+    status: confirmed
+    by: user
+    decision: >-
+      The client's statement shows confirmed charges in full detail (product,
+      quantity, price, confirmation date and time). An unconfirmed charge
+      appears as a summary row (date + amount) with a "Confirmar" action, and
+      its itemisation is revealed only inside that action. The client always
+      sees what they owe; the literal alternative would let the client's own
+      page understate the debt.
+  - id: research-lane
+    status: confirmed
+    by: user
+    decision: >-
+      No external research lane is selected. The owner interviews remain the
+      only evidence for the fiado practice, exactly as in the previous change.
+
+planning_only: true
+implementation_started: false
