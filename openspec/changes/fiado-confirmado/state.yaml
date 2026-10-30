@@ -4,6 +4,40 @@ created: '2026-10-27'
 phase: apply
 next_expected: implementation
 status: active
+cycle_state: planning-complete
+implementation_started: false
+planning_only: true
+
+closure:
+  decided: '2026-10-30'
+  decision: keep-active
+  reason: >-
+    The owner chose to stay in planning. sdd-apply was never launched, so the
+    Task Completion Gate of sdd-archive is legitimately blocked: 71 tasks
+    remain unchecked and neither apply-progress nor verify-report exists,
+    because no implementation ran. The change therefore stays an ACTIVE
+    change at openspec/changes/fiado-confirmado/ with its 20 files committed
+    on main, not an archived one. Its state is honest: the planning is
+    complete and the implementation is pending.
+  archive_status: >-
+    Blocked by the Task Completion Gate, not by an error. sdd-verify and
+    sdd-archive both report blocked, which is the correct state for a change
+    that was planned but never implemented. The archive was neither forced nor
+    bypassed.
+  to_continue_implementation: >-
+    sdd-apply is ready: dependencies.apply reports ready, blockedReasons is
+    empty and the 71 tasks are ready to execute. Under the resolved
+    feature-branch-chain strategy it implements PR 1 only (Foundation, 7
+    tasks), with a gentle-ai sdd-attempt acquire/settle pair per work unit.
+    Each later PR targets the immediately previous PR branch.
+  artifacts_committed:
+    - 96687e3
+    - d2e5114
+    - 0274234
+  remaining_for_the_pfm:
+    - The application itself: no backend/, no frontend/, no requirements.txt exists yet.
+    - The README, the memoria section 3.1-3.8 and the 30-minute defence script.
+    - The validation instrument evidence-annex.md, whose 70 fields stay PENDING.
 
 knowledge_basis:
   declared: '2026-10-29'
