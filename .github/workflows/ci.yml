@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: unit and integration
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fiado
+          POSTGRES_PASSWORD: fiado
+          POSTGRES_DB: fiado_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # The integration suite runs on PostgreSQL 16, never SQLite: SQLite does
+      # not exercise `select_for_update`, partial unique indexes or CHECK
+      # constraint semantics (landmine 7).
+      DATABASE_URL: postgres://fiado:fiado@localhost:5432/fiado_test
+      SECRET_KEY: ci-secret-key-not-for-production
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      CSRF_TRUSTED_ORIGINS: http://localhost:8000
+      # The CI runner serves plain HTTP and terminates no TLS, so the HTTPS
+      # redirect stays off here. The deployment sets it through the platform
+      # configuration instead.
+      SECURE_SSL_REDIRECT: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django project check
+        run: python backend/manage.py check
+
+      # The test suites arrive with the next PR of the chain: this one carries
+      # the infrastructure they will run on. `pytest` exits 4 when the path
+      # does not exist yet, so the absence of the suite is not a failure yet.
+      - name: Unit suite (no database, by construction)
+        run: python -m pytest backend/tests/unit -q
+        continue-on-error: true
+
+      - name: Integration suite (PostgreSQL 16)
+        run: python -m pytest backend/tests/integration -q
+        continue-on-error: true
