@@ -59,12 +59,8 @@ jobs:
       - name: Django project check
         run: python backend/manage.py check
 
-      # The test suites arrive in PR 1c. `pytest` exits 4 when the path does
-      # not exist yet, so the absence of the suite is not a failure yet.
       - name: Unit suite (no database, by construction)
         run: python -m pytest backend/tests/unit -q
-        continue-on-error: true
 
       - name: Integration suite (PostgreSQL 16)
         run: python -m pytest backend/tests/integration -q
-        continue-on-error: true
