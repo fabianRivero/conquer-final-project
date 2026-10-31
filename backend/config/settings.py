@@ -110,8 +110,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    # The `tienda` application arrives with the data model of Phase 2. It is
-    # registered only once its package exists, so the project boots now.
+    # The `tienda` application carries the data model of Phase 2.
+    "tienda",
 ]
 
 # ---------------------------------------------------------------------------
