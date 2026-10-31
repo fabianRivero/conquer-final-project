@@ -1,0 +1,49 @@
+# Render blueprint — the deployment spine of design §18.1.
+#
+#   GitHub (public) --push--> Render Web Service (free, managed TLS)
+#      build: pip install -r requirements.txt && npm --prefix frontend ci && npm --prefix frontend run build
+#             python backend/manage.py collectstatic --noinput && python backend/manage.py migrate --noinput && python backend/manage.py seed_demo
+#      run:   gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
+#      -->   Neon PostgreSQL (free, permanent)   [DATABASE_URL]
+#   frontend/dist --> STATIC_ROOT --> WhiteNoise --> SAME ORIGIN
+#
+# The database is Neon, not Render's own PostgreSQL: Render's free PostgreSQL
+# expires 30 days after creation (landmine 1).
+
+services:
+  - type: web
+    name: fiado-confirmado
+    runtime: python
+    plan: free
+    # `sync: false` keeps Render from overwriting the pinned requirements.txt
+    # with its own resolution (CP-01, CAC-07).
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      npm --prefix frontend ci &&
+      npm --prefix frontend run build &&
+      python backend/manage.py collectstatic --noinput &&
+      python backend/manage.py migrate --noinput &&
+      python backend/manage.py seed_demo
+    runCommand: gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
+    healthCheckPath: /health/
+    envVars:
+      # Every variable carries `sync: false`: Render must never overwrite the
+      # deployment's own configuration (CAC-07, CP-01).
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+        generateValue: true
+      - key: DEBUG
+        sync: false
+        value: "False"
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: PYTHON_VERSION
+        sync: false
+        value: "3.14.7"
+      - key: NODE_VERSION
+        sync: false
+        value: "24.21.0"

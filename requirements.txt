@@ -1,0 +1,32 @@
+# Backend runtime dependencies. Every version is pinned exactly (CAC-07:
+# "every dependency version MUST be pinned"), so a build is reproducible.
+
+# Django 5.2 — the backend framework.
+Django==5.2.8
+asgiref==3.12.1
+sqlparse==0.6.0
+typing_extensions==4.16.0
+
+# Django REST Framework — the API layer.
+djangorestframework==3.16.1
+
+# PostgreSQL driver — Neon in production (design §18.1, landmine 1).
+psycopg==3.3.3
+psycopg-binary==3.3.3
+
+# WhiteNoise — serves the frontend bundle from STATIC_ROOT on the same origin
+# (design §18.1, CAC-06).
+whitenoise==6.9.0
+
+# WSGI server — the Render run command (design §18.1).
+gunicorn==26.2.0
+
+# Test tooling — the unit/integration/e2e layers (design §15).
+pytest==9.1.1
+pytest-django==4.14.0
+pytest-cov==7.1.0
+coverage==7.16.1
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+colorama==0.4.6

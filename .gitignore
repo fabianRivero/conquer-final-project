@@ -6,3 +6,25 @@
 # Local CodeGraph index: a rebuildable SQLite cache of the workspace, never
 # a source of truth. The same reasoning as .atl/ above.
 .codegraph/
+
+# Runtime and deployment configuration. Secrets stay out of the repository.
+.env
+.env.*
+!.env.example
+
+# Local development databases.
+*.sqlite3
+*.sqlite3-journal
+
+# Frontend dependencies and build output.
+node_modules/
+frontend/dist/
+
+# Python bytecode and packaging artifacts.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
