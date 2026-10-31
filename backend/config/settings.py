@@ -133,7 +133,12 @@ if DATABASE_URL:
             "HOST": _parsed.hostname or "",
             "PORT": str(_parsed.port or ""),
             "CONN_MAX_AGE": 60,
-            "OPTIONS": {"sslmode": "require"},
+            # Neon requires TLS and rejects a plain connection, so `require` is
+            # the default for the deployed database. It is an environment
+            # setting rather than a constant because the CI service container
+            # serves no TLS at all, and a hard-coded `require` makes every
+            # connection to it fail with `SSL is required`.
+            "OPTIONS": {"sslmode": env("DATABASE_SSLMODE", default="require")},
         }
     }
 else:

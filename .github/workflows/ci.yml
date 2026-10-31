@@ -31,6 +31,9 @@ jobs:
       # not exercise `select_for_update`, partial unique indexes or CHECK
       # constraint semantics (landmine 7).
       DATABASE_URL: postgres://fiado:fiado@localhost:5432/fiado_test
+      # The service container serves no TLS. Neon does require it, so the
+      # default stays `require` and the CI opts out explicitly.
+      DATABASE_SSLMODE: disable
       SECRET_KEY: ci-secret-key-not-for-production
       DEBUG: "False"
       ALLOWED_HOSTS: localhost,127.0.0.1
