@@ -152,6 +152,26 @@ environment proved otherwise. Four defects were real and are fixed:
 **Lesson worth keeping:** a phase's own report is a claim, not evidence. Every command in this
 batch was re-run from a clean environment before the work unit was accepted.
 
+### The continuous integration found two more defects
+
+The GitHub Actions workflow ran the three PRs on `ubuntu-latest` against Python 3.14 and
+caught what the local verification could not:
+
+1. **PR 1 was red.** Its workflow ran `manage.py check`, but `backend/config/settings.py`
+   arrives in PR 1b, so the module did not exist and the check failed with
+   `ModuleNotFoundError: No module named 'config'`. The step belongs to the PR that carries
+   the configuration: PR 1a now checks the version, PR 1b runs the full check.
+2. **PR 3 was red.** The test that asserts the secret handling checked that a process
+   without `DATABASE_URL` is not a production one — but it made that assertion *outside* the
+   block that controls the variable. The CI runner always defines `DATABASE_URL`, because
+   the integration suite needs PostgreSQL, so the assertion failed there. The test now
+   removes the variable explicitly for the part that describes a non-production process and
+   restores it afterwards. A suite is not a reliable witness of how a bare local run starts.
+
+Both were verified in the two conditions that matter: with `DATABASE_URL` defined, which is
+how CI runs, and without it, which is how a fresh clone runs. The final state of all three
+PRs is a passing CI run.
+
 ### Workload / PR Boundary
 
 - **Mode**: chained PR slice (`feature-branch-chain`)
