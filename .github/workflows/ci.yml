@@ -52,12 +52,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Django project check
-        run: python backend/manage.py check
+      # The Django configuration arrives in PR 1b, so this PR checks that the
+      # project starts and reports its version. `manage.py check` needs
+      # `backend/config/settings.py`, which does not exist yet.
+      - name: Django project version
+        run: python backend/manage.py --version
 
-      # The test suites arrive with the next PR of the chain: this one carries
-      # the infrastructure they will run on. `pytest` exits 4 when the path
-      # does not exist yet, so the absence of the suite is not a failure yet.
+      # The test suites arrive in PR 1c. `pytest` exits 4 when the path does
+      # not exist yet, so the absence of the suite is not a failure yet.
       - name: Unit suite (no database, by construction)
         run: python -m pytest backend/tests/unit -q
         continue-on-error: true
