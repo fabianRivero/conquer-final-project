@@ -11,8 +11,27 @@ planning_only: false
 implementation:
   first_slice: PR1-Foundation
   completed: '2026-10-30'
-  tasks_completed: 7
+  tasks_completed: 13
   tasks_total: 71
+  slices:
+    - name: PR1-Foundation
+      tasks: 7
+      pull_requests: [1, 2, 3, 4, 5]
+      lines: 1114
+      budget: inside
+    - name: PR2a-DataModel
+      tasks: 6
+      pull_requests: [6, 7]
+      lines: 2127
+      budget: size-exception
+      why_exception: >-
+        The models, the generated migration and the 37 constraint tests are
+        mutually dependent. The tests are the proof the models are correct
+        and the migration is generated from the models, so no partition
+        leaves each part independently green. Splitting by entity group does
+        not work either: Confirmacion.cargo_id points at LedgerEntry, the
+        partial indexes span three tables, and the ledger tests need
+        Customer.
   delivery:
     strategy: feature-branch-chain
     tracker_branch: feature/base-del-proyecto
