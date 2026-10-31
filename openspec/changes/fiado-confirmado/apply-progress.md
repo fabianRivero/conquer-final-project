@@ -388,6 +388,24 @@ Two things were **not** exercised, and neither is a silent omission:
   atomic, independently-green work unit — which is what the chain asks for: one deliverable
   scope, its verification included, and a clear rollback boundary.
 
+### Correction applied by the orchestrator after the executor returned (Batch 2)
+
+The continuous integration found one more defect, on PR #6:
+
+**The database `sslmode` was hard-coded to `require`.** Neon rejects a plain connection, so the
+value was right for the deployed database — but the CI service container serves no TLS at all,
+and every connection to it failed with `SSL is required`. The whole integration suite was red
+before a single test ran.
+
+The mode is now an environment setting, `DATABASE_SSLMODE`, with `require` as the default so
+the deployed database still demands TLS, and the CI workflow opts out explicitly with
+`DATABASE_SSLMODE: disable`. Verified in both modes: the integration suite passes with
+`DATABASE_SSLMODE=disable` and also without the variable, where the default `require` applies.
+
+**Lesson worth keeping:** the environment a test runs in is not the environment it asserts
+about, and it is not the environment the deployment has. Each of the three deserves its own
+explicit setting.
+
 ### Remaining Tasks
 
 Phase 3 onward are untouched: 3.1–3.18 (pure domain rules, ORM-free) · 4.1–4.21 (service and
