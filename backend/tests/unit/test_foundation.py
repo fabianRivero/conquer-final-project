@@ -75,13 +75,17 @@ def test_secrets_are_read_from_the_environment_only():
     The check is behavioural. The settings module refuses the development
     fallback secret when the process is a **production** one — a process
     whose database is a real PostgreSQL server, which is how the deployed
-    service on Render is configured. A local run and the CI runner have no
-    `DATABASE_URL`, so both may use the fallback and boot without a `.env`
-    file.
+    service on Render is configured. A local run without a `.env` file may use
+    the fallback and boot.
 
     The distinction is deliberate: refusing to boot without a secret would
     make `manage.py check` and the unit suite unrunnable on a fresh clone,
     which is exactly what CI does.
+
+    The test controls `DATABASE_URL` itself rather than trusting the
+    environment it runs in: the CI runner always defines one, because the
+    integration suite needs PostgreSQL, so the suite is not a reliable
+    witness of what a bare local run looks like.
     """
     from config import settings as settings_module
 
@@ -109,11 +113,18 @@ def test_secrets_are_read_from_the_environment_only():
             os.environ["DATABASE_URL"] = original_database_url
 
     # A non-production process — no DATABASE_URL — may use the fallback, and
-    # a real key always boots in either mode.
-    assert settings_module._is_production() is False
-    settings_module._require_production_secret(fallback, False)
-    settings_module._require_production_secret("a-real-key", False)
-    settings_module._require_production_secret(fallback, True)
+    # a real key always boots in either mode. The check runs with
+    # `DATABASE_URL` removed, because the CI runner always defines one: the
+    # environment this test runs in is not the environment it asserts about.
+    os.environ.pop("DATABASE_URL", None)
+    try:
+        assert settings_module._is_production() is False
+        settings_module._require_production_secret(fallback, False)
+        settings_module._require_production_secret("a-real-key", False)
+        settings_module._require_production_secret(fallback, True)
+    finally:
+        if original_database_url is not None:
+            os.environ["DATABASE_URL"] = original_database_url
 
 
 @pytest.mark.unit
