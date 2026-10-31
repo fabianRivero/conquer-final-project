@@ -24,6 +24,32 @@ its command in a clean environment. PR 1a and 1b carry `continue-on-error: true`
 two pytest steps, because pytest exits 4 when the test directory does not exist yet; PR 1c
 removes it, so the CI is strict from that point on.
 
+**Delivery state.** The three PRs are open on `fabianRivero/conquer-final-project`:
+
+| PR | Branch | Base | Commit |
+|---|---|---|---|
+| [#1](https://github.com/fabianRivero/conquer-final-project/pull/1) | `feat/pr1a-infra` | `feature/base-del-proyecto` | `2b47509` |
+| [#2](https://github.com/fabianRivero/conquer-final-project/pull/2) | `feat/pr1b-config-django` | `feat/pr1a-infra` | `d116b10` |
+| [#3](https://github.com/fabianRivero/conquer-final-project/pull/3) | `feat/pr1c-suite-fundacion` | `feat/pr1b-config-django` | `59f8475` |
+
+The tracker branch `feature/base-del-proyecto` sits on `bb7c458`, the same commit as
+`main`, and is where the chain accumulates. Only the tracker merges to `main`.
+
+**Runtime ledger.** Each PR was a separate bounded objective in the native attempt
+ledger, settled as `passed` with its own evidence revision:
+
+| Objective | Lines | Ledger state |
+|---|---|---|
+| PR1a-Infrastructure | 238 | `complete` |
+| PR1b-DjangoConfig | 391 | `complete` |
+| PR1c-FoundationSuite | 222 | `complete` |
+
+The first attempt — the whole 985-line slice under one objective — was settled `passed` but
+escalated to `maintainer_decision` because it exceeded the 400-line budget. The objective
+was reset with the reason recorded, and the work was re-declared per PR slice rather than
+granted a `size:exception`. That is the difference between a budget being worked around
+and a budget being respected.
+
 ### Completed Tasks
 
 - [x] 1.1 Create `requirements.txt` with every dependency pinned to an exact version, and `.gitignore` ignoring `.env`, `*.sqlite3`, `node_modules/`, `frontend/dist/` and `__pycache__/`. Proves CP-01.
