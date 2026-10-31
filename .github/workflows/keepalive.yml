@@ -1,0 +1,30 @@
+name: Keepalive
+
+# The free tier sleeps after 15 minutes (landmine 3), which would show a
+# loading page during the defence. This ping runs every 8 minutes, under the
+# 10-minute requirement of design §18.1.
+#
+# `/health/` touches no database, so a ping never exhausts the connection pool.
+
+on:
+  schedule:
+    - cron: "*/8 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: ping the public URL
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Curl the health endpoint
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: |
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "PUBLIC_URL is not set; nothing to ping."
+            exit 0
+          fi
+          curl -fsS "$PUBLIC_URL/health/"
+          echo
