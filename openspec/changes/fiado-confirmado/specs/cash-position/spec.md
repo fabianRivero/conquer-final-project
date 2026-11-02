@@ -70,7 +70,7 @@ A `DayClose` MUST store `esperado`, `contado` and `desviacion`; `esperado` MUST 
 
 - GIVEN the derived `caja` of 412,35 €
 - WHEN the owner saves a close with `contado` of 408,00 €
-- THEN `esperado` is 412,35 €, `desviacion` is −4,35 € and both are readable
+- THEN `esperado` is 412,35 €, `desviacion` is 4,35 € (the computed `esperado − contado`) and both are readable
 
 #### Scenario: A second close for the same date is rejected
 

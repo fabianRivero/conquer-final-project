@@ -53,24 +53,24 @@ The change creates the whole application: 17 file groups, 69 concrete files, 53 
 
 Every file in `backend/tienda/domain/` imports no Django, no DRF and no app module. No rule reads an implicit clock — the caller passes `at`.
 
-- [ ] 3.1 RED — create `backend/tests/unit/test_domain_is_orm_free.py` AST-parsing every file of `backend/tienda/domain/` (read-only) and failing on a forbidden import. Proves CP-06, PA-11, IC-06 — ADR-3.
-- [ ] 3.2 RED — create `backend/tests/unit/test_position.py` covering `real_position` (additive only) and `outstanding` (a negative result is `credit_a_favor`, not an error). Proves CP-03, PA-01 — ADR-9.
-- [ ] 3.3 RED — create `backend/tests/unit/test_allocation.py` covering FIFO by `(occurred_at, id)`, the partial payment, the overpayment residual and the credit note that imputes only to a charge with `charge.occurred_at <= credit.occurred_at`. Proves PA-02 — ADR-7.
-- [ ] 3.4 RED — create `backend/tests/unit/test_ageing.py` covering `age_in_days` and `bucket_of` at the boundaries 7/8, 30/31 and 90/91 days, asserting the four bucket totals sum exactly to the outstanding. Proves PA-03.
-- [ ] 3.5 RED — create `backend/tests/unit/test_evaluation.py` covering `evaluate_customer` (automatic suspension, `credit_limit=None` never fires `limite_superado`, `override=True` lifts it) and `antiguedad_max_dias`. Proves PA-06, PA-04.
-- [ ] 3.6 RED — create `backend/tests/unit/test_charges.py` covering `total_de_linea`, `precio_unitario_de` (the override wins, otherwise the catalogue price) and `charge_amount_matches` (a line-less charge matches any declared amount). Proves PC-02, IC-02.
-- [ ] 3.7 RED — create `backend/tests/unit/test_confirmation.py` covering `estado_cargo`, `confirmacion_efectiva`, `transicion_permitida` (the guard is the presence of a `confirmado`/`en_disputa` row, never the effective state alone) and `escalado_sin_confirmar` at 7 days. Proves IC-03, IC-04 — ADR-18, ADR-23.
-- [ ] 3.8 RED — create `backend/tests/unit/test_stock.py` covering `existencias_registradas` returning the `techo_no_conteo` qualifier with no rule attached to it. Proves CP-07.
-- [ ] 3.9 RED — create `backend/tests/unit/test_cash.py` covering `cash_at`, `caja_al_cierre` (the caller never supplies `esperado`) and `desviacion_cierre`. Proves CP-02, CP-04.
-- [ ] 3.10 Create `backend/tienda/domain/types.py` with `EntryKind`, `Bucket`, `SuspensionReason`, `ConfirmState`, `StockQualifier` and the plain records `LedgerLine`, `CargoLine`, `CashLine`, `StockLine`, `Allocation`, `CustomerState`, `ConfirmacionRow`, `ChargeState`. Proves the type surface of design §10.
-- [ ] 3.11 Create `backend/tienda/domain/position.py` with `real_position`, `outstanding`, `cash_at`. Proves CP-02, CP-03, PA-01, CP-06.
-- [ ] 3.12 Create `backend/tienda/domain/allocation.py` with `allocate_payments`. Proves PA-02.
-- [ ] 3.13 Create `backend/tienda/domain/ageing.py` with `bucket_of` and `age_in_days`. Proves PA-03.
-- [ ] 3.14 Create `backend/tienda/domain/evaluation.py` with `evaluate_customer` and `antiguedad_max_dias`. Proves PA-06, PA-11.
-- [ ] 3.15 Create `backend/tienda/domain/charges.py` with `total_de_linea`, `precio_unitario_de` and `charge_amount_matches`. Proves IC-06, PC-02.
-- [ ] 3.16 Create `backend/tienda/domain/confirmation.py` with `confirmacion_efectiva`, `estado_cargo`, `transicion_permitida` and `escalado_sin_confirmar`. Proves IC-04.
-- [ ] 3.17 Create `backend/tienda/domain/stock.py` with `existencias_registradas`. Proves CP-07.
-- [ ] 3.18 Create `backend/tienda/domain/cash.py` with `desviacion_cierre` and `caja_al_cierre`. Proves CP-04.
+- [x] 3.1 RED — create `backend/tests/unit/test_domain_is_orm_free.py` AST-parsing every file of `backend/tienda/domain/` (read-only) and failing on a forbidden import. Proves CP-06, PA-11, IC-06 — ADR-3.
+- [x] 3.2 RED — create `backend/tests/unit/test_position.py` covering `real_position` (additive only) and `outstanding` (a negative result is `credit_a_favor`, not an error). Proves CP-03, PA-01 — ADR-9.
+- [x] 3.3 RED — create `backend/tests/unit/test_allocation.py` covering FIFO by `(occurred_at, id)`, the partial payment, the overpayment residual and the credit note that imputes only to a charge with `charge.occurred_at <= credit.occurred_at`. Proves PA-02 — ADR-7.
+- [x] 3.4 RED — create `backend/tests/unit/test_ageing.py` covering `age_in_days` and `bucket_of` at the boundaries 7/8, 30/31 and 90/91 days, asserting the four bucket totals sum exactly to the outstanding. Proves PA-03.
+- [x] 3.5 RED — create `backend/tests/unit/test_evaluation.py` covering `evaluate_customer` (automatic suspension, `credit_limit=None` never fires `limite_superado`, `override=True` lifts it) and `antiguedad_max_dias`. Proves PA-06, PA-04.
+- [x] 3.6 RED — create `backend/tests/unit/test_charges.py` covering `total_de_linea`, `precio_unitario_de` (the override wins, otherwise the catalogue price) and `charge_amount_matches` (a line-less charge matches any declared amount). Proves PC-02, IC-02.
+- [x] 3.7 RED — create `backend/tests/unit/test_confirmation.py` covering `estado_cargo`, `confirmacion_efectiva`, `transicion_permitida` (the guard is the presence of a `confirmado`/`en_disputa` row, never the effective state alone) and `escalado_sin_confirmar` at 7 days. Proves IC-03, IC-04 — ADR-18, ADR-23.
+- [x] 3.8 RED — create `backend/tests/unit/test_stock.py` covering `existencias_registradas` returning the `techo_no_conteo` qualifier with no rule attached to it. Proves CP-07.
+- [x] 3.9 RED — create `backend/tests/unit/test_cash.py` covering `cash_at`, `caja_al_cierre` (the caller never supplies `esperado`) and `desviacion_cierre`. Proves CP-02, CP-04.
+- [x] 3.10 Create `backend/tienda/domain/types.py` with `EntryKind`, `Bucket`, `SuspensionReason`, `ConfirmState`, `StockQualifier` and the plain records `LedgerLine`, `CargoLine`, `CashLine`, `StockLine`, `Allocation`, `CustomerState`, `ConfirmacionRow`, `ChargeState`. Proves the type surface of design §10.
+- [x] 3.11 Create `backend/tienda/domain/position.py` with `real_position`, `outstanding`, `cash_at`. Proves CP-02, CP-03, PA-01, CP-06.
+- [x] 3.12 Create `backend/tienda/domain/allocation.py` with `allocate_payments`. Proves PA-02.
+- [x] 3.13 Create `backend/tienda/domain/ageing.py` with `bucket_of` and `age_in_days`. Proves PA-03.
+- [x] 3.14 Create `backend/tienda/domain/evaluation.py` with `evaluate_customer` and `antiguedad_max_dias`. Proves PA-06, PA-11.
+- [x] 3.15 Create `backend/tienda/domain/charges.py` with `total_de_linea`, `precio_unitario_de` and `charge_amount_matches`. Proves IC-06, PC-02.
+- [x] 3.16 Create `backend/tienda/domain/confirmation.py` with `confirmacion_efectiva`, `estado_cargo`, `transicion_permitida` and `escalado_sin_confirmar`. Proves IC-04.
+- [x] 3.17 Create `backend/tienda/domain/stock.py` with `existencias_registradas`. Proves CP-07.
+- [x] 3.18 Create `backend/tienda/domain/cash.py` with `desviacion_cierre` and `caja_al_cierre`. Proves CP-04.
 
 ## Phase 4: Service and API Layer (CAC-01, CAC-03, CAC-04, CAC-09, CAC-10, CP-01, CP-05, PA-10, IC-05)
 
