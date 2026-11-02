@@ -388,6 +388,24 @@ Two things were **not** exercised, and neither is a silent omission:
   atomic, independently-green work unit — which is what the chain asks for: one deliverable
   scope, its verification included, and a clear rollback boundary.
 
+### Correction applied by the orchestrator after the executor returned (Batch 2)
+
+The continuous integration found one more defect, on PR #6:
+
+**The database `sslmode` was hard-coded to `require`.** Neon rejects a plain connection, so the
+value was right for the deployed database — but the CI service container serves no TLS at all,
+and every connection to it failed with `SSL is required`. The whole integration suite was red
+before a single test ran.
+
+The mode is now an environment setting, `DATABASE_SSLMODE`, with `require` as the default so
+the deployed database still demands TLS, and the CI workflow opts out explicitly with
+`DATABASE_SSLMODE: disable`. Verified in both modes: the integration suite passes with
+`DATABASE_SSLMODE=disable` and also without the variable, where the default `require` applies.
+
+**Lesson worth keeping:** the environment a test runs in is not the environment it asserts
+about, and it is not the environment the deployment has. Each of the three deserves its own
+explicit setting.
+
 ### Remaining Tasks
 
 Phase 3 onward are untouched: 3.1–3.18 (pure domain rules, ORM-free) · 4.1–4.21 (service and
@@ -424,3 +442,305 @@ is the budget decision rather than a failure of the work: the attempt itself is 
 `passed` with its evidence. The next objective is ordinal 7, to be opened by the maintainer
 with `gentle-ai sdd-attempt reset --expected-revision
 sha256:bb44621a0b5b9dcf55556c7d06eaef2adc871d4d9f1b44a6f12f6f8ecc557d8b`.
+---
+
+## Batch 3 — PR3a-DomainRules (Phase 3, tasks 3.1–3.18)
+
+**Change**: `fiado-confirmado`
+**Mode**: Standard (`strict_tdd: false` in `openspec/config.yaml`; no TDD Cycle Evidence table is produced)
+**Chain strategy**: `feature-branch-chain` — this slice is **PR 3a**, whose base is the tracker branch `feature/base-del-proyecto`. Per the owner's decision, every pull request merges **directly into the tracker branch**; there is no separate union pull request.
+**Merge state**: this artefact **merges** the Batch 1 and Batch 2 records above. Both are preserved in full — nothing was overwritten.
+
+### Completed Tasks
+
+- [x] 3.1 RED — `backend/tests/unit/test_domain_is_orm_free.py` AST-parses every file of `backend/tienda/domain/` and fails on a forbidden import. Covers CP-06, PA-11, IC-06 — ADR-3.
+- [x] 3.2 RED — `backend/tests/unit/test_position.py` covers `real_position` (additive only) and `outstanding` (a negative result is `credit_a_favor`, not an error). Covers CP-03, PA-01 — ADR-9.
+- [x] 3.3 RED — `backend/tests/unit/test_allocation.py` covers FIFO by `(occurred_at, id)`, the partial payment, the overpayment residual and the credit note that imputes only to a charge with `charge.occurred_at ≤ credit.occurred_at`. Covers PA-02 — ADR-7.
+- [x] 3.4 RED — `backend/tests/unit/test_ageing.py` covers `age_in_days` and `bucket_of` at the boundaries 7/8, 30/31 and 90/91, and asserts the four bucket totals sum exactly to the outstanding. Covers PA-03.
+- [x] 3.5 RED — `backend/tests/unit/test_evaluation.py` covers `evaluate_customer` (automatic suspension, `credit_limit=None` never fires `limite_superado`, `override=True` lifts it) and `antiguedad_max_dias`. Covers PA-06, PA-04.
+- [x] 3.6 RED — `backend/tests/unit/test_charges.py` covers `total_de_linea`, `precio_unitario_de` and `charge_amount_matches` (a line-less charge matches any declared amount). Covers PC-02, IC-02.
+- [x] 3.7 RED — `backend/tests/unit/test_confirmation.py` covers `estado_cargo`, `confirmacion_efectiva`, `transicion_permitida` (the guard is the presence of a row, never the effective state alone) and `escalado_sin_confirmar` at 7 days. Covers IC-03, IC-04 — ADR-18, ADR-23.
+- [x] 3.8 RED — `backend/tests/unit/test_stock.py` covers `existencias_registradas` returning the `techo_no_conteo` qualifier with no rule attached to it. Covers CP-07.
+- [x] 3.9 RED — `backend/tests/unit/test_cash.py` covers `cash_at`, `caja_al_cierre` (the caller never supplies `esperado`) and `desviacion_cierre`. Covers CP-02, CP-04.
+- [x] 3.10 `backend/tienda/domain/types.py` with `EntryKind`, `Bucket`, `SuspensionReason`, `ConfirmState`, `StockQualifier` and the plain records `LedgerLine`, `CargoLine`, `CashLine`, `StockLine`, `Allocation`, `CustomerState`, `ConfirmacionRow`, `ChargeState`. The type surface of design §10.
+- [x] 3.11 `backend/tienda/domain/position.py` with `real_position`, `outstanding`, `cash_at`. Covers CP-02, CP-03, PA-01, CP-06.
+- [x] 3.12 `backend/tienda/domain/allocation.py` with `allocate_payments`. Covers PA-02.
+- [x] 3.13 `backend/tienda/domain/ageing.py` with `bucket_of` and `age_in_days`. Covers PA-03.
+- [x] 3.14 `backend/tienda/domain/evaluation.py` with `evaluate_customer` and `antiguedad_max_dias`. Covers PA-06, PA-11.
+- [x] 3.15 `backend/tienda/domain/charges.py` with `total_de_linea`, `precio_unitario_de` and `charge_amount_matches`. Covers IC-06, PC-02.
+- [x] 3.16 `backend/tienda/domain/confirmation.py` with `confirmacion_efectiva`, `estado_cargo`, `transicion_permitida` and `escalado_sin_confirmar`. Covers IC-04.
+- [x] 3.17 `backend/tienda/domain/stock.py` with `existencias_registradas`. Covers CP-07.
+- [x] 3.18 `backend/tienda/domain/cash.py` with `desviacion_cierre` and `caja_al_cierre`. Covers CP-04.
+
+**18 of 18 tasks of Phase 3 are complete. Phases 4 onward are untouched.**
+
+### Files Changed
+
+| File | Action | What was done |
+|---|---|---|
+| `backend/tienda/domain/__init__.py` | Created | 24 lines. The package docstring: the boundary (no Django, no DRF, no app module, no implicit clock) and the map of the nine submodules. |
+| `backend/tienda/domain/types.py` | Created | **227 lines.** The five closed vocabularies (`EntryKind`, `Bucket`, `SuspensionReason`, `ConfirmState`, `StockQualifier`), plus `MovementKind`, and the eight plain records (`LedgerLine`, `CargoLine`, `CashLine`, `StockLine`, `Allocation`, `CustomerState`, `ConfirmacionRow`, `ChargeState`). All `str` enums, so a member compares equal to its plain string and serialises to it unchanged. |
+| `backend/tienda/domain/position.py` | Created | **105 lines.** `outstanding` (derived, never stored; a negative result is `credit_a_favor`), `cash_at` (a `pago` reaches the drawer through its own argument, counted once) and `real_position` (additive only). |
+| `backend/tienda/domain/allocation.py` | Created | **143 lines.** `allocate_payments`: FIFO by `(occurred_at, id)`, a partial payment retiring a charge in part, the surplus as `residual`, and a credit note imputing only to a charge at least as old as the note. |
+| `backend/tienda/domain/ageing.py` | Created | **91 lines.** `age_in_days` (the calendar-day difference, on shop-local values) and `bucket_of` (the 7/8, 30/31 and 90/91 boundaries). |
+| `backend/tienda/domain/evaluation.py` | Created | **161 lines.** `evaluate_customer` (the automatic suspension, `credit_limit=None` as «sin límite», `override=True` lifting it) and `antiguedad_max_dias`. |
+| `backend/tienda/domain/charges.py` | Created | **86 lines.** `total_de_linea` (half-up to two decimals), `precio_unitario_de` (the override wins) and `charge_amount_matches` (a line-less charge matches any declared amount). |
+| `backend/tienda/domain/confirmation.py` | Created | **146 lines.** `confirmacion_efectiva`, `estado_cargo` (a read-time projection only), `transicion_permitida` (the guard is the **presence** of a row) and `escalado_sin_confirmar` (strictly greater than `dias`). |
+| `backend/tienda/domain/stock.py` | Created | **47 lines.** `existencias_registradas`, returning the figure **and** the `techo_no_conteo` qualifier. |
+| `backend/tienda/domain/cash.py` | Created | **50 lines.** `caja_al_cierre` (the derived expected cash — the caller never supplies it) and `desviacion_cierre` (`esperado − contado`, signed). |
+| `backend/tests/unit/test_domain_is_orm_free.py` | Created | **217 lines, 7 tests.** The AST guard of task 3.1. |
+| `backend/tests/unit/test_position.py` | Created | **234 lines, 12 tests.** Task 3.2. |
+| `backend/tests/unit/test_allocation.py` | Created | **239 lines, 11 tests.** Task 3.3. |
+| `backend/tests/unit/test_ageing.py` | Created | **197 lines, 16 tests.** Task 3.4. |
+| `backend/tests/unit/test_evaluation.py` | Created | **286 lines, 17 tests.** Task 3.5. |
+| `backend/tests/unit/test_charges.py` | Created | **167 lines, 13 tests.** Task 3.6. |
+| `backend/tests/unit/test_confirmation.py` | Created | **293 lines, 15 tests.** Task 3.7. |
+| `backend/tests/unit/test_stock.py` | Created | **145 lines, 7 tests.** Task 3.8. |
+| `backend/tests/unit/test_cash.py` | Created | **158 lines, 11 tests.** Task 3.9. |
+| `backend/tests/harness/domain_is_db_free.py` | Created | **274 lines.** The runtime harness of the slice: a standalone script that exercises all seventeen rules with **no Django settings configured** and **no database**, and exits non-zero if any rule reaches for either. |
+| `openspec/changes/fiado-confirmado/tasks.md` | Modified | The eighteen Phase 3 checkboxes marked `[x]`. Phases 1, 2 and 4 onward are untouched. |
+
+### The guarantee, and how it is proved
+
+The slice's whole point is that `backend/tienda/domain/` imports no Django, no
+DRF and no app module. Three independent proofs back that claim, and all
+three were executed:
+
+**1. The AST guard.** `test_domain_is_orm_free.py` parses every file of the
+package and fails on a forbidden import. It reads the files and never
+imports them, so it runs with no settings configured. It rejects
+`import django.db`, `from django.db import models` under any alias, and
+`import tienda.domain.types` — an absolute import of the package's own
+subpackage, because `tienda` is an app module. A **relative** import of a
+sibling is allowed, and so is a standard-library import.
+
+The guard was **proved non-vacuous**: a probe line
+(`from django.db import connection`) was appended to `backend/tienda/domain/stock.py`,
+the suite was run, and the two relevant tests **failed** as they should. The
+probe was then removed and the file restored byte-for-byte from a backup
+taken beforehand. Two further tests assert the *walker itself* works — that a
+relative import reads as allowed and a Django import reads as a violation — so
+a broken walker could not make the rest of the file pass vacuously.
+
+**2. The pytest-django guarantee.** The unit tests carry **no** `django_db`
+marker, and that absence is the proof: pytest-django raises
+`RuntimeError: Database access not allowed` for any ORM call in a test
+without it. This was **verified on this host**, not assumed: a temporary
+probe test that called `Customer.objects.count()` without the marker was
+written, run, and observed to fail with exactly that `RuntimeError`. The
+database was reachable at the time (`connection.ensure_connection()`
+succeeded), so the refusal came from the marker and not from an absent
+server. The probe file and its stale `.pyc` were removed.
+
+**3. The standalone harness.** `backend/tests/harness/domain_is_db_free.py`
+runs **outside pytest**, imports the domain package and exercises all
+seventeen rules with `DATABASE_URL`, `SECRET_KEY`, `DEBUG` and
+`ALLOWED_HOSTS` unset. It reads `django.conf.settings.configured` before
+and after the rules run: importing `django.conf` configures nothing, so the
+flag stays `False` unless a rule reached for it. The harness exits
+non-zero on any failure. Observed: `OK: 17 rules exercised with no Django
+settings and no database.`
+
+### Deviations from Design
+
+1. **The domain package carries a `MovementKind` enum that design §10 does not
+   name.** Design §10 lists `EntryKind`, `Bucket`, `SuspensionReason`,
+   `ConfirmState` and `StockQualifier`, and it describes `CashLine` and
+   `StockLine` as plain records. Both records carry a `kind` of `entrada` or
+   `salida`, and the vocabulary of those two strings already exists in the
+   schema (`MOVEMENT_KINDS` in `backend/tienda/models.py`). Spelling it out
+   as an enum keeps the two records from depending on a bare string, and
+   keeps the domain vocabulary identical to the `CHECK` constraint the
+   database enforces. The five enums design §10 names are all present, with
+   exactly the values it fixes.
+
+2. **`Allocation` carries a `saldos` field in addition to the assignments
+   and the residual.** Design §10 fixes the *guarantee* of
+   `allocate_payments` — FIFO, the partial payment, the residual — but does
+   not name the record's fields. The `saldos` are the part of each charge
+   that is still owed, and `evaluation.antiguedad_max_dias` needs them to
+   tell an unpaid charge from a retired one. Without them the rule would
+   have to recompute the allocation.
+
+3. **`evaluate_customer` reads the credit notes; `antiguedad_max_dias` does
+   not.** The signature design §10 fixes is
+   `antiguedad_max_dias(charges, payments, at)` — three arguments, no
+   notes. The internal helper that `evaluate_customer` uses applies the
+   notes as well, so a charge cancelled by a `nota de crédito` does not age
+   and cannot suspend anybody (PA-09). The public function keeps the
+   signature the design fixes and is the same computation with no notes.
+
+4. **A credit note reduces a charge directly; it does not draw on the
+   payments.** The first implementation of `allocate_payments` placed a
+   credit note by consuming the *payment* lines. The test of task 3.3 caught
+   it: a note with no payment behind it retired nothing. A `nota de crédito`
+   is money given back — it is not money received — so it now reduces the
+   charges it is eligible for directly. The guarantee is unchanged: the note
+   still imputes only to a charge with `charge.occurred_at ≤
+   credit.occurred_at`, and what it cannot place stays as residual.
+
+5. **`cash_at` lives in `position.py`, and `cash.py` calls it.** Design §10
+   lists `cash_at` under `position.py` and `caja_al_cierre` under
+   `cash.py`, and it says the close is "the same computation as `cash_at`,
+   called with `at` = the close instant". `cash.py` therefore **imports**
+   `position.py` — a sibling import inside the package, which the AST guard
+   allows. The two rules are one computation with one implementation, so
+   they cannot drift apart.
+
+### Issues Found
+
+1. **The PostgreSQL server was not running when this batch started.** The
+   environment facts state that the portable PostgreSQL 16.4 build is
+   "already running on `127.0.0.1:5432`"; it was not. The first
+   integration run failed with `psycopg.errors.ConnectionTimeout` on every
+   test that needs the database, and `psql` answered `Connection refused`.
+   The data directory of Batch 2 was intact, so the server was restarted
+   against it. Two host-specific facts, neither of which touches the
+   repository: the TLS certificate lives in `pg\tls\`, not in `pg\data\` — a
+   path that fails with `could not load server certificate file` — and the
+   server must be launched with `cmd /c start /B` rather than
+   `Start-Process`, because a child of the shell command's process group is
+   killed when that command is torn down. After the restart the
+   integration suite passed 37/37.
+
+2. **`psql` hangs without `PGPASSWORD`.** The client prompts
+   interactively for the password when it is not supplied, and the prompt
+   does not fail in a non-interactive shell — it waits. `PGPASSWORD=fiado`
+   together with `-w` makes the client fail fast instead.
+
+3. **Three real defects in the rules, found by the tests of this batch and
+   fixed before the slice was accepted.** They are recorded here because
+   each one was a genuine misreading of the contract, not a test that was
+   adjusted to pass:
+
+   * **`charge_amount_matches` refused a line-less charge.** The comparison
+     summed the lines and compared the sum with the declared amount, so an
+     empty `lines` sequence matched only a declared 0,00. Design §10 states
+     that a charge with no lines matches **any** declared amount, and IC-02
+     says a charge without itemisation holds its declared amount as its
+     whole total. The empty case is now handled before the sum.
+   * **`antiguedad_max_dias` ignored the credit notes.** A charge fully
+     cancelled by a `nota de crédito` was still counted as unpaid, so it
+     still aged and still suspended the customer — against PA-09, which says
+     a credit note reduces the debt. The notes are now applied.
+   * **The credit-note allocation drew on the payments.** Already described
+     in the deviations above.
+
+4. **The AST guard's text check was too crude on the first run.** The stock
+   test asserted that no other module *mentions* `existencias_registradas`,
+   and the package `__init__.py` — which names the rule in its docstring —
+   failed it. A documentation mention is not a dependency, so the check was
+   rewritten as an **AST** walk that looks for an actual import or an
+   actual call. The name in prose is now allowed; a call is not.
+
+### Work Unit Evidence
+
+Every command below was **executed** in the state described, and the result
+is the observed output. Nothing is reported that was not run. The
+environment was clean: `SECRET_KEY`, `DEBUG`, `DATABASE_URL` and
+`ALLOWED_HOSTS` were removed from the environment before the unit runs.
+
+| Evidence | Value |
+|---|---|
+| **Focused test command and exact result** | `python -m pytest backend/tests/unit -q` (clean environment: `SECRET_KEY`, `DEBUG`, `DATABASE_URL`, `ALLOWED_HOSTS` all unset) → **119 passed, 2 warnings in 0.26s, exit 0**. The 119 are the 7 foundation tests of Phase 1 plus the 112 this slice added.<br>`python -m pytest backend/tests/integration -q` (with `DATABASE_URL=postgres://fiado:fiado@127.0.0.1:5432/fiado_test`, `DATABASE_SSLMODE=disable`, `SECRET_KEY` set — the CI-equivalent environment) → **37 passed in 5.22s, exit 0**. Phase 2's constraint suite is intact.<br>Re-run of the unit suite after the probe removal → **119 passed, exit 0**. |
+| **Runtime harness command/scenario and exact result** | `python backend/tests/harness/domain_is_db_free.py` (clean environment) → **`OK: 17 rules exercised with no Django settings and no database.`, exit 0**.<br>`python -m pytest backend/tests/unit/test_domain_is_orm_free.py -q` → **7 passed, exit 0** — the AST proof that no file of `backend/tienda/domain/` imports Django, DRF or an app module.<br>**The guard was proved non-vacuous**: with `from django.db import connection` appended to `backend/tienda/domain/stock.py`, the AST suite reported **2 failed, 5 passed, exit 1**. The file was then restored from a pre-probe backup and the unit suite returned to **119 passed, exit 0**.<br>**The DB-free-by-construction guarantee was proved on this host**: a temporary probe test calling `Customer.objects.count()` without the `django_db` marker failed with **`RuntimeError: Database access not allowed, use the "django_db" mark, or the "db" or "transactional_db" fixtures to enable it.`**, exit 1 — while the database was reachable (`connection.ensure_connection()` succeeded), so the refusal came from the missing marker and not from an absent server. The probe file and its stale `.pyc` were removed and the suite returned to **119 passed, exit 0**. |
+| **Rollback boundary** | Revert exactly the **twenty-one files** this slice creates and the **one** it modifies, and nothing else:<br>**Created — the domain package (10 files):** `backend/tienda/domain/{__init__,types,position,allocation,ageing,evaluation,charges,confirmation,stock,cash}.py`.<br>**Created — the unit suite (9 files):** `backend/tests/unit/{test_domain_is_orm_free,test_position,test_allocation,test_ageing,test_evaluation,test_charges,test_confirmation,test_stock,test_cash}.py`.<br>**Created — the harness (1 file):** `backend/tests/harness/domain_is_db_free.py`.<br>**Modified (1 file):** `openspec/changes/fiado-confirmado/tasks.md` — the eighteen Phase 3 checkboxes.<br>Nothing else. No model, no migration, no API view, no service, no frontend and no settings line was touched, so the revert leaves the repository exactly as Batch 2 left it, with Phase 1 and Phase 2 still green. The database is untouched: the slice creates no row outside the test database. |
+
+**Proved, and not proved.**
+
+* **Proved by execution:** the unit suite (119 passed), the integration suite
+  (37 passed), the AST guard (7 passed, and 2 failures when a forbidden
+  import was injected), the standalone harness (17 rules, no settings, no
+  database), and the pytest-django `RuntimeError` probe.
+* **Not exercised:** the CI container itself. The integration suite ran
+  against the portable PostgreSQL 16.4 build, not against the
+  `postgres:16` Docker service of `.github/workflows/ci.yml`. The version is
+  the same and every assertion in that suite is a PostgreSQL assertion —
+  partial unique indexes, `CHECK` semantics and `IntegrityError` — none of
+  which SQLite would exercise (landmine 7). The CI run remains the
+  authoritative confirmation.
+* **Not exercised, by design:** any HTTP surface. This slice has none. The
+  service layer of Phase 4 is the first thing that will convert ORM rows
+  into the plain records of `domain/types.py`, and it is the first thing
+  that could misuse them — the records are the contract between the two
+  layers.
+
+### Workload / PR Boundary
+
+- **Mode**: chained PR slice (`feature-branch-chain`)
+- **Current work unit**: **PR3a-DomainRules**
+- **Boundary**: starts from the tracker branch `feature/base-del-proyecto`
+  with the Batch 2 data model merged, and ends with the pure domain layer
+  and its unit suite. **Nothing of Phase 4 onward is present**: no
+  `backend/tienda/services.py`, no `backend/tienda/api/`, no view, no
+  serializer, no frontend and no seed. The slice is self-contained: it adds
+  a package of pure functions, the tests that prove them, and one harness
+  script. It touches **no** existing file except the Phase 3 checkboxes in
+  `tasks.md`.
+- **Authored line count**: **3,290 lines across 20 new files** — the domain
+  package **1,080** (10 files), the unit suite **1,936** (9 files) and the
+  harness **274** (1 file) — plus **18 changed checkbox lines** in
+  `tasks.md`. A **3,308-line review diff** by the "lines added" measure;
+  **3,326 changed lines** by the "raw line total" measure the runtime
+  counts.
+- **Review budget impact**: **over the 400-line budget** — `size:exception`
+  recommended.
+  Nothing was compressed, restyled, deleted or trimmed to reach the number:
+  no comment was removed, no test was dropped, no docstring was shortened.
+  The budget constrains how the work is sliced, never the code.
+  The slice was examined for a smaller honest boundary and rejected on
+  evidence. The RED tests and the rules cannot be separated: a PR carrying
+  the tests without the rules would not even import
+  (`ModuleNotFoundError: No module named 'tienda.domain.position'`), and a
+  PR carrying the rules without the tests would ship seventeen rules that
+  nobody has exercised — the whole guarantee of this slice is that the rules
+  are pure and are proved by unit tests that run with no database. The
+  eighteen tasks of Phase 3 are one atomic, independently-green work unit,
+  which is what the chain asks for: one deliverable scope, its verification
+  included, and a clear rollback boundary.
+  The honest split, if the maintainer prefers one, is **PR3a** (the rules and
+  their tests, 3,016 lines) and **PR3b** (the harness, 274 lines) — but the
+  harness alone is not worth a pull request on its own, since it proves the
+  same property the AST guard already proves.
+
+### Remaining Tasks
+
+Phase 4 onward are untouched: 4.1–4.21 (service and API layer) · 5.1–5.9
+(client surface, disputes and facilitation) · 6.1–6.8 (seed, frontend and
+end-to-end) · 7.1–7.2 (credential boundary RED tests).
+
+Two notes for the next slice. **The service layer is the only ORM-touching
+layer**: it converts the rows into the plain records of
+`domain/types.py` and calls the rules — it must never let a rule receive an
+ORM object. And the three immutable tables still refuse an update and a
+delete, so every correction is an append, and the `nota de crédito` that
+reconciles a dispute names its charge through `LedgerEntry.cargo_id` — never
+through `Confirmacion.cargo_id`.
+
+### Status
+
+**31/31 tasks of Phase 1, Phase 2 and Phase 3 complete** (7 + 6 + 18).
+
+**Runtime ledger — attempt 7, `PR3a-DomainRules`.** The attempt issued for
+this work unit was settled with the token
+`sha256:1f1c3a8f5f177e90e02215421837c76ae4d1d6f63e02c1314e2d47e9d6fcbf24`
+and recorded as **`passed`**, with all three evidence fields, the harness
+disposition `reused` and the intended-untracked inventory of the 20 files
+this slice creates.
+
+| Runtime field | Value |
+|---|---|
+| `outcome` | `passed` |
+| `changed_lines` | **3,611** — the runtime counts the raw line totals of every new file together with the added and removed lines of the modified files, so it exceeds the "lines added" measure of 3,308 |
+| `evidence_revision` | `sha256:84b50461da07f7aa509b346c6d54ad5d4b888c7444ac668e1ddf5c291a7b2cca` |
+| `harness_disposition` | `reused` |
+| `intended_untracked` | the 20 files this slice creates |
+| `changed_line_budget_exceeded` | **`true`** — 3,611 against the 400-line `max_changed_lines` of the objective |
+| `decision_required` / `next_action` | **`true`** / **`reset`** — the `size:exception` decision, which belongs to the maintainer. The executor does not reset the objective on its own authority, exactly as in Batches 1 and 2. |
+
+The settle command exited with `state: blocked, reason: maintainer_decision`,
+and that block is the budget decision rather than a failure of the work: the
+attempt itself is recorded as `passed` with its evidence. The next objective
+is ordinal 8, to be opened by the maintainer with
+`gentle-ai sdd-attempt reset --expected-revision
+sha256:badb9d5d970eec227b3afd6708a0e6f3cf7c79b41286c6cd0f1aa3f0c8ade1a5`.
