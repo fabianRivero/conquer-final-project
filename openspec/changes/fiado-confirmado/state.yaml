@@ -11,7 +11,7 @@ planning_only: false
 implementation:
   first_slice: PR1-Foundation
   completed: '2026-10-30'
-  tasks_completed: 13
+  tasks_completed: 31
   tasks_total: 71
   slices:
     - name: PR1-Foundation
@@ -32,6 +32,22 @@ implementation:
         not work either: Confirmacion.cargo_id points at LedgerEntry, the
         partial indexes span three tables, and the ledger tests need
         Customer.
+    - name: PR3a-DomainRules
+      tasks: 18
+      pull_requests: [8, 9]
+      lines: 3702
+      budget: size-exception
+      why_exception: >-
+        The seventeen rules without their tests would import nothing, and the
+        tests without the rules would not import at all. The harness alone is
+        274 lines and proves what the AST guard already proves.
+      constraint: >-
+        backend/tienda/domain/ imports no Django, no DRF and no app module.
+        The AST guard is not vacuous: injecting a forbidden import makes two
+        of its tests fail. The layer is DB-free by construction, because
+        pytest-django raises RuntimeError on any ORM call in a test without
+        the django_db marker.
+
   delivery:
     strategy: feature-branch-chain
     tracker_branch: feature/base-del-proyecto
