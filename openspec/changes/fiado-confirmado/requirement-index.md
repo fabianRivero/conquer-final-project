@@ -1,13 +1,13 @@
 # Requirement Index — `fiado-confirmado`
 
-**Machine-derived from the eight spec files. Do not re-derive, re-count or re-enumerate these in your reasoning.**
+**Machine-derived from the specs. Do not re-derive, re-count or re-enumerate these in your reasoning.**
 
 Each row is one requirement. The `Design home` column is yours to fill; the ID, title, conditional marker and verification level are already decided and must be copied exactly.
 
-Legend: `C` = conditional requirement (it carries a `**Conditional:** Regla N` marker in its spec and lives under `## Conditional Requirements`).
+Legend: `C` = conditional requirement (it carries a `**Conditional:**` marker in its spec).
 
 | ID | Requirement | Verif. | Scen. | Cond. | Design home |
-| --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|
 | CP-01 | Cash movements are recorded and validated | integration | 2 |  |  |
 | CP-02 | `caja` is recorded cash movements | unit, integration | 2 |  |  |
 | CP-03 | `posicion_real` is additive | unit, integration | 2 |  |  |
@@ -15,24 +15,23 @@ Legend: `C` = conditional requirement (it carries a `**Conditional:** Regla N` m
 | CP-05 | The day close is available to both shop roles | integration | 1 |  |  |
 | CP-06 | The position rule is pure and ORM-free | unit | 1 |  |  |
 | CP-07 | `existencias_registradas` is a ceiling, never a count | unit, integration | 2 | C |  |
-| PA-01 | `outstanding` is derived, never stored | unit, integration | 2 |  |  |
-| PA-02 | Payments are allocated FIFO | unit | 2 |  |  |
+| PA-01 | `outstanding` is derived, never stored | unit, integration | 3 |  |  |
+| PA-02 | Payments are allocated FIFO | unit | 4 |  |  |
 | PA-03 | Ageing buckets are derived per charge | unit, integration | 1 |  |  |
-| PA-04 | A disputed charge is debt, not a credit | unit, integration | 1 |  |  |
 | PA-05 | The credit limit is an explicit state | integration | 2 |  |  |
 | PA-06 | Suspension is automatic and evaluated on read | unit, integration | 2 |  |  |
-| PA-07 | A suspended customer cannot receive a new charge | integration | 1 |  |  |
+| PA-07 | A suspended customer cannot receive a new charge | integration | 2 |  |  |
 | PA-08 | The owner can lift a suspension explicitly | integration | 2 |  |  |
-| PA-09 | A correction is appended as a `nota de crédito` | integration | 1 |  |  |
+| PA-09 | A payment is recorded only by the owner | integration | 2 |  |  |
 | PA-10 | The ledger write API is validated | integration | 2 |  |  |
 | PA-11 | The credit rules are pure and ORM-free | unit | 1 |  |  |
 | IC-01 | The ledger is append-only | integration | 2 |  |  |
 | IC-02 | The amount of a `cargo` equals its itemisation total | integration | 2 |  |  |
-| IC-03 | A `cargo` never depends on the confirmation | unit, integration | 1 |  |  |
-| IC-04 | The effective confirmation state is derived | unit, integration | 2 |  |  |
+| IC-03 | A charge exists only after the client confirms it | unit, integration | 2 |  |  |
+| IC-04 | The effective confirmation state is derived | unit, integration | 1 |  |  |
 | IC-05 | The `cargo` write API is validated | integration | 1 |  |  |
 | IC-06 | The charge rules are pure and ORM-free | unit | 1 |  |  |
-| IC-07 | A `cargo` carries `CargoLinea` rows | integration | 1 | C |  |
+| IC-07 | A `cargo` carries `CargoLinea` rows | integration | 2 | C |  |
 | IC-08 | `precio_unitario` is a snapshot | integration | 2 | C |  |
 | IC-09 | Charge lines are immutable with their charge | integration | 1 | C |  |
 | CAC-01 | Two shop roles exist and are enforced on the server | integration | 1 |  |  |
@@ -48,35 +47,30 @@ Legend: `C` = conditional requirement (it carries a `**Conditional:** Regla N` m
 | PC-01 | The catalogue holds only the goods eligible for fiado | integration | 2 |  |  |
 | PC-02 | `precio` is a default, not a constraint | integration | 2 |  |  |
 | PC-03 | The catalogue is readable and seeded | integration | 1 |  |  |
-| CC-01 | The client confirms their own charge | integration | 3 | C |  |
-| CC-02 | The statement shows every charge of that client | integration | 2 | C |  |
-| CC-03 | An unconfirmed charge is a summary row with a `Confirmar` action | integration | 2 | C |  |
-| CC-04 | The client may dispute a charge | integration | 2 | C |  |
+| CC-01 | A charge exists only once the client has confirmed it | integration | 3 | C |  |
+| CC-02 | The statement shows every confirmed charge of that client | integration | 3 | C |  |
+| CC-03 | The prepared proposal is shown on the shop's screen | integration | 2 | C |  |
+| CC-04 | The client may cancel a proposal | integration | 1 | C |  |
 | CC-05 | The client view consumes the application's own API | e2e | 1 | C |  |
 | CC-06 | A confirmed charge shows its full itemisation | integration | 1 | C |  |
-| CC-07 | The itemisation of an unconfirmed charge is revealed only inside the action | integration | 1 | C |  |
-| DR-01 | A dispute is recorded without touching the charge | integration | 1 | C |  |
-| DR-02 | The owner arbitrates the dispute | integration | 3 | C |  |
-| DR-03 | A dispute is reconciled at most once | integration | 1 | C |  |
-| DR-04 | The client sees the dispute and its resolution | integration | 1 | C |  |
-| CF-01 | The `dependiente` presents one charge and receives the confirmation | integration | 2 | C |  |
+| CC-07 | The client may propose a payment and the owner records it | integration | 4 | C |  |
+| CF-01 | The `dependiente` prepares one proposal and records its confirmation | integration | 2 | C |  |
 | CF-02 | The facilitator is recorded and holds no client scope | integration | 2 | C |  |
 
 ## Totals
 
-- Requirements: **53** (all 53 must appear in the traceability matrix, each exactly once).
-- Conditional requirements: **19**.
-- Scenarios across the eight specs: **86**.
+- Requirements: **48** (all 48 must appear in the traceability matrix, each exactly once).
+- Conditional requirements: **15**.
+- Scenarios across the specs: **88**.
 
 ## Per-domain ranges
 
 - `cash-position`: CP-01 -> CP-07 (7 requirements)
-- `payments-and-ageing`: PA-01 -> PA-11 (11 requirements)
+- `payments-and-ageing`: PA-01 -> PA-11 (10 requirements)
 - `itemised-charges`: IC-01 -> IC-09 (9 requirements)
 - `client-accounts-and-credentials`: CAC-01 -> CAC-10 (10 requirements)
 - `product-catalogue`: PC-01 -> PC-03 (3 requirements)
 - `client-confirmation`: CC-01 -> CC-07 (7 requirements)
-- `dispute-resolution`: DR-01 -> DR-04 (4 requirements)
 - `confirmation-facilitation`: CF-01 -> CF-02 (2 requirements)
 
 ## Rule for the traceability matrix

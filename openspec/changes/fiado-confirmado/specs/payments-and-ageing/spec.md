@@ -2,13 +2,15 @@
 
 ## Purpose
 
-The money that comes back: `pago` and `nota de crédito`, how they retire debt (FIFO), how the debt ages, the `credit_limit`, and the automatic suspension. Every balance, bucket and status is derived on read.
+The money that comes back: the `pago`, how it retires debt (FIFO), how the debt ages, the `credit_limit`, and the automatic suspension. Every balance, bucket and status is derived on read.
+
+There are exactly two kinds of movement in the ledger: a `cargo` adds debt and a `pago` retires it. Nothing else moves money.
 
 ## Requirements
 
 ### Requirement: PA-01 — `outstanding` is derived, never stored
 
-`outstanding(customer, at)` MUST equal `sum(cargos) − sum(pagos) − sum(notas de crédito)` for the entries with `occurred_at ≤ at`; no balance column MUST exist, and a negative result MUST be a residual in the customer's favour, not an error.
+`outstanding(customer, at)` MUST equal `sum(cargos) − sum(pagos)` for the entries with `occurred_at ≤ at`; no balance column MUST exist, and the result MUST NOT be negative: a `pago` can never exceed the debt it settles, so there is no credit to hold.
 
 **Verification:** unit, integration
 
@@ -18,15 +20,21 @@ The money that comes back: `pago` and `nota de crédito`, how they retire debt (
 - WHEN the outstanding is read
 - THEN it equals the hand-computed total and no stored balance exists
 
-#### Scenario: An overpayment leaves a residual in the customer's favour
+#### Scenario: A payment larger than the debt is refused
 
 - GIVEN a customer owing 20,00 €
-- WHEN a `pago` of 35,00 € is recorded
-- THEN the outstanding is −15,00 €, the charges are unchanged and the request succeeds
+- WHEN a `pago` of 35,00 € is requested
+- THEN the request is refused, no `pago` row exists, the outstanding stays 20,00 € and the charges are unchanged
+
+#### Scenario: The owner returns the excess as change
+
+- GIVEN a customer owing 20,00 € who hands over 35,00 €
+- WHEN the owner records the payment
+- THEN the recorded `pago` is 20,00 €, the outstanding is 0,00 € and the 15,00 € excess is returned as change and never enters the book
 
 ### Requirement: PA-02 — Payments are allocated FIFO
 
-A `pago` MUST retire the oldest unpaid `cargo` first, and any surplus MUST remain as credit in the customer's favour.
+A `pago` MUST retire the oldest unpaid `cargo` first. A `pago` MUST NOT exceed the outstanding it retires: the excess is returned as change by the owner and never enters the book, so no credit exists.
 
 **Verification:** unit
 
@@ -41,6 +49,18 @@ A `pago` MUST retire the oldest unpaid `cargo` first, and any surplus MUST remai
 - GIVEN a `cargo` of 10,00 € on day 1 and one of 40,00 € on day 20, both unpaid
 - WHEN a `pago` of 6,00 € is applied
 - THEN 4,00 € of the oldest charge stays pending and the newer charge is untouched
+
+#### Scenario: An allocation leaves no residual
+
+- GIVEN a customer owing 20,00 €
+- WHEN a `pago` of 20,00 € is applied
+- THEN every cent is placed, the allocation reports no residual and the outstanding is 0,00 €
+
+#### Scenario: The repartition is recorded charge by charge
+
+- GIVEN a customer owing 8,00 €, 7,00 € and 15,00 €, in that order
+- WHEN a `pago` of 20,00 € is applied
+- THEN the repartition records 8,00 € against the first charge, 7,00 € against the second and 5,00 € against the third, and the three charges read 8/8, 7/7 and 5/15
 
 ### Requirement: PA-03 — Ageing buckets are derived per charge
 
@@ -62,18 +82,6 @@ Each unpaid `cargo` MUST be bucketed by its own age, and the four bucket totals 
 - GIVEN unpaid charges aged 5, 8, 30, 31 and 91 days and a customer with payments
 - WHEN the ageing buckets are computed
 - THEN they fall in `vigente`, `envejecido`, `envejecido`, `viejo` and `cronico` and the totals equal the outstanding exactly
-
-### Requirement: PA-04 — A disputed charge is debt, not a credit
-
-A `cargo` under an open dispute MUST still count in the outstanding and age in its own bucket; a dispute MUST never remove an amount from the debt. Only a `nota de crédito` reduces it.
-
-**Verification:** unit, integration
-
-#### Scenario: A disputed charge still ages
-
-- GIVEN a disputed `cargo` of 6,40 € dated 40 days ago
-- WHEN the outstanding and the ageing are read
-- THEN the outstanding includes 6,40 € and the charge sits in the `viejo` bucket
 
 ### Requirement: PA-05 — The credit limit is an explicit state
 
@@ -113,7 +121,7 @@ A customer MUST be `suspendido` when the oldest unpaid charge is older than 30 d
 
 ### Requirement: PA-07 — A suspended customer cannot receive a new charge
 
-While the customer is `suspendido`, the server MUST refuse a new `cargo` with HTTP 422 naming the cause, MUST create NO entry and MUST create no charge line either.
+While the customer is `suspendido`, the server MUST refuse a new `cargo` with HTTP 422 naming the cause, MUST create NO entry and MUST create no charge line either. A `FiadoPropuesto` for a suspended customer MUST NOT be confirmable: the refusal happens when the confirmation would write the charge, and no proposal may be turned into a charge while the customer is suspended.
 
 **Verification:** integration
 
@@ -122,6 +130,12 @@ While the customer is `suspendido`, the server MUST refuse a new `cargo` with HT
 - GIVEN a customer suspended for a 45-day charge or for exceeding the limit
 - WHEN a new `cargo` is attempted
 - THEN the response is 422 with `codigo_error` `limite_superado` or `antiguedad_superada` and no entry is created
+
+#### Scenario: A suspended customer cannot confirm a proposal
+
+- GIVEN a customer suspended for a 45-day charge and a prepared `FiadoPropuesto` of 10,00 €
+- WHEN the owner records the confirmation
+- THEN the response is 422 with `codigo_error` `antiguedad_superada` and no charge exists
 
 ### Requirement: PA-08 — The owner can lift a suspension explicitly
 
@@ -141,21 +155,27 @@ The owner MUST be able to return a suspended customer to `activo`; the override 
 - WHEN the owner lifts the suspension
 - THEN no prior entry changed and the outstanding is unchanged
 
-### Requirement: PA-09 — A correction is appended as a `nota de crédito`
+### Requirement: PA-09 — A payment is recorded only by the owner
 
-A `nota de crédito` MUST reduce the outstanding by its amount and MUST NOT modify the `cargo` it corrects; the corrected `cargo` MUST remain exactly as it was recorded.
+A `pago` MUST be written to the ledger only by a member of staff, after the owner has validated it; a client MUST NOT write to the ledger by any route. A client MAY propose a payment against their own confirmed charges from their portal, and that proposal MUST NOT create a `pago` on its own.
 
 **Verification:** integration
 
-#### Scenario: The credit note reduces the debt without touching the charge
+#### Scenario: The client's proposal does not write to the ledger
 
-- GIVEN a `cargo` of 10,00 €
-- WHEN a `nota de crédito` of 4,00 € is recorded
-- THEN the outstanding is 6,00 € and the `cargo` row is unchanged
+- GIVEN a client with a confirmed `cargo` of 10,00 €
+- WHEN the client proposes a payment of 4,00 € from the portal
+- THEN no `pago` exists and the outstanding still reads 10,00 €
+
+#### Scenario: The owner records the validated payment
+
+- GIVEN the same proposed payment
+- WHEN the owner validates it and records it
+- THEN a `pago` of 4,00 € exists and the outstanding reads 6,00 €
 
 ### Requirement: PA-10 — The ledger write API is validated
 
-Every entry MUST have `amount > 0`, a `kind` in {`cargo`, `pago`, `nota_credito`} and an author; a rejected entry MUST NOT be persisted and MUST be answered with HTTP 422 carrying a machine-readable `codigo_error`. The ledger write API MUST NOT accept `occurred_at` — the server MUST stamp it — and a request carrying it MUST be refused and MUST create no row.
+Every entry MUST have `amount > 0`, a `kind` in {`cargo`, `pago`} and an author; a rejected entry MUST NOT be persisted and MUST be answered with HTTP 422 carrying a machine-readable `codigo_error`. The ledger write API MUST NOT accept `occurred_at` — the server MUST stamp it — and a request carrying it MUST be refused and MUST create no row.
 
 **Verification:** integration
 

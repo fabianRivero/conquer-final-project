@@ -13,6 +13,12 @@ implementation:
   completed: '2026-10-30'
   tasks_completed: 13
   tasks_total: 71
+  model: v1
+  v1_status: >-
+    The v1 plan (71 tasks) was delivered as three chained PR batches: PR1
+    Foundation (7), PR2a DataModel (6) and PR3a DomainRules (18), merged into
+    the tracker branch feature/base-del-proyecto. That work is real, merged
+    and green: 119 unit tests and 37 integration tests.
   slices:
     - name: PR1-Foundation
       tasks: 7
@@ -101,6 +107,210 @@ closure:
     - The application itself: no backend/, no frontend/, no requirements.txt exists yet.
     - The README, the memoria section 3.1-3.8 and the 30-minute defence script.
     - The validation instrument evidence-annex.md, whose 70 fields stay PENDING.
+
+v2_redesign:
+  recorded: '2026-11-07'
+  brief: openspec/changes/fiado-confirmado/redesign-brief.md
+  decision: >-
+    The dispute machinery and the nota de credito are removed. The problem the
+    old change solved - the two sides do not have the same figure - is now
+    solved by PREVENTION instead of resolution: the owner prepares a fiado
+    with its desglose, the client sees it on a screen in the shop and
+    confirms it, and only then does the charge exist and become debt. If the
+    client does not confirm, the owner cancels the proposal and no debt
+    remains.
+  consequences:
+    - The client never writes to the ledger. It reads its own statement and proposes a payment. Its codigo is a read identifier plus the right to propose.
+    - Two movement kinds in the book (cargo, pago) instead of three; one confirmation state instead of two; zero credit notes.
+    - Four entities are born: FiadoPropuesto, PropuestaLinea, PagoPropuesto, ImputacionPago. The entity count goes from twelve to sixteen.
+    - The itemisation becomes mandatory: a charge without lines cannot exist, because a figure the client cannot see broken down is not a figure the client confirmed.
+    - LedgerEntry.cargo_id is gone, five constraints are gone and two partial indexes are gone.
+    - The dispute-resolution capability and its four requirements (DR-01..DR-04) are deleted.
+  artefacts_updated:
+    - specs/client-confirmation/spec.md
+    - specs/itemised-charges/spec.md
+    - specs/payments-and-ageing/spec.md
+    - specs/confirmation-facilitation/spec.md
+    - specs/client-accounts-and-credentials/spec.md
+    - specs/dispute-resolution/ (deleted)
+    - requirement-index.md (48 requirements, 15 conditional, 88 scenarios; PA-04 removed)
+    - design.md (all 19 sections rewritten)
+    - data-model-index.md
+    - task-source-index.md
+    - tasks.md (74 tasks across 8 phases)
+  requirements: 48
+  tasks: 74
+  invalidates_delivered_work: >-
+    Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
+    - the entity set, five constraints and two partial indexes change. Phase 3
+    is partly invalidated - five of its nine modules change. Phases 4 to 7 were
+    never delivered and are re-planned against the v2 contract.
+  next_work_unit: >-
+    Phase 4 - the service and API layer. It is the first slice that converts
+    ORM rows into the plain records of domain/types.py, and the first that
+    could misuse them. It is where rules 1 to 21 become transaction-level
+    refusals with a codigo_error, and where the four proposal routes and the
+    client's proposed payment appear for the first time.
+  phase3_delivered:
+    completed: '2026-11-09'
+    tasks: 13
+    files:
+      - backend/tienda/domain/types.py
+      - backend/tienda/domain/confirmation.py
+      - backend/tienda/domain/allocation.py
+      - backend/tienda/domain/evaluation.py
+      - backend/tienda/domain/charges.py
+      - backend/tienda/domain/position.py
+      - backend/tienda/domain/__init__.py
+      - backend/tests/unit/test_confirmation.py
+      - backend/tests/unit/test_allocation.py
+      - backend/tests/unit/test_evaluation.py
+      - backend/tests/unit/test_charges.py
+      - backend/tests/unit/test_position.py
+      - backend/tests/unit/test_domain_is_orm_free.py
+      - backend/tests/harness/domain_is_db_free.py
+    evidence: >-
+      128 unit tests and 53 integration tests pass. The standalone harness
+      reports OK: 21 rules exercised with no Django settings and no
+      database - up from 17, because four rules were added.
+    delta:
+      types.py: >-
+        Adds PropuestaEstado, PagoPropuestoEstado, PropuestaLine and
+        Imputacion; ChargeState gains the derived saldo; EntryKind loses
+        nota_credito and ConfirmState loses en_disputa; LedgerLine loses its
+        cargo field and ConfirmacionRow loses importe_reclamado.
+      confirmation.py: >-
+        Loses transicion_permitida and escalado_sin_confirmar - both have no
+        object any more. Gains propuesta_transicion_permitida, which guards
+        the one-way proposal transition, and confirmacion_requerida, which is
+        rule 5.
+      allocation.py: >-
+        Loses the credit_notes parameter. Gains imputations_of, which
+        produces the rows the service persists - one per payment and charge
+        pair, with the grain of the charge.
+      evaluation.py: loses the dispute case and the credit-note term.
+      charges.py: >-
+        Gains propuesta_amount_matches. charge_amount_matches stops matching
+        an empty line set: the itemisation is mandatory.
+      position.py: outstanding loses its third term and is never negative.
+      unchanged:
+        - ageing.py
+        - stock.py
+        - cash.py
+        - position.py's real_position and cash_at
+    proof_non_vacuous: >-
+      Three probes, each failing the tests it should and nothing else.
+      Emptying imputations_of failed the four repartition tests in
+      test_allocation.py. Restoring the v1 line-less behaviour in
+      charge_amount_matches failed test_a_line_less_charge_matches_no_declared_amount.
+      Making the proposal transition two-way failed test_the_transition_is_one_way.
+      All three were restored byte-for-byte.
+    tasks_completed_total: 51
+  phase2_delivered:
+    completed: '2026-11-08'
+    tasks: 7
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/migrations/0001_initial.py
+      - backend/tests/integration/test_constraints.py
+    evidence: >-
+      119 unit tests and 53 integration tests pass. The migration applies on a
+      fresh database, reverses cleanly with migrate tienda zero, and
+      re-applies. The schema was read back from the PostgreSQL catalog: 16
+      tables, 29 CHECK constraints and exactly the three partial unique
+      indexes design section 3 names. makemigrations --check reports no
+      changes.
+    defect_found_and_fixed: >-
+      The v1 constraint chk_confirmacion_facilitador_iff_origen only
+      enforced one direction of rule 7b: it refused origen='facilitado'
+      without a facilitator but accepted origen='tienda' WITH one. The v2
+      constraint is a true biconditional, read back from the catalog as
+      CHECK ((facilitado_por_id IS NOT NULL AND origen = 'facilitado') OR
+      (facilitado_por_id IS NULL AND origen = 'tienda')). The v1 test suite
+      never asserted the reverse direction, which is why the defect survived.
+    proof_non_vacuous: >-
+      Removing the kind CHECK from the schema and regenerating the migration
+      made test_ledgerentry_kind_vocabulary_is_refused fail with DID NOT
+      RAISE IntegrityError. The constraint was restored and the suite
+      returned to green.
+    tasks_completed_total: 38
+  open_decision: null
+  no_customer_credit:
+    decided: '2026-11-07'
+    by: user
+    rule: >-
+      A pago never exceeds the debt it retires. The shop returns the excess as
+      change and it never enters the book, so no customer credit can exist.
+    encoding:
+      - 'design section 3.2 rule 19, with the error code pago_excede_deuda'
+      - 'design section 4 ADR-26'
+      - 'design section 3.1 never-stored list, which forbids a customer credit'
+      - 'design section 12.2 landmine 15, a customer credit creeping back'
+      - 'design section 10: outstanding is never negative and the allocation never leaves a residual'
+      - 'specs/payments-and-ageing: PA-01 and PA-02 rewritten, 83 to 85 scenarios'
+    rejected_alternative: >-
+      Allowing a pago larger than the debt and holding the difference as a
+      balance in the client's favour. It would have resurrected a whole
+      capability - a credit to age, to limit, to reconcile and to explain - and
+      a stored credit is a derived value in a design whose section 3.1 forbids
+      derived values.
+    consequence: >-
+      The outstanding is never negative, the ageing buckets always sum exactly
+      to the outstanding, and there is no credit state anywhere in the system.
+      The Allocation record keeps its residual field so a caller has one shape
+      to read, and it is always zero.
+  imputation_model:
+    decided: '2026-11-07'
+    by: user
+    decision: >-
+      The PagoPropuesto names NO charge (option C). The client proposes an
+      amount and the FIFO decides which debts it retires. The repartition is
+      RECORDED, not recomputed: a new entity ImputacionPago holds one row per
+      (payment, charge) pair, with the grain of the CHARGE.
+    worked_example: >-
+      A client owes 8,00 of bread, 7,00 of soda and 15,00 of biscuits, in that
+      order, and pays 20,00. The payment writes three imputations - 8,00, 7,00
+      and 5,00 - and the charges read 8/8, 7/7 and 5/15.
+    grain: charge
+    rejected_alternatives:
+      - >-
+        A mutable pagado column on the charge. It breaks the append-only
+        guarantee of the book and is a stored derived value, which section 3.1
+        forbids and landmine 12 polices.
+      - >-
+        Recomputing the repartition on read. The numbers would move if the FIFO
+        rule ever changed, and a credit book cannot do that.
+      - >-
+        Naming the target charge on the PagoPropuesto. The client does not
+        choose which debt it pays, so the proposal names no charge.
+      - >-
+        The grain of the CargoLinea. The design defines no policy for splitting
+        a partial payment across the lines of one charge, and it does not need
+        one: the desglose says what was bought, the debt says what is owed and
+        the repayment says what was paid against the debt.
+    consequences:
+      - The entity count goes from fifteen to sixteen.
+      - A payment writes its LedgerEntry(pago) and its ImputacionPago rows in one transaction.
+      - 'Two new transactional rules: 20 (the pair names a cargo and a pago) and 21 (the imputations add up to the payment and no charge is over-imputed).'
+      - 'The client statement carries pagado and saldo per charge, both derived on read.'
+      - The error code cargo_no_indicado is gone; the vocabulary drops to seventeen.
+      - Rule 19 is reworded: the bound is the customer's total outstanding, not one charge's.
+    encoding:
+      - 'design section 3: the ImputacionPago entity'
+      - 'design section 3.1: append-only, and why the repartition is recorded'
+      - 'design section 3.2: rules 20 and 21'
+      - 'design section 4 ADR-27'
+      - 'design section 9.1: the propose route loses cargo_id'
+      - 'design section 9.2: pagado and saldo on the client serializer'
+      - 'design section 10: the Imputacion record, imputations_of and ChargeState.saldo'
+      - 'design section 13.3: the payment flow'
+      - 'specs/payments-and-ageing PA-02 and specs/client-confirmation CC-02 and CC-07, 85 to 88 scenarios'
+  gates:
+    Regla_4: built
+    Regla_5: built
+    Regla_6: built
+    N5: closed
+
   superseded: >-
     The closure decision was taken when no implementation had run. The owner
     later authorised sdd-apply and the first slice was delivered as three
