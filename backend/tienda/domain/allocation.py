@@ -13,35 +13,35 @@ fixture always produces the same result.
 oldest charge does not skip it and does not settle it: it takes a slice out
 of it and the remainder stays owed.
 
-**The surplus stays as a residual.** A payment larger than the outstanding
-leaves the excess in the customer's favour. It is not an error and it is not
-silently dropped: it is reported as `residual` on the `Allocation`.
+**No residual is possible.** A payment larger than the outstanding is
+refused at the transaction (rule 19): the shop returns the excess as change
+and it never enters the book, so every cent of every payment is always
+placed. The `residual` field stays on the `Allocation` record and is always
+zero — it is kept so a caller that reads it has one shape to read, not
+because a surplus is a legal state (ADR-26).
 
-**A credit note imputes only to an older charge.** A `nota_credito` reduces
-the debt of a charge that happened **at or before** the note itself
-(`charge.occurred_at ≤ credit.occurred_at`). A note cannot retroactively
-cancel a charge that is younger than it, and a note that matches no eligible
-charge stays as residual credit.
-
-The result is an `Allocation`: the per-pair assignments, the residual and
-what is still owed on each charge.
+**The repartition is recorded, not recomputed.** `imputations_of` turns the
+allocation into the rows the service layer persists: one per (payment,
+charge) pair, **with the grain of the charge**. A payment of 20,00 € that
+retires charges of 8,00 €, 7,00 € and 15,00 € produces three imputations —
+8,00 €, 7,00 € and 5,00 € — and the charges read 8/8, 7/7 and 5/15
+(ADR-27).
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from .types import Allocation, EntryKind, LedgerLine
+from .types import Allocation, EntryKind, Imputacion, LedgerLine
 
 CERO = Decimal("0")
 
 
-def allocate_payments(charges, payments, *, credit_notes=()) -> Allocation:
+def allocate_payments(charges, payments) -> Allocation:
     """Retire `charges` with `payments`, oldest charge first.
 
-    `charges` are the `cargo` ledger lines, `payments` the `pago` ledger
-    lines and `credit_notes` the `nota_credito` ledger lines. All three are
-    plain `LedgerLine` records.
+    `charges` are the `cargo` ledger lines and `payments` the `pago` ledger
+    lines. All of them are plain `LedgerLine` records.
 
     The allocation walks the charges in `(occurred_at, id)` order and the
     money in `(occurred_at, id)` order as well, so the result is
@@ -52,13 +52,15 @@ def allocate_payments(charges, payments, *, credit_notes=()) -> Allocation:
     * `asignaciones` — one `(payment_id, charge_id, amount)` triple per
       allocation, in the order it was made;
     * `saldos` — the `(charge_id, amount)` still owed on each charge;
-    * `residual` — the money that matched nothing, in the customer's favour.
+    * `residual` — always zero; a surplus is refused before it can exist.
+
+    There is **no `credit_notes` parameter** any more. The v1 function took
+    one and applied the notes directly to the charges; with the dispute
+    machinery gone there is no `nota de crédito` to apply, and a `pago`
+    imputes only against a `cargo`.
     """
-    # The money, oldest first. A credit note is money too, but it is not
-    # fungible with a payment: it may only impute to a charge that is at
-    # least as old as the note itself, so the two kinds are kept apart.
+    # The money, oldest first.
     pagos = _ordered(payments, EntryKind.PAGO)
-    notas = _ordered(credit_notes, EntryKind.NOTA_CREDITO)
     cargos = sorted(charges, key=_order_key)
 
     # How much of each charge is still owed. A charge starts fully owed.
@@ -66,37 +68,7 @@ def allocate_payments(charges, payments, *, credit_notes=()) -> Allocation:
 
     asignaciones: list[tuple[int, int, Decimal]] = []
 
-    # The credit notes reduce the debt **directly**. A `nota de crédito` is
-    # money given back, not money received: it does not need a payment to
-    # fund it, and it does not draw on the payments. It imputes to the
-    # charges it is eligible for, oldest first, exactly like a payment
-    # does — with the one restriction that it may only reach a charge that
-    # is at least as old as the note itself.
-    #
-    # The notes go first because they are the most constrained money: a note
-    # can never take from a charge that is younger than it, while a payment
-    # can only reach charges that are older than it. Processing them first
-    # keeps both guarantees exact.
-    for nota in notas:
-        restante = nota.amount
-        for cargo in cargos:
-            if restante <= CERO:
-                break
-            if nota.occurred_at < cargo.occurred_at:
-                # The note is younger than this charge: it may not impute to
-                # it, and it may not impute to any younger charge either.
-                break
-            if pendiente[cargo.id] <= CERO:
-                continue
-            toma = min(restante, pendiente[cargo.id])
-            if toma <= CERO:
-                continue
-            asignaciones.append((nota.id, cargo.id, toma))
-            pendiente[cargo.id] -= toma
-            restante -= toma
-        # Whatever the note could not place stays as residual.
-
-    # The payments retire what the notes left.
+    # The payments retire the charges, oldest first.
     for pago in pagos:
         restante = pago.amount
         for cargo in cargos:
@@ -115,15 +87,45 @@ def allocate_payments(charges, payments, *, credit_notes=()) -> Allocation:
             pendiente[cargo.id] -= toma
             restante -= toma
 
-    # The money that matched nothing is the customer's.
+    # The money that matched nothing would be the customer's. Rule 19 makes
+    # it impossible: a `pago` larger than the debt it retires is refused
+    # before it reaches this function. The residual is therefore always zero,
+    # and it is computed here rather than assumed so that a caller which
+    # passes an overpayment learns the truth instead of a stale field.
     total_pagado = sum((p.amount for p in pagos), CERO)
-    total_notado = sum((n.amount for n in notas), CERO)
     asignado = sum((a[2] for a in asignaciones), CERO)
-    residual = total_pagado + total_notado - asignado
+    residual = total_pagado - asignado
 
     saldos = tuple((cargo.id, pendiente[cargo.id]) for cargo in cargos)
 
     return Allocation(asignaciones=tuple(asignaciones), residual=residual, saldos=saldos)
+
+
+def imputations_of(allocation, payment_id) -> tuple[Imputacion, ...]:
+    """The rows to persist for one payment, one per charge it touched.
+
+    `allocation` is the result of `allocate_payments` and `payment_id` the
+    identifier of the payment whose rows are wanted. The result is the
+    tuple of `Imputacion` records the service layer writes to the
+    `ImputacionPago` table.
+
+    **The grain is the charge.** A charge of 15,00 € made of three
+    `CargoLinea` rows is one debt of 15,00 €, and a payment that settles
+    5,00 € of it produces **one** imputation against the charge — not three
+    against the lines. The design defines no policy for splitting a partial
+    payment across the lines of a single charge, and it does not need one:
+    the `desglose` says what was bought, the debt says what is owed and the
+    repayment says what was paid against the debt (ADR-27).
+
+    The rows come out in the order the allocation made them, which is FIFO
+    by charge, so the persisted repartition reads in the same order the
+    money was applied.
+    """
+    return tuple(
+        Imputacion(pago_id=payment_id, cargo_id=cargo_id, importe=importe)
+        for (pago, cargo_id, importe) in allocation.asignaciones
+        if pago == payment_id
+    )
 
 
 def _ordered(lines, kind: EntryKind):

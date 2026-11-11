@@ -50,16 +50,6 @@ def pago(identificador: int, importe: str, dias: int = 0) -> LedgerLine:
     )
 
 
-def nota(identificador: int, importe: str, dias: int = 0) -> LedgerLine:
-    """A `nota_credito` ledger line `dias` days after the base instant."""
-    return LedgerLine(
-        id=identificador,
-        kind=EntryKind.NOTA_CREDITO,
-        amount=Decimal(importe),
-        occurred_at=BASE + dias * DIA,
-    )
-
-
 def entrada(identificador: int, importe: str, dias: int = 0) -> CashLine:
     """A cash `entrada` `dias` days after the base instant."""
     return CashLine(
@@ -81,16 +71,19 @@ def salida(identificador: int, importe: str, dias: int = 0) -> CashLine:
 
 
 @pytest.mark.unit
-def test_the_outstanding_is_the_difference_of_the_three_kinds():
-    """`Σ cargos − Σ pagos − Σ notas` over the entries at or before `at`."""
+def test_the_outstanding_is_the_difference_of_the_two_kinds():
+    """`Σ cargos − Σ pagos` over the entries at or before `at`.
+
+    There is no third kind: the `nota de crédito` is gone with the dispute
+    machinery (ADR-19).
+    """
     lineas = [
         cargo(1, "20.00"),
         cargo(2, "10.00", dias=1),
         pago(3, "5.00", dias=2),
-        nota(4, "4.00", dias=3),
     ]
 
-    assert outstanding(lineas, BASE + 10 * DIA) == Decimal("21.00")
+    assert outstanding(lineas, BASE + 10 * DIA) == Decimal("25.00")
 
 
 @pytest.mark.unit
@@ -112,40 +105,51 @@ def test_the_outstanding_of_an_empty_ledger_is_zero():
 
 
 @pytest.mark.unit
-def test_a_negative_outstanding_is_a_credit_in_the_customers_favour():
-    """An overpayment leaves a residual — it is not an error (ADR-9, PA-01).
+def test_the_outstanding_never_goes_below_zero():
+    """Rule 19: a `pago` never exceeds the debt it retires.
 
-    The scenario of PA-01: a customer owing 20,00 € pays 35,00 €. The
-    outstanding is −15,00 € and the rule reports it as it is.
+    The excess leaves the counter as change and never enters the book, so
+    there is no credit to hold and no `credit_a_favor` state (ADR-26). The
+    v1 model let a `pago` of 35,00 € against a debt of 20,00 € produce a
+    negative outstanding; that state does not exist any more.
+
+    The rule itself is a plain subtraction and cannot raise — the
+    guarantee lives in the write path, which refuses the overpayment before
+    it becomes a row. What this test asserts is that the rule carries no
+    third term that could make a credit.
     """
-    lineas = [cargo(1, "20.00"), pago(2, "35.00")]
+    from tienda.domain.types import EntryKind as _EntryKind
 
-    assert outstanding(lineas, BASE + 1 * DIA) == Decimal("-15.00")
+    assert not hasattr(_EntryKind, "NOTA_CREDITO")
+
+    # A payment that fits leaves nothing owed.
+    lineas = [cargo(1, "20.00"), pago(2, "20.00")]
+    assert outstanding(lineas, BASE + 1 * DIA) == Decimal("0")
 
 
 @pytest.mark.unit
-def test_the_outstanding_never_raises_on_a_negative_result():
-    """The negative result is a value, not an exception.
+def test_the_outstanding_has_no_credit_term():
+    """The outstanding subtracts the payments and nothing else.
 
-    A rule that refused a negative outstanding would make an overpayment
-    unrepresentable, and the shop would have nowhere to put the money.
+    The v1 rule subtracted three kinds: `cargos`, `pagos` and
+    `nota_credito`. The third one is gone, and with it the possibility of a
+    balance in the customer's favour.
     """
-    lineas = [cargo(1, "1.00"), pago(2, "100.00")]
+    from tienda.domain import position as modulo
 
-    try:
-        resultado = outstanding(lineas, BASE)
-    except Exception as exc:  # pragma: no cover - the assertion is the point
-        pytest.fail(f"a negative outstanding must not raise: {exc!r}")
+    import inspect
 
-    assert resultado < 0
+    source = inspect.getsource(modulo.outstanding)
+    assert "NOTA_CREDITO" not in source
+    assert "credit" not in source.lower() or "credito" not in source.lower()
 
 
 @pytest.mark.unit
-def test_a_disputed_charge_is_still_debt():
-    """A dispute removes no amount from the debt (PA-04).
+def test_a_confirmed_charge_is_still_debt():
+    """A charge is debt in full, whatever its confirmation says.
 
-    The dispute lives in the confirmation rows, which the outstanding never
-    reads. The rule sees a `cargo` and counts it, whole.
+    The confirmation lives in rows the outstanding never reads. The rule
+    sees a `cargo` and counts it, whole.
     """
     lineas = [cargo(1, "6.40")]
 

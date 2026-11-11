@@ -17,6 +17,11 @@ them.
 Nothing here is stored. `Customer` has no `status` column and no
 `suspended_reason` column (D1) — this module is where those two answers come
 from.
+
+The v1 module carried the dispute case: a charge under an open dispute was
+still debt, and a `nota de crédito` cancelled it. Both are gone with the
+dispute machinery — the client confirms the charge before it exists, so
+there is nothing to dispute and nothing to reconcile (ADR-18, ADR-19).
 """
 
 from __future__ import annotations
@@ -35,13 +40,15 @@ def antiguedad_max_dias(charges, payments, at) -> int:
     """The age of the oldest **unpaid** charge, in days.
 
     The age of the oldest charge that still owes something. A charge that a
-    payment has retired is not counted, and neither is a charge that a
-    credit note has cancelled — a `nota de crédito` reduces the debt just as
-    a payment does (PA-09), so a charge it settles is no longer owed and
-    cannot age.
+    payment has retired is not counted — the payment retires the debt, and a
+    retired debt does not age.
 
     Zero means nothing is owed. The figure drives both the automatic
     suspension (PA-06) and the order of the risk ladder (PA-03).
+
+    The signature is the one design §10 fixes: three arguments, charges and
+    payments and the instant. There is no third kind of money any more — the
+    credit note is gone.
     """
     unpaid = _unpaid_charges(charges, payments, at)
     if not unpaid:
@@ -59,12 +66,12 @@ def evaluate_customer(
 ) -> CustomerState:
     """The derived state of a customer at `at`.
 
-    `lines` are the customer's ledger lines — `cargo`, `pago` and
-    `nota_credito` alike. `credit_limit` is the explicit limit, or `None` for
-    «sin límite». `at` is the instant the question is asked; there is no
-    implicit clock. `suspension_age_days` is the age at which the debt
-    suspends the customer, 30 days by default. `override` is the owner's
-    lifted suspension.
+    `lines` are the customer's ledger lines — `cargo` and `pago` alike.
+    `credit_limit` is the explicit limit, or `None` for «sin límite». `at` is
+    the instant the question is asked; there is no implicit clock.
+    `suspension_age_days` is the age at which the debt suspends the
+    customer, 30 days by default. `override` is the owner's lifted
+    suspension.
 
     The result reports:
 
@@ -81,13 +88,17 @@ def evaluate_customer(
     `credit_limit=None` **never** fires `LIMITE_SUPERADO`. `override=True`
     lifts the automatic suspension entirely: the customer reads active even
     when both causes apply.
+
+    **The outstanding is never negative.** A `pago` never exceeds the debt it
+    retires (rule 19): the shop returns the excess as change and it never
+    enters the book, so there is no credit to hold and no `credit_a_favor`
+    state (ADR-26).
     """
     cargos = [line for line in lines if line.kind == EntryKind.CARGO]
     pagos = [line for line in lines if line.kind == EntryKind.PAGO]
-    notas = [line for line in lines if line.kind == EntryKind.NOTA_CREDITO]
 
-    total = _total(cargos, pagos, notas, at)
-    antiguedad = _antiguedad(cargos, pagos, notas, at)
+    total = _total(cargos, pagos, at)
+    antiguedad = _antiguedad(cargos, pagos, at)
 
     motivo: SuspensionReason | None = None
 
@@ -113,41 +124,41 @@ def evaluate_customer(
     )
 
 
-def _antiguedad(cargos, pagos, notas, at) -> int:
-    """The age of the oldest charge that still owes something.
-
-    The public `antiguedad_max_dias(charges, payments, at)` takes only
-    charges and payments — the signature design §10 fixes. The credit
-    notes are therefore applied here, where the caller has them, and the
-    public function delegates to the same computation with no notes.
-    """
-    unpaid = _unpaid_charges(cargos, pagos, at, notas)
+def _antiguedad(cargos, pagos, at) -> int:
+    """The age of the oldest charge that still owes something."""
+    unpaid = _unpaid_charges(cargos, pagos, at)
     if not unpaid:
         return 0
     return max(age_in_days(cargo.occurred_at, at) for cargo in unpaid)
 
 
-def _unpaid_charges(charges, payments, at, credit_notes=()):
+def _unpaid_charges(charges, payments, at) -> list:
     """The charges that still owe something at `at`.
 
-    The allocation decides which charges the money and the credit notes
-    retired, and a charge that is left with a zero balance is not counted. A
-    charge dated after `at` has not happened yet and is not counted either.
+    The allocation decides which charges the money retired, and a charge that
+    is left with a zero balance is not counted. A charge dated after `at` has
+    not happened yet and is not counted either.
+
+    There is no third kind of money: the v1 version applied the credit notes
+    here, and they are gone with the dispute machinery.
     """
     a_tenor = [c for c in charges if c.occurred_at <= at]
     pago_a_tenor = [p for p in payments if p.occurred_at <= at]
-    nota_a_tenor = [n for n in credit_notes if n.occurred_at <= at]
 
     if not a_tenor:
         return []
 
-    resultado = allocate_payments(a_tenor, pago_a_tenor, credit_notes=nota_a_tenor)
+    resultado = allocate_payments(a_tenor, pago_a_tenor)
     saldos = dict(resultado.saldos)
     return [c for c in a_tenor if saldos.get(c.id, Decimal("0")) > 0]
 
 
-def _total(cargos, pagos, notas, at) -> Decimal:
-    """`Σ cargos − Σ pagos − Σ notas` over the entries at or before `at`."""
+def _total(cargos, pagos, at) -> Decimal:
+    """`Σ cargos − Σ pagos` over the entries at or before `at`.
+
+    No third term: there is no `nota de crédito` any more, and no customer
+    credit — a `pago` never exceeds the debt it retires (rule 19).
+    """
     total = Decimal("0")
     for cargo in cargos:
         if cargo.occurred_at <= at:
@@ -155,7 +166,5 @@ def _total(cargos, pagos, notas, at) -> Decimal:
     for pago in pagos:
         if pago.occurred_at <= at:
             total -= pago.amount
-    for nota in notas:
-        if nota.occurred_at <= at:
-            total -= nota.amount
     return total
+

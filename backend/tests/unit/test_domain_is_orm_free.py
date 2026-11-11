@@ -215,3 +215,66 @@ def test_no_module_of_the_package_holds_a_django_settings_access():
                 f"{path.name} mentions {prohibido!r}; the domain layer must "
                 "stay free of Django, of DRF and of dynamic imports"
             )
+
+
+@pytest.mark.unit
+def test_no_module_of_the_package_imports_the_models():
+    """No file of the package imports `tienda.models`.
+
+    The rule is stronger than "no app module": the package may not import
+    `tienda` **at all**, not even its own subpackage. An absolute
+    `tienda.domain.types` would pull the `tienda` package — and with it
+    Django's app registry — into a layer that must stay free of it.
+
+    This test names the specific module that would break the boundary
+    hardest, so the reason is recorded next to the assertion: a rule that
+    reaches for the ORM row would be a rule that cannot be exercised
+    without a database.
+    """
+    offenders: list[str] = []
+    for path in _domain_files():
+        source = path.read_text(encoding="utf-8")
+        for linea in source.splitlines():
+            stripped = linea.strip()
+            if stripped.startswith("#"):
+                continue
+            if "tienda.models" in stripped or "from tienda import" in stripped:
+                offenders.append(f"{path.name}: {stripped}")
+
+    assert offenders == [], (
+        "the domain layer must not import the ORM models:\n" + "\n".join(offenders)
+    )
+
+
+@pytest.mark.unit
+def test_the_package_names_no_removed_vocabulary():
+    """No live code in the package uses the v1 concepts.
+
+    The dispute machinery is gone: the `nota de crédito`, the `en_disputa`
+    state, the `importe_reclamado` field and the credit-note parameter of
+    `allocate_payments`. A leftover reference would mean a rule that
+    computes something the model no longer stores.
+
+    Only **live code** is checked: a mention inside a docstring that
+    explains what was removed is a documentation of the change, not a use of
+    it. So the check looks at the AST for the names that would be
+    referenced at runtime.
+    """
+    for path in _domain_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            # An attribute access: `EntryKind.NOTA_CREDITO`.
+            if isinstance(node, ast.Attribute):
+                assert node.attr not in {
+                    "NOTA_CREDITO",
+                    "EN_DISPUTA",
+                }, (
+                    f"{path.name}:{node.lineno} uses {node.attr!r}, which the "
+                    "v2 model removed"
+                )
+            # A keyword argument: `allocate_payments(..., credit_notes=...)`.
+            if isinstance(node, ast.keyword) and node.arg:
+                assert node.arg != "credit_notes", (
+                    f"{path.name}:{node.lineno} passes credit_notes=, which the "
+                    "v2 model removed"
+                )

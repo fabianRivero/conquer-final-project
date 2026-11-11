@@ -3,14 +3,14 @@
 Three rules live here, and all three are pure functions over plain values.
 
 **`outstanding(lines, at)`** — the debt the customers owe right now. It is
-`Σ cargos − Σ pagos − Σ notas de crédito` over the entries whose
-`occurred_at ≤ at`. It is **derived, never stored** (PA-01): there is no
-balance column anywhere in the schema, and this function is where the number
-comes from. A negative result is **not an error** — it is a residual in the
-customer's favour, `credit_a_favor`, and it is reported as it is.
+`Σ cargos − Σ pagos` over the entries whose `occurred_at ≤ at`. It is
+**derived, never stored** (PA-01): there is no balance column anywhere in
+the schema, and this function is where the number comes from.
 
-A charge under an open dispute is **still debt** (PA-04): a dispute removes
-no amount from the debt. Only a `nota de crédito` reduces it.
+**The result is never negative.** A `pago` never exceeds the debt it retires
+(rule 19): the shop returns the excess as change and it never enters the
+book, so there is no credit to hold and no `credit_a_favor` state
+(ADR-26).
 
 **`cash_at(opening_cash, movements, pagos, at)`** — what the drawer holds.
 It is `inicial + Σ(entradas) − Σ(salidas) + Σ(pagos)` over the movements
@@ -39,16 +39,17 @@ CERO = Decimal("0")
 def outstanding(lines, at) -> Decimal:
     """The debt outstanding at `at`.
 
-    `Σ cargos − Σ pagos − Σ notas de crédito` over the entries whose
-    `occurred_at ≤ at`.
+    `Σ cargos − Σ pagos` over the entries whose `occurred_at ≤ at`.
 
-    A negative result is a **residual in the customer's favour**
-    (`credit_a_favor`), not an error: the customer paid more than they owed
-    and the surplus is theirs. The function returns it unchanged.
+    **The result is never negative.** A `pago` larger than the debt it
+    retires is refused at the transaction (rule 19), so a surplus never
+    enters the book and there is no credit to hold. The v1 function returned
+    a negative result as a residual in the customer's favour; that state
+    does not exist any more (ADR-26).
 
-    A `nota_credito` reduces the debt whatever it reconciles, because a
-    credit note is money given back (PA-09). A charge under an open dispute
-    is still counted in full (PA-04).
+    There is no third term: a `nota de crédito` is gone with the dispute
+    machinery, and the itemisation is mandatory, so a charge always carries
+    its lines and always carries its whole amount.
     """
     total = CERO
     for line in lines:
@@ -57,8 +58,6 @@ def outstanding(lines, at) -> Decimal:
         if line.kind == EntryKind.CARGO:
             total += line.amount
         elif line.kind == EntryKind.PAGO:
-            total -= line.amount
-        elif line.kind == EntryKind.NOTA_CREDITO:
             total -= line.amount
     return total
 

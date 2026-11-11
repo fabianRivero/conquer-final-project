@@ -13,12 +13,14 @@ The submodules are:
 
 * `types` — the plain records and the closed vocabularies (design §10).
 * `position` — `real_position`, `outstanding`, `cash_at` (CP-02, CP-03).
-* `allocation` — `allocate_payments`, the FIFO retirement of debt (PA-02).
+* `allocation` — `allocate_payments`, the FIFO retirement of debt, and
+  `imputations_of`, the repartition it records (PA-02, ADR-27).
 * `ageing` — `bucket_of`, `age_in_days` (PA-03).
 * `evaluation` — `evaluate_customer`, `antiguedad_max_dias` (PA-06).
 * `charges` — `total_de_linea`, `precio_unitario_de`,
-  `charge_amount_matches` (IC-02, IC-06, PC-02).
-* `confirmation` — the derived confirmation state (IC-03, IC-04).
+  `charge_amount_matches`, `propuesta_amount_matches` (IC-02, IC-06, PC-02).
+* `confirmation` — the derived confirmation state and the one-way proposal
+  transition (IC-03, IC-04, ADR-18, ADR-19).
 * `stock` — `existencias_registradas` (CP-07).
 * `cash` — `caja_al_cierre`, `desviacion_cierre` (CP-04).
 """

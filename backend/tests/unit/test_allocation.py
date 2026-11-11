@@ -1,239 +1,291 @@
-"""How the money that came back retires the debt (PA-02 — ADR-7).
+"""The FIFO retirement of debt, and the repartition it records.
 
-Three properties of the FIFO retirement, and the boundary of the credit
-note:
+Two guarantees are under test here.
 
-* the **oldest charge is retired first**;
-* a payment **smaller** than the oldest charge retires it only in part, and
-  leaves the newer charge untouched;
-* the **surplus stays as a residual** in the customer's favour;
-* a credit note imputes **only** to a charge with
-  `charge.occurred_at ≤ credit.occurred_at`.
+**The allocation.** `allocate_payments` walks the charges oldest first and
+the money oldest first, and the pair `(occurred_at, id)` makes the order
+total. A payment smaller than the oldest charge retires it in part; a
+payment larger than the debt is refused at the transaction, so the
+allocation never leaves a residual.
 
-None of these tests carries the `django_db` marker: the rule reads no
-database, and pytest-django would raise `RuntimeError: Database access not
-allowed` if it did.
+**The repartition.** `imputations_of` turns the allocation into the rows
+the service layer persists: one per (payment, charge) pair, **with the grain
+of the charge**. This is the mechanism behind the owner's charges reading
+8/8, 7/7 and 5/15 after a payment of 20,00 € against charges of 8,00 €, 7,00
+€ and 15,00 € (ADR-27).
 """
-
-from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
-from tienda.domain.allocation import allocate_payments
-from tienda.domain.types import EntryKind, LedgerLine
+from tienda.domain.allocation import allocate_payments, imputations_of
+from tienda.domain.types import CargoLine, EntryKind, LedgerLine
 
-DIA = timedelta(days=1)
-BASE = datetime(2026, 3, 1, 9, 0, 0)
+# The instant every fixture is stamped with. No implicit clock anywhere.
+T0 = datetime(2026, 5, 1, 9, 0, 0)
 
 
-def cargo(identificador: int, importe: str, dias: int = 0) -> LedgerLine:
-    """A `cargo` of `importe`, `dias` days after the base instant."""
+def _cargo(id, amount, *, dias=0):
+    """A charge line of the ledger."""
     return LedgerLine(
-        id=identificador,
+        id=id,
         kind=EntryKind.CARGO,
-        amount=Decimal(importe),
-        occurred_at=BASE + dias * DIA,
+        amount=Decimal(amount),
+        occurred_at=T0 + timedelta(days=dias),
     )
 
 
-def pago(identificador: int, importe: str, dias: int = 0) -> LedgerLine:
-    """A `pago` of `importe`, `dias` days after the base instant."""
+def _pago(id, amount, *, dias=0):
+    """A payment line of the ledger."""
     return LedgerLine(
-        id=identificador,
+        id=id,
         kind=EntryKind.PAGO,
-        amount=Decimal(importe),
-        occurred_at=BASE + dias * DIA,
+        amount=Decimal(amount),
+        occurred_at=T0 + timedelta(days=dias),
     )
 
 
-def nota(identificador: int, importe: str, dias: int = 0) -> LedgerLine:
-    """A `nota_credito` of `importe`, `dias` days after the base instant."""
-    return LedgerLine(
-        id=identificador,
-        kind=EntryKind.NOTA_CREDITO,
-        amount=Decimal(importe),
-        occurred_at=BASE + dias * DIA,
-    )
+# ---------------------------------------------------------------------------
+# The allocation
+# ---------------------------------------------------------------------------
 
 
-def saldos_de(resultado) -> dict[int, Decimal]:
-    """The `saldos` of an allocation as a dictionary."""
-    return dict(resultado.saldos)
-
-
-@pytest.mark.unit
 def test_the_oldest_charge_is_retired_first():
-    """The scenario of PA-02: 10,00 € on day 1 and 40,00 € on day 20.
+    """FIFO: the oldest charge is settled first."""
+    cargo10 = _cargo(1, "10.00", dias=0)
+    cargo40 = _cargo(2, "40.00", dias=19)
+    pago = _pago(9, "30.00", dias=20)
 
-    A payment of 30,00 € settles the 10,00 € charge and leaves 20,00 € of
-    the 40,00 € charge pending.
-    """
-    cargos = [cargo(1, "10.00", dias=0), cargo(2, "40.00", dias=19)]
-    pagos = [pago(10, "30.00", dias=25)]
+    resultado = allocate_payments([cargo10, cargo40], [pago])
 
-    resultado = allocate_payments(cargos, pagos)
-
-    saldos = saldos_de(resultado)
-    assert saldos[1] == Decimal("0")
+    saldos = dict(resultado.saldos)
+    assert saldos[1] == Decimal("0.00")
     assert saldos[2] == Decimal("20.00")
-    assert resultado.residual == Decimal("0")
 
 
-@pytest.mark.unit
 def test_the_allocation_names_the_payment_and_the_charge():
-    """Every allocation names the payment that made it and the charge it hit."""
-    cargos = [cargo(1, "10.00", dias=0), cargo(2, "40.00", dias=19)]
-    pagos = [pago(10, "30.00", dias=25)]
+    """Each assignment is a `(payment_id, charge_id, amount)` triple."""
+    cargo = _cargo(1, "10.00")
+    pago = _pago(9, "4.00")
 
-    resultado = allocate_payments(cargos, pagos)
+    resultado = allocate_payments([cargo], [pago])
 
-    assert resultado.asignaciones == (
-        (10, 1, Decimal("10.00")),
-        (10, 2, Decimal("20.00")),
-    )
+    assert resultado.asignaciones == ((9, 1, Decimal("4.00")),)
 
 
-@pytest.mark.unit
 def test_a_payment_smaller_than_the_oldest_charge_retires_it_in_part():
-    """The second scenario of PA-02: 6,00 € against a 10,00 € charge.
+    """A partial payment takes a slice and leaves the rest owed."""
+    cargo10 = _cargo(1, "10.00", dias=0)
+    cargo40 = _cargo(2, "40.00", dias=19)
+    pago = _pago(9, "6.00", dias=20)
 
-    4,00 € of the oldest charge stays pending and the newer charge is
-    untouched.
-    """
-    cargos = [cargo(1, "10.00", dias=0), cargo(2, "40.00", dias=19)]
-    pagos = [pago(10, "6.00", dias=25)]
+    resultado = allocate_payments([cargo10, cargo40], [pago])
 
-    resultado = allocate_payments(cargos, pagos)
-
-    saldos = saldos_de(resultado)
+    saldos = dict(resultado.saldos)
     assert saldos[1] == Decimal("4.00")
     assert saldos[2] == Decimal("40.00")
-    assert resultado.residual == Decimal("0")
 
 
-@pytest.mark.unit
 def test_the_order_is_by_occurred_at_and_then_by_id():
-    """FIFO by `(occurred_at, id)` — the identifier is the tie-breaker.
+    """The identifier is the tie-breaker, so the order is total.
 
     Two charges recorded at the same instant are ordered by their
-    identifier, so the allocation is total and the same fixture always
-    produces the same result.
+    identifier, so the same fixture always produces the same result.
     """
-    cargos = [
-        cargo(2, "10.00", dias=0),
-        cargo(1, "10.00", dias=0),
-    ]
-    pagos = [pago(10, "10.00", dias=5)]
+    cargo_a = _cargo(1, "10.00", dias=0)
+    cargo_b = _cargo(2, "10.00", dias=0)
+    pago = _pago(9, "15.00", dias=0)
 
-    resultado = allocate_payments(cargos, pagos)
+    resultado = allocate_payments([cargo_a, cargo_b], [pago])
 
-    assert resultado.asignaciones == ((10, 1, Decimal("10.00")),)
-    assert saldos_de(resultado)[2] == Decimal("10.00")
-
-
-@pytest.mark.unit
-def test_an_overpayment_leaves_a_residual():
-    """The surplus stays as a residual in the customer's favour (PA-02)."""
-    cargos = [cargo(1, "20.00", dias=0)]
-    pagos = [pago(10, "35.00", dias=1)]
-
-    resultado = allocate_payments(cargos, pagos)
-
-    assert resultado.asignaciones == ((10, 1, Decimal("20.00")),)
-    assert resultado.residual == Decimal("15.00")
-    assert saldos_de(resultado)[1] == Decimal("0")
+    assert resultado.asignaciones == (
+        (9, 1, Decimal("10.00")),
+        (9, 2, Decimal("5.00")),
+    )
 
 
-@pytest.mark.unit
 def test_several_payments_retire_the_charges_in_order():
-    """Two payments retire the charges in the order the money arrived."""
-    cargos = [cargo(1, "10.00", dias=0), cargo(2, "40.00", dias=19)]
-    pagos = [pago(10, "15.00", dias=25), pago(11, "15.00", dias=26)]
+    """Two payments retire in order, the second finishing the job."""
+    cargo10 = _cargo(1, "10.00", dias=0)
+    cargo40 = _cargo(2, "40.00", dias=19)
+    pago_a = _pago(8, "10.00", dias=20)
+    pago_b = _pago(9, "40.00", dias=21)
 
-    resultado = allocate_payments(cargos, pagos)
+    resultado = allocate_payments([cargo10, cargo40], [pago_a, pago_b])
 
-    saldos = saldos_de(resultado)
-    assert saldos[1] == Decimal("0")
-    assert saldos[2] == Decimal("20.00")
-    assert resultado.residual == Decimal("0")
-
-
-@pytest.mark.unit
-def test_a_credit_note_imputes_only_to_a_charge_that_is_at_least_as_old():
-    """`charge.occurred_at ≤ credit.occurred_at` (ADR-7).
-
-    The note is dated before the second charge, so it may impute to the
-    first one only. The second charge stays fully owed.
-    """
-    cargos = [cargo(1, "10.00", dias=0), cargo(2, "40.00", dias=19)]
-    notas = [nota(20, "10.00", dias=10)]
-
-    resultado = allocate_payments(cargos, [], credit_notes=notas)
-
-    saldos = saldos_de(resultado)
-    assert saldos[1] == Decimal("0")
-    assert saldos[2] == Decimal("40.00")
+    saldos = dict(resultado.saldos)
+    assert saldos[1] == Decimal("0.00")
+    assert saldos[2] == Decimal("0.00")
+    assert resultado.asignaciones == (
+        (8, 1, Decimal("10.00")),
+        (9, 2, Decimal("40.00")),
+    )
 
 
-@pytest.mark.unit
-def test_a_credit_note_may_impute_to_a_charge_of_the_same_instant():
-    """The boundary is inclusive: `≤`, not `<`.
-
-    A note recorded at the very instant of the charge may impute to it.
-    """
-    cargos = [cargo(1, "10.00", dias=0)]
-    notas = [nota(20, "4.00", dias=0)]
-
-    resultado = allocate_payments(cargos, [], credit_notes=notas)
-
-    assert saldos_de(resultado)[1] == Decimal("6.00")
-
-
-@pytest.mark.unit
-def test_a_credit_note_that_matches_no_eligible_charge_stays_credit():
-    """A note younger than every charge cannot impute, and stays residual.
-
-    The note is dated **before** the only charge, so the condition
-    `charge.occurred_at ≤ credit.occurred_at` does not hold and the note
-    may not impute to it. The money stays as residual credit.
-    """
-    cargos = [cargo(1, "10.00", dias=10)]
-    notas = [nota(20, "4.00", dias=5)]
-
-    resultado = allocate_payments(cargos, [], credit_notes=notas)
-
-    assert resultado.asignaciones == ()
-    assert saldos_de(resultado)[1] == Decimal("10.00")
-    assert resultado.residual == Decimal("4.00")
-
-
-@pytest.mark.unit
 def test_a_payment_may_not_retire_a_charge_that_is_younger_than_it():
-    """The mirror boundary: money that arrived first cannot clear a later
-    charge.
+    """A payment only reaches charges that are at least as old as it."""
+    cargo = _cargo(1, "10.00", dias=10)
+    pago = _pago(9, "10.00", dias=0)
 
-    A charge dated after the payment is not yet owed at the moment the
-    payment was made, so the payment cannot retire it. The money stays as
-    residual credit, to be applied to it later.
-    """
-    cargos = [cargo(1, "10.00", dias=10)]
-    pagos = [pago(10, "10.00", dias=0)]
-
-    resultado = allocate_payments(cargos, pagos)
+    resultado = allocate_payments([cargo], [pago])
 
     assert resultado.asignaciones == ()
-    assert saldos_de(resultado)[1] == Decimal("10.00")
-    assert resultado.residual == Decimal("10.00")
+    assert dict(resultado.saldos)[1] == Decimal("10.00")
 
 
-@pytest.mark.unit
 def test_an_empty_ledger_allocates_nothing():
-    """No charges, no money, nothing to do."""
+    """Nothing in, nothing out."""
     resultado = allocate_payments([], [])
 
     assert resultado.asignaciones == ()
     assert resultado.saldos == ()
     assert resultado.residual == Decimal("0")
+
+
+def test_the_allocation_never_leaves_a_residual():
+    """A payment that fits leaves nothing unmatched.
+
+    Rule 19 refuses a `pago` larger than the debt it retires, so the
+    residual is always zero. The v1 model let a surplus through and
+    reported it as a credit in the customer's favour; that state does not
+    exist any more (ADR-26).
+    """
+    cargo = _cargo(1, "20.00")
+
+    resultado = allocate_payments([cargo], [_pago(9, "20.00")])
+
+    assert resultado.residual == Decimal("0")
+
+
+def test_the_allocation_takes_no_credit_notes():
+    """`allocate_payments` has no `credit_notes` parameter any more.
+
+    The v1 function took one and applied the notes directly to the charges.
+    With the dispute machinery gone there is no `nota de crédito` to apply,
+    and a `pago` imputes only against a `cargo`.
+    """
+    from tienda.domain import allocation as modulo
+
+    import inspect
+
+    parametros = inspect.signature(modulo.allocate_payments).parameters
+    assert "credit_notes" not in parametros
+    assert list(parametros) == ["charges", "payments"]
+
+
+# ---------------------------------------------------------------------------
+# The repartition
+# ---------------------------------------------------------------------------
+
+
+def test_the_repartition_is_recorded_charge_by_charge():
+    """A payment of 20,00 € writes three imputations: 8, 7 and 5.
+
+    This is the owner's example: a client owes 8,00 € of bread, 7,00 € of
+    soda and 15,00 € of biscuits, and pays 20,00 €. The repartition records
+    8,00 € against the bread, 7,00 € against the soda and 5,00 € against the
+    biscuits (ADR-27).
+    """
+    pan = _cargo(1, "8.00", dias=0)
+    refresco = _cargo(2, "7.00", dias=1)
+    galletas = _cargo(3, "15.00", dias=2)
+    pago = _pago(9, "20.00", dias=3)
+
+    resultado = allocate_payments([pan, refresco, galletas], [pago])
+    imputaciones = imputations_of(resultado, 9)
+
+    assert [(i.cargo_id, i.importe) for i in imputaciones] == [
+        (1, Decimal("8.00")),
+        (2, Decimal("7.00")),
+        (3, Decimal("5.00")),
+    ]
+
+
+def test_the_repartition_leaves_the_charges_reading_8_8_7_7_and_5_15():
+    """The three charges read 8/8, 7/7 and 5/15 after the payment.
+
+    The `saldos` are what is still owed on each charge, and the derived
+    `pagado` is the amount minus that. Both come from the same allocation.
+    """
+    pan = _cargo(1, "8.00", dias=0)
+    refresco = _cargo(2, "7.00", dias=1)
+    galletas = _cargo(3, "15.00", dias=2)
+    pago = _pago(9, "20.00", dias=3)
+
+    resultado = allocate_payments([pan, refresco, galletas], [pago])
+    saldos = dict(resultado.saldos)
+    pagado = {
+        cargo.id: cargo.amount - saldos.get(cargo.id, Decimal("0"))
+        for cargo in (pan, refresco, galletas)
+    }
+
+    assert pagado[pan.id] == Decimal("8.00")
+    assert pagado[refresco.id] == Decimal("7.00")
+    assert pagado[galletas.id] == Decimal("5.00")
+    assert saldos[galletas.id] == Decimal("10.00")
+
+
+def test_the_grain_of_the_repartition_is_the_charge_not_the_line():
+    """A charge of 15,00 € made of three lines gets one imputation.
+
+    The design defines no policy for splitting a partial payment across the
+    lines of a single charge, and it does not need one: the `desglose` says
+    what was bought, the debt says what is owed and the repayment says what
+    was paid against the debt. So the imputation names the **charge**.
+    """
+    pan = _cargo(1, "15.00", dias=0)
+    pago = _pago(9, "5.00", dias=1)
+
+    resultado = allocate_payments([pan], [pago])
+    imputaciones = imputations_of(resultado, 9)
+
+    assert len(imputaciones) == 1
+    assert imputaciones[0].cargo_id == pan.id
+    assert imputaciones[0].importe == Decimal("5.00")
+
+
+def test_the_imputations_of_one_payment_add_up_to_that_payment():
+    """Rule 21: the imputations of a payment add up to the payment.
+
+    The sum cannot be a database `CHECK` — a `CHECK` sees one row and never
+    an aggregate — so it is the service layer's job. What the pure rule
+    guarantees is that the allocation places every cent, and therefore that
+    the rows it produces add up.
+    """
+    pan = _cargo(1, "8.00", dias=0)
+    refresco = _cargo(2, "7.00", dias=1)
+    galletas = _cargo(3, "15.00", dias=2)
+    pago = _pago(9, "20.00", dias=3)
+
+    resultado = allocate_payments([pan, refresco, galletas], [pago])
+    imputaciones = imputations_of(resultado, 9)
+
+    total = sum((i.importe for i in imputaciones), Decimal("0"))
+    assert total == pago.amount
+
+
+def test_the_imputations_of_several_payments_are_separate():
+    """Each payment gets its own rows, and they do not mix."""
+    cargo = _cargo(1, "30.00", dias=0)
+    pago_a = _pago(8, "10.00", dias=1)
+    pago_b = _pago(9, "20.00", dias=2)
+
+    resultado = allocate_payments([cargo], [pago_a, pago_b])
+
+    rows_a = imputations_of(resultado, 8)
+    rows_b = imputations_of(resultado, 9)
+
+    assert [(i.pago_id, i.importe) for i in rows_a] == [(8, Decimal("10.00"))]
+    assert [(i.pago_id, i.importe) for i in rows_b] == [(9, Decimal("20.00"))]
+
+
+def test_a_payment_that_touches_nothing_has_no_imputations():
+    """A payment that placed nothing produces no rows."""
+    cargo = _cargo(1, "10.00", dias=10)
+    pago = _pago(9, "10.00", dias=0)
+
+    resultado = allocate_payments([cargo], [pago])
+
+    assert imputations_of(resultado, 9) == ()
