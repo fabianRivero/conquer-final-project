@@ -11,14 +11,20 @@ planning_only: false
 implementation:
   first_slice: PR1-Foundation
   completed: '2026-10-30'
+  model: v1
   tasks_completed: 13
   tasks_total: 71
-  model: v1
+  tasks_completed_note: >-
+    The figures above are the v1 plan, kept as the history of what was
+    delivered under it: 31 of the 71 v1 tasks were completed when the
+    redesign replaced the plan. The current state is under v2_redesign.
   v1_status: >-
     The v1 plan (71 tasks) was delivered as three chained PR batches: PR1
     Foundation (7), PR2a DataModel (6) and PR3a DomainRules (18), merged into
     the tracker branch feature/base-del-proyecto. That work is real, merged
-    and green: 119 unit tests and 37 integration tests.
+    and green: 119 unit tests and 37 integration tests. It was superseded by
+    the v2 redesign, which rewrote five of its nine domain modules and the
+    whole data model.
   slices:
     - name: PR1-Foundation
       tasks: 7
@@ -38,6 +44,25 @@ implementation:
         not work either: Confirmacion.cargo_id points at LedgerEntry, the
         partial indexes span three tables, and the ledger tests need
         Customer.
+    - name: PR3a-DomainRules
+      tasks: 18
+      pull_requests: [8, 9]
+      lines: 3702
+      budget: size-exception
+      why_exception: >-
+        The seventeen rules without their tests would import nothing, and the
+        tests without the rules would not import at all. The harness alone is
+        274 lines and proves what the AST guard already proves.
+      constraint: >-
+        backend/tienda/domain/ imports no Django, no DRF and no app module.
+        The AST guard is not vacuous: injecting a forbidden import makes two
+        of its tests fail. The layer is DB-free by construction, because
+        pytest-django raises RuntimeError on any ORM call in a test without
+        the django_db marker.
+      superseded_by: >-
+        The v2 rewrite of the same layer. The record is kept because the work
+        was delivered, and the five modules it changed are listed under
+        v2_redesign.phase3_delivered.delta.
   delivery:
     strategy: feature-branch-chain
     tracker_branch: feature/base-del-proyecto
@@ -58,7 +83,22 @@ implementation:
         base: feat/pr1b-config-django
         lines: 431
         content: the foundation test suite and the strict CI
-    ci: passing on all three pull requests, on ubuntu-latest with Python 3.14
+      - number: 6
+        branch: feat/pr2a-modelo-datos
+        base: feature/base-del-proyecto
+        lines: 2118
+        content: the twelve-entity v1 data model, its initial migration and the constraint suite
+      - number: 8
+        branch: feat/pr3a-dominio
+        base: feature/base-del-proyecto
+        lines: 3702
+        content: the seventeen pure domain rules of the v1 model and their unit suite
+      - number: 9
+        branch: feature/base-del-proyecto
+        base: feature/base-del-proyecto
+        lines: 0
+        content: the union of the v1 chain into main
+    ci: passing on all the v1 pull requests, on ubuntu-latest with Python 3.14
   budget_note: >-
     The Phase 1 slice came to 985 lines, which does not fit the 400-line review
     budget. It was split into three chained pull requests, each independently
@@ -137,9 +177,17 @@ v2_redesign:
     - design.md (all 19 sections rewritten)
     - data-model-index.md
     - task-source-index.md
-    - tasks.md (74 tasks across 8 phases)
+    - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
-  tasks: 74
+  tasks: 69
+  tasks_completed: 20
+  tasks_completed_note: >-
+    Twenty of the sixty-nine v2 tasks are complete: the seven of Phase 2 and
+    the thirteen of Phase 3. The figure excludes the seven v1 Phase 1 tasks,
+    which were delivered under the v1 plan, stay valid exactly as they are
+    and are therefore not re-planned here. Phases 4 to 8 are pending. With
+    the seven v1 Phase 1 tasks the change as a whole is 76 tasks, 27
+    complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
@@ -151,6 +199,47 @@ v2_redesign:
     could misuse them. It is where rules 1 to 21 become transaction-level
     refusals with a codigo_error, and where the four proposal routes and the
     client's proposed payment appear for the first time.
+  phase3a_v1_delivered:
+    completed: '2026-11-02'
+    model: v1
+    tasks: 18
+    files:
+      - backend/tienda/domain/
+      - backend/tests/unit/test_domain_is_orm_free.py
+      - backend/tests/unit/test_position.py
+      - backend/tests/unit/test_allocation.py
+      - backend/tests/unit/test_ageing.py
+      - backend/tests/unit/test_evaluation.py
+      - backend/tests/unit/test_charges.py
+      - backend/tests/unit/test_confirmation.py
+      - backend/tests/unit/test_stock.py
+      - backend/tests/unit/test_cash.py
+      - backend/tests/harness/domain_is_db_free.py
+    pull_requests: [8, 9]
+    lines: 3702
+    budget: size-exception
+    why_exception: >-
+      The seventeen rules without their tests would import nothing, and the
+      tests without the rules would not import at all. The harness alone is
+      274 lines and proves what the AST guard already proves.
+    constraint: >-
+      backend/tienda/domain/ imports no Django, no DRF and no app module. The
+      AST guard is not vacuous: injecting a forbidden import makes two of
+      its tests fail. The layer is DB-free by construction, because
+      pytest-django raises RuntimeError on any ORM call in a test without
+      the django_db marker.
+    superseded_by: >-
+      The v2 rewrite of the same layer. Five of its nine modules changed:
+      the dispute machinery and the credit notes are gone, the state machine
+      collapsed to one transition, and the repartition of a payment is now
+      recorded per charge. The constraint above still holds and is enforced
+      by the same AST guard, extended with two v2 assertions.
+    note: >-
+      This record is the delivered v1 work, and it was inherited here rather
+      than merged in. The v2 branch is based on main, which does not carry
+      the tracker commit that recorded it, so the fact is stated here
+      instead of being lost. It is history, not a plan: nothing in this
+      change is pending.
   phase3_delivered:
     completed: '2026-11-09'
     tasks: 13
@@ -206,6 +295,11 @@ v2_redesign:
       Making the proposal transition two-way failed test_the_transition_is_one_way.
       All three were restored byte-for-byte.
     tasks_completed_total: 51
+    tasks_completed_note: >-
+      Fifty-one tasks complete in total across the whole change: the
+      thirty-one of the v1 plan, which include the seven of Phase 1, plus the
+      twenty of the v2 plan - the seven of Phase 2 and the thirteen of
+      Phase 3. The v2 plan alone stands at twenty of its sixty-nine.
   phase2_delivered:
     completed: '2026-11-08'
     tasks: 7
@@ -234,6 +328,10 @@ v2_redesign:
       RAISE IntegrityError. The constraint was restored and the suite
       returned to green.
     tasks_completed_total: 38
+    tasks_completed_note: >-
+      Thirty-eight tasks complete in total across the whole change: the
+      thirty-one of the v1 plan plus the seven of the v2 Phase 2. The v2
+      Phase 2 alone is seven of its seven.
   open_decision: null
   no_customer_credit:
     decided: '2026-11-07'
