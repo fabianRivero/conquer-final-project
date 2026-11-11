@@ -84,8 +84,12 @@ if (-not (Test-Path "$PgData\PG_VERSION")) {
 #     "^C" and shuts down cleanly;
 #   - a log inside PGDATA is re-opened by the postmaster and deadlocks on a
 #     sharing violation.
-# The launch that works: start pg_ctl with CREATE_NO_WINDOW, so the child
-# has no console at all and no control event can reach it.
+#
+# The launch that works: start the postmaster DIRECTLY - postgres.exe, not
+# pg_ctl - with CreateNoWindow. Both halves are needed. CreateNoWindow means
+# the child has no console, so no control event can reach it; and bypassing
+# pg_ctl means the process IS the server rather than a wrapper holding the
+# job-object membership that gets torn down with the session.
 New-Item -ItemType Directory -Path $PgLogDir -Force | Out-Null
 @"
 @echo off
@@ -99,13 +103,14 @@ Write-Host "`n== 4/5  Starting the server ==" -ForegroundColor Cyan
 & "$PgRoot\bin\pg_ctl.exe" -D $PgData status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "$PgRoot\bin\pg_ctl.exe"
-    $psi.Arguments = "-D `"$PgData`" -l `"$PgLog`" -w start"
+    $psi.FileName = "$PgRoot\bin\postgres.exe"
+    $psi.Arguments = "-D `"$PgData`""
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
-    $proceso = [System.Diagnostics.Process]::Start($psi)
-    $proceso.WaitForExit(60000) | Out-Null
-    Start-Sleep -Seconds 5
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
+    Start-Sleep -Seconds 10
 }
 
 $ready = $false
