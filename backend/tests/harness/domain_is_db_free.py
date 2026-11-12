@@ -49,29 +49,32 @@ if django_settings.configured:
 
 
 from tienda.domain.ageing import age_in_days, bucket_of  # noqa: E402
-from tienda.domain.allocation import allocate_payments  # noqa: E402
+from tienda.domain.allocation import allocate_payments, imputations_of  # noqa: E402
 from tienda.domain.cash import caja_al_cierre, desviacion_cierre  # noqa: E402
 from tienda.domain.charges import (  # noqa: E402
     charge_amount_matches,
     precio_unitario_de,
+    propuesta_amount_matches,
     total_de_linea,
 )
 from tienda.domain.confirmation import (  # noqa: E402
     confirmacion_efectiva,
-    escalado_sin_confirmar,
+    confirmacion_requerida,
     estado_cargo,
-    transicion_permitida,
+    propuesta_transicion_permitida,
 )
 from tienda.domain.evaluation import antiguedad_max_dias, evaluate_customer  # noqa: E402
 from tienda.domain.position import cash_at, outstanding, real_position  # noqa: E402
 from tienda.domain.stock import existencias_registradas  # noqa: E402
 from tienda.domain.types import (  # noqa: E402
     CashLine,
+    CargoLine,
     ConfirmacionRow,
     ConfirmState,
     EntryKind,
     LedgerLine,
     MovementKind,
+    PropuestaEstado,
     StockLine,
 )
 
@@ -102,10 +105,16 @@ def comprobar(condicion, mensaje):
         raise SystemExit(f"FAIL: {mensaje}")
 
 
-# 1. The outstanding, a negative result included.
+# 1. The outstanding. A payment that fits leaves nothing owed. There is no
+# `credit_a_favor` state any more: rule 19 refuses a `pago` larger than the
+# debt it retires, and the excess leaves the counter as change.
 comprobar(
-    outstanding([cargo(1, "20.00"), pago(2, "35.00")], BASE) == Decimal("-15.00"),
-    "the outstanding must report a credit in the customer's favour",
+    outstanding([cargo(1, "20.00"), pago(2, "20.00")], BASE) == Decimal("0"),
+    "the outstanding must report nothing owed after a payment that fits",
+)
+comprobar(
+    outstanding([cargo(1, "20.00"), cargo(2, "10.00")], BASE) == Decimal("30.00"),
+    "the outstanding must be the sum of the charges",
 )
 
 # 2. The real position, additive only.
@@ -129,17 +138,13 @@ comprobar(
 # 4. The FIFO allocation. The charges are 19 days and 0 days old, and the
 # payment arrives 25 days ago — **before** both of them. A payment may only
 # retire a charge that is at least as old as the payment itself, so the
-# money matches nothing and stays as residual credit.
+# money matches nothing.
 asignacion = allocate_payments(
     [cargo(1, "10.00", 19), cargo(2, "40.00", 0)], [pago(10, "30.00", 25)]
 )
 comprobar(
     dict(asignacion.saldos) == {1: Decimal("10.00"), 2: Decimal("40.00")},
     "a payment that predates every charge must retire none of them",
-)
-comprobar(
-    asignacion.residual == Decimal("30.00"),
-    "a payment that matches nothing must stay as residual credit",
 )
 
 # The same charges, with the payment arriving after them: now the money
@@ -150,6 +155,28 @@ asignacion_tardia = allocate_payments(
 comprobar(
     dict(asignacion_tardia.saldos) == {1: Decimal("0"), 2: Decimal("20.00")},
     "the allocation must retire the oldest charge first",
+)
+comprobar(
+    asignacion_tardia.residual == Decimal("0"),
+    "a payment that fits must leave no residual",
+)
+
+# 4b. The repartition. A payment of 20,00 € against charges of 8,00 €, 7,00 €
+# and 15,00 € writes three imputations — 8,00, 7,00 and 5,00 — and the
+# charges read 8/8, 7/7 and 5/15. The grain is the charge.
+reparto = allocate_payments(
+    [cargo(1, "8.00", 2), cargo(2, "7.00", 1), cargo(3, "15.00", 0)],
+    [pago(10, "20.00", 0)],
+)
+imputaciones = imputations_of(reparto, 10)
+comprobar(
+    [(i.cargo_id, i.importe) for i in imputaciones]
+    == [(1, Decimal("8.00")), (2, Decimal("7.00")), (3, Decimal("5.00"))],
+    "the repartition must record one imputation per charge, by the charge",
+)
+comprobar(
+    dict(reparto.saldos) == {1: Decimal("0"), 2: Decimal("0"), 3: Decimal("10.00")},
+    "the charges must read 8/8, 7/7 and 5/15 after a payment of 20,00",
 )
 
 # 5. The ageing.
@@ -183,7 +210,8 @@ comprobar(
     "a retired debt must have no age",
 )
 
-# 7. The charges.
+# 7. The charges. The itemisation is mandatory: a line-less charge matches
+# **no** amount, and a proposal with no lines matches no total.
 comprobar(
     total_de_linea(Decimal("2.5"), Decimal("1.25")) == Decimal("3.13"),
     "the line total must round half up to two decimals",
@@ -193,36 +221,61 @@ comprobar(
     "the override must win over the catalogue price",
 )
 comprobar(
-    charge_amount_matches([], Decimal("4.20")) is True,
-    "a line-less charge must match any declared amount",
+    charge_amount_matches([], Decimal("4.20")) is False,
+    "a line-less charge must match no declared amount",
+)
+comprobar(
+    charge_amount_matches(
+        [CargoLine(1, Decimal("1"), Decimal("4.20"), Decimal("4.20"))],
+        Decimal("4.20"),
+    )
+    is True,
+    "a charge whose lines add up must match its declared amount",
+)
+comprobar(
+    propuesta_amount_matches([], Decimal("4.20")) is False,
+    "a proposal with no lines must match no total",
 )
 
-# 8. The confirmation.
-filas = [
-    ConfirmacionRow(1, ConfirmState.CONFIRMADO, None, BASE - 10 * DIA),
-    ConfirmacionRow(2, ConfirmState.EN_DISPUTA, Decimal("4.00"), BASE - 5 * DIA),
-]
+# 8. The confirmation. The state machine has one state and the proposal
+# transition is one-way.
+filas = [ConfirmacionRow(1, ConfirmState.CONFIRMADO, BASE - 10 * DIA)]
 comprobar(
-    confirmacion_efectiva(filas).id == 2,
-    "the effective confirmation must be the latest row",
+    confirmacion_efectiva(filas).id == 1,
+    "the effective confirmation must be the row",
 )
 comprobar(
-    estado_cargo(filas).estado is ConfirmState.EN_DISPUTA,
-    "the effective state must follow the latest row",
+    estado_cargo(filas).estado is ConfirmState.CONFIRMADO,
+    "the effective state must follow the row",
 )
 comprobar(
-    transicion_permitida(
-        ConfirmState.EN_DISPUTA,
-        ConfirmState.CONFIRMADO,
-        filas=filas,
-        ya_reconciliada=False,
+    confirmacion_requerida(charge_exists=False, confirmation_rows=[]) is True,
+    "a charge that does not exist yet may be written with its confirmation",
+)
+comprobar(
+    confirmacion_requerida(charge_exists=True, confirmation_rows=[]) is False,
+    "a charge without a confirmation must be refused",
+)
+comprobar(
+    propuesta_transicion_permitida(
+        PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+    )
+    is None,
+    "a pending proposal may be confirmed",
+)
+comprobar(
+    propuesta_transicion_permitida(
+        PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
     )
     is not None,
-    "the presence of a confirmado row must block a second confirmation",
+    "a confirmed proposal may not be confirmed again",
 )
 comprobar(
-    escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, BASE - 8 * DIA, BASE) is True,
-    "a charge of eight days must be escalated",
+    propuesta_transicion_permitida(
+        PropuestaEstado.CANCELADO, PropuestaEstado.CANCELADO
+    )
+    is not None,
+    "a cancelled proposal may not be cancelled again",
 )
 
 # 9. The stock.
@@ -271,4 +324,4 @@ except Exception as exc:
     if "settings" not in str(exc).lower() and "configured" not in str(exc).lower():
         raise SystemExit(f"FAIL: the domain layer touched the database: {exc!r}")
 
-print("OK: 17 rules exercised with no Django settings and no database.")
+print("OK: 21 rules exercised with no Django settings and no database.")

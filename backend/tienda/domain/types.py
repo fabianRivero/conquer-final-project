@@ -14,7 +14,8 @@ of its inputs and a test can pin any instant it likes.
 **No derived value is stored.** `CustomerState`, `ChargeState` and
 `Allocation` are *results*, computed on read from the ledger rows. Nothing in
 this module mirrors a database column that design §3 forbids — there is no
-`saldo`, no `status`, no `stock` and no stored confirmation state.
+`saldo`, no `status`, no `stock`, no stored confirmation state and no stored
+customer credit.
 
 The vocabularies are `str` enums so that a member compares equal to its plain
 string and serialises to it unchanged, which is what the JSON contract of
@@ -33,13 +34,16 @@ from typing import Optional
 class EntryKind(str, Enum):
     """The kind of a `LedgerEntry` — the vocabulary of `LEDGER_ENTRY_KINDS`.
 
-    `cargo` adds debt, `pago` retires it and `nota_credito` reduces it. The
-    values are the exact strings the database `CHECK` accepts.
+    `cargo` adds debt and `pago` retires it. **There are two values.** The
+    third one the v1 model carried — `nota_credito` — is gone with the dispute
+    machinery: the client confirms the charge before it exists, so there is
+    nothing to reconcile afterwards.
+
+    The values are the exact strings the database `CHECK` accepts.
     """
 
     CARGO = "cargo"
     PAGO = "pago"
-    NOTA_CREDITO = "nota_credito"
 
 
 class Bucket(str, Enum):
@@ -74,11 +78,40 @@ class ConfirmState(str, Enum):
     `SIN_CONFIRMAR` is the state of a charge that carries no row at all. The
     state is a read-time projection (IC-04), never a stored value and never the
     guard for a write.
+
+    **There are two values.** The v1 model carried a third — `en_disputa` —
+    and with it the whole dispute machinery. A charge either carries its
+    confirmation or it does not exist (ADR-18).
     """
 
     SIN_CONFIRMAR = "sin_confirmar"
     CONFIRMADO = "confirmado"
-    EN_DISPUTA = "en_disputa"
+
+
+class PropuestaEstado(str, Enum):
+    """The state of a `FiadoPropuesto` — the vocabulary of §6.
+
+    A proposal moves from `pendiente` to exactly one of `confirmado` or
+    `cancelado`, **never back**. The move is one-way, and the guard for it is
+    the **stored** proposal state, not a projection of the ledger.
+    """
+
+    PENDIENTE = "pendiente"
+    CONFIRMADO = "confirmado"
+    CANCELADO = "cancelado"
+
+
+class PagoPropuestoEstado(str, Enum):
+    """The state of a `PagoPropuesto` — the vocabulary of §13.3.
+
+    A proposed payment moves from `pendiente` to exactly one of `validado` or
+    `rechazado`, **never back**. The owner's decision is an act, recorded on
+    the row.
+    """
+
+    PENDIENTE = "pendiente"
+    VALIDADO = "validado"
+    RECHAZADO = "rechazado"
 
 
 class StockQualifier(str, Enum):
@@ -107,17 +140,20 @@ class MovementKind(str, Enum):
 class LedgerLine:
     """One row of the credit book, as a plain value.
 
-    Mirrors `LedgerEntry` without touching the ORM: `kind`, `amount`,
-    `occurred_at` and the optional `cargo` the note reconciles. `id` is the
-    row's own identifier, which is the **tie-breaker** of the FIFO order of
-    PA-02.
+    Mirrors `LedgerEntry` without touching the ORM: `kind`, `amount` and
+    `occurred_at`. `id` is the row's own identifier, which is the
+    **tie-breaker** of the FIFO order of PA-02.
+
+    There is **no `cargo` field** any more. The v1 record carried the
+    optional `cargo` a credit note reconciled; with the dispute machinery
+    gone there is nothing to reconcile, and a payment's repartition is
+    recorded in `Imputacion` instead (ADR-27).
     """
 
     id: int
     kind: EntryKind
     amount: Decimal
     occurred_at: datetime
-    cargo: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +163,20 @@ class CargoLine:
     Mirrors `CargoLinea`: `cantidad`, `precio_unitario` and `total`. The
     `total` is the rounded line total of IC-06 — the same rounding the
     database `CHECK` mirrors.
+    """
+
+    id: int
+    cantidad: Decimal
+    precio_unitario: Decimal
+    total: Decimal
+
+
+@dataclass(frozen=True)
+class PropuestaLine:
+    """One itemised line of a `FiadoPropuesto`, as a plain value.
+
+    Mirrors `PropuestaLinea`, and carries the same arithmetic as `CargoLine`:
+    the `desglose` the client confirms is a real figure, not an annotation.
     """
 
     id: int
@@ -168,14 +218,36 @@ class Allocation:
     """The result of retiring debt with the money that came back (PA-02).
 
     `asignaciones` holds one entry per (payment, charge) pair: how much of
-    which payment retired which charge. `residual` is the surplus that
-    matched nothing — credit in the customer's favour, never an error. The
-    `saldo` of each charge is what is still owed on it.
+    which payment retired which charge. The `saldo` of each charge is what is
+    still owed on it.
+
+    `residual` is the surplus that matched nothing. **It is always zero.**
+    Rule 19 refuses a `pago` larger than the debt it retires — the shop
+    returns the excess as change and it never enters the book — so a surplus
+    is not a legal state. The field is kept so a caller that reads it has one
+    shape to read, not because a surplus can happen (ADR-26).
     """
 
     asignaciones: tuple[tuple[int, int, Decimal], ...] = ()
     residual: Decimal = Decimal("0")
     saldos: tuple[tuple[int, Decimal], ...] = ()
+
+
+@dataclass(frozen=True)
+class Imputacion:
+    """One (payment, charge) pair — how much of a charge a payment settled.
+
+    Mirrors the `ImputacionPago` row: `pago_id`, `cargo_id` and `importe`.
+
+    **The grain is the charge.** A charge of 15,00 € made of three
+    `CargoLinea` rows is one debt of 15,00 €, and a payment that settles
+    5,00 € of it produces **one** imputation against the charge, not three
+    against the lines (ADR-27).
+    """
+
+    pago_id: int
+    cargo_id: int
+    importe: Decimal
 
 
 @dataclass(frozen=True)
@@ -202,15 +274,17 @@ class CustomerState:
 class ConfirmacionRow:
     """One `Confirmacion` row, as a plain value.
 
-    Mirrors the table: `estado`, `importe_reclamado`, `confirmado_en` and the
-    `id` that orders the history. `origen` records who appended the row.
+    Mirrors the table: `estado`, `confirmado_en` and the `id` that orders the
+    history. `origen` records who appended the row.
+
+    There is **no `importe_reclamado`** — the field existed only for the
+    dispute machinery, and it is gone with it.
     """
 
     id: int
     estado: ConfirmState
-    importe_reclamado: Optional[Decimal] = None
     confirmado_en: Optional[datetime] = None
-    origen: str = "cliente"
+    origen: str = "tienda"
 
 
 @dataclass(frozen=True)
@@ -221,7 +295,13 @@ class ChargeState:
     `confirmacion` is the row the projection came from, or `None` when the
     charge carries no row at all. Both are computed on read — no stored
     confirmation state exists on the charge or on the customer.
+
+    `saldo` is what is still owed on the charge: `amount` minus every
+    `Imputacion` against it. It is **derived on read**, never stored — there
+    is no `pagado` column on a charge (ADR-27).
     """
 
     estado: ConfirmState
     confirmacion: Optional[ConfirmacionRow] = None
+    saldo: Decimal = Decimal("0")
+

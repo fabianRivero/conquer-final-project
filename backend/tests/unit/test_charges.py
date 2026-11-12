@@ -2,8 +2,13 @@
 
 Covers **IC-02** (the declared amount equals the itemisation total) and
 **PC-02** (the catalogue price is the default, an explicit price wins), with
-the rounding of **IC-06** and the one boundary the design calls out: **a
-charge with no lines matches any declared amount**.
+the rounding of **IC-06**.
+
+And the boundary rule 19 and IC-07 turned around: **the itemisation is
+mandatory**. A charge with no lines matches **no** amount, and a proposal
+with no lines matches **no** total. The v1 model accepted a line-less
+charge as declaring any amount; that is gone, because a figure the client
+cannot see broken down is not a figure the client confirmed.
 
 None of these tests carries the `django_db` marker, so no rule in this path
 may touch the database.
@@ -18,6 +23,7 @@ import pytest
 from tienda.domain.charges import (
     charge_amount_matches,
     precio_unitario_de,
+    propuesta_amount_matches,
     total_de_linea,
 )
 from tienda.domain.types import CargoLine
@@ -122,15 +128,51 @@ def test_a_charge_that_does_not_add_up_is_refused():
 
 
 @pytest.mark.unit
-def test_a_line_less_charge_matches_any_declared_amount():
-    """An empty `lines` sequence is a legal, line-less charge (IC-02).
+def test_a_line_less_charge_matches_no_declared_amount():
+    """The itemisation is mandatory: an empty `lines` sequence never matches.
 
-    Its whole total **is** its declared amount, so the comparison is
-    vacuously true and the charge is accepted as declared.
+    The v1 model accepted a line-less charge as declaring any amount,
+    because a line-less charge's whole total *was* its declared amount.
+    That is gone: the client confirms a figure it can see broken down, so a
+    figure nobody can see broken down is not a figure the client confirmed
+    (IC-07). The refusal carries the same `lineas_descuadradas` code.
     """
-    assert charge_amount_matches([], Decimal("4.20")) is True
-    assert charge_amount_matches([], Decimal("0.00")) is True
-    assert charge_amount_matches([], Decimal("9999.99")) is True
+    assert charge_amount_matches([], Decimal("4.20")) is False
+    assert charge_amount_matches([], Decimal("0.00")) is False
+    assert charge_amount_matches([], Decimal("9999.99")) is False
+
+
+@pytest.mark.unit
+def test_a_proposal_that_adds_up_matches_its_total():
+    """A `FiadoPropuesto` obeys the same rule as a `cargo` (IC-02)."""
+    lineas = [linea(1, "1", "4.20", "4.20")]
+
+    assert propuesta_amount_matches(lineas, Decimal("4.20")) is True
+    assert propuesta_amount_matches(lineas, Decimal("4.21")) is False
+
+
+@pytest.mark.unit
+def test_a_proposal_with_no_lines_matches_no_total():
+    """A proposal without a `desglose` matches nothing.
+
+    The proposal is the figure the client is asked to confirm at the
+    counter. A proposal with no lines shows the client nothing to confirm,
+    so it cannot exist either.
+    """
+    assert propuesta_amount_matches([], Decimal("4.20")) is False
+    assert propuesta_amount_matches([], Decimal("0.00")) is False
+
+
+@pytest.mark.unit
+def test_a_proposal_with_several_lines_must_add_up():
+    """Several lines are fine when they agree with the declared total."""
+    lineas = [
+        linea(1, "1", "4.20", "4.20"),
+        linea(2, "2", "1.00", "2.00"),
+    ]
+
+    assert propuesta_amount_matches(lineas, Decimal("6.20")) is True
+    assert propuesta_amount_matches(lineas, Decimal("6.21")) is False
 
 
 @pytest.mark.unit

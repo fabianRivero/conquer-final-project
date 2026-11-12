@@ -17,10 +17,10 @@ The application MUST provide exactly two shop roles, carried by the groups `duen
 | 1 | Cash movements and the day close | Yes | Yes |
 | 2 | The credit book (alias, limits, balances, ageing) | Yes | No → 403 |
 | 3 | Create a customer, set a limit, issue or rotate a `codigo` | Yes | No |
-| 4 | Record a `cargo` or a `pago` | Yes | No |
-| 5 | The risk ladder and the `posicion_real` | Yes | No |
-| 6 | Lift a suspension | Yes | No |
-| 7 | Resolve a dispute | Yes | No |
+| 4 | Record a `pago` | Yes | No |
+| 5 | Prepare a `FiadoPropuesto` and record a client's confirmation of it | Yes | No |
+| 6 | The risk ladder and the `posicion_real` | Yes | No |
+| 7 | Lift a suspension | Yes | No |
 | 8 | Users and roles | Yes | No |
 
 #### Scenario: A denied capability is refused at the server

@@ -9,33 +9,32 @@ or `None` when the charge carries no row at all. "Latest" is the last row by
 `(confirmado_en, id)`: the instant the row was appended, with the identifier
 as the tie-breaker so the answer is total.
 
-**`estado_cargo(rows)`** — the projection: `confirmado`, `en_disputa` or
-`sin_confirmar`. It reads the rows and **no stored state**, and it is a
-**read-time projection only** — it is never the guard for a write.
+**`estado_cargo(rows)`** — the projection: `confirmado` or `sin_confirmar`.
+It reads the rows and **no stored state**, and it is a **read-time projection
+only** — it is never the guard for a write.
 
-**`transicion_permitida(origen, destino, *, filas, ya_reconciliada)`** — the
-guard for a write, and the reason the projection is not the guard. The guard
-for a `confirmado` destination is the **presence of a `confirmado` row**, and
-for an `en_disputa` destination the presence of an `en_disputa` row — never
-the effective state alone. A charge whose rows are `[confirmado, en_disputa]`
-reads `en_disputa`, yet it may not be confirmed again, and a state-only guard
-would let that through.
+**`propuesta_transicion_permitida(estado_actual, destino)`** — the guard for
+the one-way transition of §6. It reads the **stored** proposal state, not a
+projection of the ledger, because the proposal *is* the state: a proposal
+moves from `pendiente` to exactly one of `confirmado` or `cancelado`, and
+never back. The v1 `transicion_permitida` — a two-state transition table
+over the charge's confirmation history — has no object any more.
 
-**`escalado_sin_confirmar(estado, occurred_at, at, *, dias=7)`** — the
-escalation flag of a charge nobody confirmed. It is `estado is sin_confirmar
-and age_in_days(occurred_at, at) > dias`, and it is **derived, never stored**.
+**`confirmacion_requerida(charge_exists, confirmation_rows)`** — whether a
+charge may be written at all. Rule 5 of §3.2 forbids a `cargo` without a
+`Confirmacion` in the same transaction, so the write path refuses it. The
+charge exists only at the confirmation (ADR-19): a prepared proposal writes
+nothing at all.
 """
 
 from __future__ import annotations
 
-from .ageing import age_in_days
-from .types import ChargeState, ConfirmacionRow, ConfirmState
+from .types import ChargeState, ConfirmacionRow, ConfirmState, PropuestaEstado
 
-# The refusal codes of the transition guard. They are the `codigo_error`
-# values the API answers with (design §9.3).
-CARGO_YA_CONFIRMADO = "cargo_ya_confirmado"
-DISPUTA_ABIERTA = "disputa_abierta"
-CARGO_YA_RECONCILIADO = "cargo_ya_reconciliado"
+# The refusal codes of the proposal transition guard. They are the
+# `codigo_error` values the API answers with (design §9.3).
+PROPUESTA_YA_CONFIRMADA = "propuesta_ya_confirmada"
+PROPUESTA_YA_CANCELADA = "propuesta_ya_cancelada"
 
 
 def confirmacion_efectiva(rows) -> ConfirmacionRow | None:
@@ -43,8 +42,8 @@ def confirmacion_efectiva(rows) -> ConfirmacionRow | None:
 
     The latest row is the one with the greatest `(confirmado_en, id)`. A row
     that carries no `confirmado_en` — which the database forbids for
-    `confirmado` and `en_disputa` alike, but which a hand-built fixture may
-    hold — sorts first, so a dated row always wins over an undated one.
+    `confirmado`, but which a hand-built fixture may hold — sorts first, so a
+    dated row always wins over an undated one.
 
     A charge with no rows at all has no effective confirmation, and `None`
     is returned.
@@ -57,15 +56,18 @@ def confirmacion_efectiva(rows) -> ConfirmacionRow | None:
 def estado_cargo(rows) -> ChargeState:
     """The effective state of a charge, derived from its rows.
 
-    `confirmado`, `en_disputa` or `sin_confirmar`. **No stored state is
-    consulted**: the function reads the rows and nothing else.
+    `confirmado` or `sin_confirmar`. **No stored state is consulted**: the
+    function reads the rows and nothing else.
 
     The result is a **read-time projection only**. It is never the guard for
-    a write — `transicion_permitida` is, and it looks at the presence of the
-    rows rather than at this projection.
+    a write — `confirmacion_requerida` is, and it looks at the presence of
+    the rows rather than at this projection.
 
-    A charge with no rows reads `sin_confirmar`, and it is still debt: the
-    outstanding does not depend on the confirmation at all (IC-03).
+    A charge with no rows reads `sin_confirmar`, and that state is
+    **unreachable in normal operation**: rule 5 of §3.2 forbids a charge
+    without a confirmation in the same transaction. It is the value a
+    hand-built fixture reads, and the value a partially-written charge would
+    read — but the write path never lets that happen.
     """
     efectiva = confirmacion_efectiva(rows)
     if efectiva is None:
@@ -73,68 +75,68 @@ def estado_cargo(rows) -> ChargeState:
     return ChargeState(estado=efectiva.estado, confirmacion=efectiva)
 
 
-def transicion_permitida(origen, destino, *, filas, ya_reconciliada) -> str | None:
-    """Whether a write may move a charge from `origen` to `destino`.
+def propuesta_transicion_permitida(estado_actual, destino) -> str | None:
+    """Whether a proposal may move from `estado_actual` to `destino`.
 
     Returns `None` when the transition is allowed, and the refusal
     `codigo_error` otherwise.
 
-    `filas` is the charge's **full** `Confirmacion` history. The guard for a
-    `confirmado` destination is the **presence of a `confirmado` row**, and
-    for an `en_disputa` destination the presence of an `en_disputa` row —
-    never the effective state alone. A charge whose rows are
-    `[confirmado, en_disputa]` still reads `en_disputa`, but it may not be
-    confirmed again.
+    The machine is **one-way and has two branches** (§6):
 
-    `ya_reconciliada` says whether the charge has already been reconciled by
-    a `nota de crédito`; a reconciled charge may not be disputed.
+    * `pendiente -> confirmado` — the owner (or the `dependiente`, if the N5
+      gate opens) confirms it. The charge and its lines are written in the
+      same transaction.
+    * `pendiente -> cancelado` — the client declined. Nothing is written
+      except the instant; no charge, no debt.
 
-    `origen` is the state the write reads as the current one. It is
-    accepted for the caller's convenience, but the guard itself does not
-    rely on it: the rows decide.
+    Every other pair is refused. A confirmed proposal may not be confirmed
+    again (`propuesta_ya_confirmada`) and a cancelled one may not be
+    cancelled again (`propuesta_ya_cancelada`); neither can go back to
+    `pendiente`, because the transition is one-way.
+
+    **The guard is the stored proposal state**, not a projection of the
+    ledger. The proposal *is* the state: there is no second source of truth
+    to reconcile.
     """
-    if destino == ConfirmState.CONFIRMADO:
-        if _has_state(filas, ConfirmState.CONFIRMADO):
-            return CARGO_YA_CONFIRMADO
-        return None
+    if estado_actual == PropuestaEstado.PENDIENTE:
+        if destino == PropuestaEstado.CONFIRMADO:
+            return None
+        if destino == PropuestaEstado.CANCELADO:
+            return None
+        # Moving to `pendiente` from `pendiente` is not a transition the
+        # shop performs; the proposal is already pending.
+        return PROPUESTA_YA_CONFIRMADA
 
-    if destino == ConfirmState.EN_DISPUTA:
-        if _has_state(filas, ConfirmState.EN_DISPUTA):
-            return DISPUTA_ABIERTA
-        if ya_reconciliada:
-            return CARGO_YA_RECONCILIADO
-        return None
+    if estado_actual == PropuestaEstado.CONFIRMADO:
+        return PROPUESTA_YA_CONFIRMADA
 
-    # Moving *to* `sin_confirmar` is never a write the shop performs: the
-    # state is derived, so it cannot be set.
-    return CARGO_YA_CONFIRMADO
+    if estado_actual == PropuestaEstado.CANCELADO:
+        return PROPUESTA_YA_CANCELADA
+
+    return PROPUESTA_YA_CONFIRMADA
 
 
-def escalado_sin_confirmar(estado, occurred_at, at, *, dias: int = 7) -> bool:
-    """Whether a charge nobody confirmed must be escalated.
+def confirmacion_requerida(charge_exists, confirmation_rows) -> bool:
+    """Whether a charge may be written at all.
 
-    `estado is sin_confirmar and age_in_days(occurred_at, at) > dias`.
+    Rule 5 of §3.2: a `cargo` requires its `Confirmacion` in the **same
+    transaction**. The function answers that question from two plain values —
+    whether the charge exists, and whether the confirmation rows carry one —
+    and never from a stored flag.
 
-    The comparison is **strictly greater** than `dias`: a charge exactly
-    `dias` old has not crossed the threshold yet, and one a day older has.
+    The answer is `True` when the write is allowed: either the charge does
+    not exist yet (and the confirmation will be written with it), or the
+    confirmation is already there.
 
-    The flag is **derived, never stored**. A charge that *is* confirmed or
-    under dispute is never escalated, however old it is.
+    It is `False` when a charge exists with no confirmation at all, which is
+    the shape rule 5 forbids. That state is unreachable through the API —
+    ADR-19 gives the ledger a single entry point — and the check exists so
+    no other write path can create a charge without a confirmation.
     """
-    if estado != ConfirmState.SIN_CONFIRMAR:
-        return False
-    return age_in_days(occurred_at, at) > dias
-
-
-def _has_state(filas, state: ConfirmState) -> bool:
-    """Whether the history holds a row in `state`.
-
-    The **presence** of the row is the guard — not the effective state, and
-    not the recency of the row. A charge that was confirmed and then
-    disputed holds both rows, and the `confirmado` row still blocks a second
-    confirmation.
-    """
-    return any(row.estado == state for row in filas)
+    if not charge_exists:
+        # The charge is being written now, and the confirmation goes with it.
+        return True
+    return bool(confirmation_rows)
 
 
 def _row_key(row: ConfirmacionRow):

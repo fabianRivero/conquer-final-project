@@ -18,10 +18,17 @@ catalogue price never rewrites a stored line (IC-08).
 amount of a charge equals the total of its own itemisation (IC-02). A
 mismatch is the source of `lineas_descuadradas`.
 
-The one boundary worth stating plainly: **a charge with no lines matches any
-declared amount.** An empty `lines` sequence is a legal, line-less charge
-whose whole total *is* its declared amount, so the comparison is vacuously
-true and the charge is accepted as declared.
+**`propuesta_amount_matches(lines, declared_total)`** — the same rule for a
+`FiadoPropuesto`: its `total` must equal the sum of its `lineas`.
+
+The boundary worth stating plainly: **the itemisation is mandatory.** A
+charge with no lines matches **no** amount, and a proposal with no lines
+matches **no** total. The v1 model accepted a line-less charge as declaring
+any amount, because a line-less charge's whole total *was* its declared
+amount. That is gone: the client confirms a figure it can see broken down,
+so a figure nobody can see broken down is not a figure the client confirmed.
+An empty `lines` sequence is therefore refused with the same
+`lineas_descuadradas` code (IC-07).
 """
 
 from __future__ import annotations
@@ -68,15 +75,15 @@ def charge_amount_matches(lines, declared_amount) -> bool:
     is the amount the charge declares. The comparison is made on the
     **rounded** line totals, so it agrees with what the database stores.
 
-    **A charge with no lines matches any declared amount.** An empty `lines`
-    sequence is a legal, line-less charge: its whole total *is* its declared
-    amount, so there is nothing to compare and the charge is accepted as
-    declared. The empty case is therefore handled **before** the sum — the
-    sum of no lines is zero, and comparing that against the declared amount
-    would refuse a line-less charge that declares anything but zero.
+    **An empty `lines` sequence never matches.** The itemisation is
+    mandatory: a charge the client cannot see broken down is not a charge the
+    client confirmed, so it cannot exist (IC-07). The empty case is
+    handled **before** the sum — the sum of no lines is zero, and comparing
+    that against the declared amount would accept a charge of zero while
+    silently ignoring a declared amount of anything else.
     """
     if not lines:
-        return True
+        return False
 
     declarado = Decimal(declared_amount).quantize(DOS_DECIMALES, rounding=ROUND_HALF_UP)
     total = sum(
@@ -84,3 +91,27 @@ def charge_amount_matches(lines, declared_amount) -> bool:
         Decimal("0"),
     )
     return total == declarado
+
+
+def propuesta_amount_matches(lines, declared_total) -> bool:
+    """Whether the proposal's total equals the sum of its own lines.
+
+    The same rule as `charge_amount_matches`, applied to the figure the
+    client is asked to confirm. A proposal with no lines never matches: the
+    `desglose` the client sees at the counter is the whole point of the
+    confirmation, and a proposal without one shows the client nothing to
+    confirm.
+
+    The comparison is made on the **rounded** line totals, the same scale the
+    database stores.
+    """
+    if not lines:
+        return False
+
+    declarado = Decimal(declared_total).quantize(DOS_DECIMALES, rounding=ROUND_HALF_UP)
+    total = sum(
+        (Decimal(line.total).quantize(DOS_DECIMALES, rounding=ROUND_HALF_UP) for line in lines),
+        Decimal("0"),
+    )
+    return total == declarado
+

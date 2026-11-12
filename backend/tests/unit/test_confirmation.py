@@ -1,293 +1,265 @@
-"""The derived confirmation state of a charge (IC-03, IC-04 — ADR-18, ADR-23).
+"""The derived confirmation state and the one-way proposal transition.
 
-Four rules, and the one that matters most is the **guard**:
+Two families of test live here, and they are different in kind.
 
-* `confirmacion_efectiva` — the latest row, or `None`;
-* `estado_cargo` — the projection: `confirmado`, `en_disputa` or
-  `sin_confirmar`, computed on read and **never** consulted as a stored
-  state;
-* `transicion_permitida` — the guard for a write, which looks at the
-  **presence of a row**, never at the effective state alone;
-* `escalado_sin_confirmar` — the derived escalation flag.
+The **confirmation** tests are about a *projection*: the effective state of a
+charge is computed on read from its `Confirmacion` rows, and no stored state
+exists anywhere. The v1 suite had a third family here — the two-state
+transition table over a charge's history and the 7-day escalation flag for a
+charge nobody confirmed. **Both are gone.** The dispute machinery is gone
+with them (ADR-18), and the escalation flag had no object left: a charge
+without a confirmation cannot exist, so there is nothing to escalate.
 
-None of these tests carries the `django_db` marker: the rules read no
-database.
+The **proposal** tests are about the *guard*: a `FiadoPropuesto` moves from
+`pendiente` to exactly one of `confirmado` or `cancelado`, never back. The
+guard reads the **stored** proposal state, because the proposal *is* the
+state (ADR-19, design §6).
 """
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
-from decimal import Decimal
 
 import pytest
 
 from tienda.domain.confirmation import (
-    CARGO_YA_CONFIRMADO,
-    CARGO_YA_RECONCILIADO,
-    DISPUTA_ABIERTA,
+    PROPUESTA_YA_CANCELADA,
+    PROPUESTA_YA_CONFIRMADA,
     confirmacion_efectiva,
-    escalado_sin_confirmar,
+    confirmacion_requerida,
     estado_cargo,
-    transicion_permitida,
+    propuesta_transicion_permitida,
 )
-from tienda.domain.types import ConfirmacionRow, ConfirmState
+from tienda.domain.types import ConfirmacionRow, ConfirmState, PropuestaEstado
 
-DIA = timedelta(days=1)
-BASE = datetime(2026, 3, 1, 9, 0, 0)
+# The instant every fixture is stamped with. No implicit clock anywhere.
+T0 = datetime(2026, 5, 1, 9, 0, 0)
 
 
-def fila(
-    identificador: int,
-    estado: ConfirmState,
-    dias: int = 0,
-    importe_reclamado=None,
-) -> ConfirmacionRow:
-    """A `Confirmacion` row dated `dias` days before the base instant."""
+def _row(estado, *, id=1, minutos=0, origen="tienda"):
+    """A `Confirmacion` row as a plain value."""
     return ConfirmacionRow(
-        id=identificador,
+        id=id,
         estado=estado,
-        importe_reclamado=None if importe_reclamado is None else Decimal(importe_reclamado),
-        confirmado_en=BASE - dias * DIA,
-        origen="cliente",
+        confirmado_en=T0 + timedelta(minutes=minutos),
+        origen=origen,
     )
 
 
-@pytest.mark.unit
+# ---------------------------------------------------------------------------
+# The projection — the effective state of a charge
+# ---------------------------------------------------------------------------
+
+
 def test_a_charge_with_no_rows_has_no_effective_confirmation():
-    """No rows, no effective confirmation."""
+    """No rows means no effective confirmation."""
     assert confirmacion_efectiva([]) is None
 
 
-@pytest.mark.unit
-def test_the_effective_confirmation_is_the_latest_row():
-    """The latest row is the one with the greatest `(confirmado_en, id)`."""
-    filas = [
-        fila(1, ConfirmState.CONFIRMADO, dias=10),
-        fila(2, ConfirmState.EN_DISPUTA, dias=2),
-    ]
-
-    efectiva = confirmacion_efectiva(filas)
-
-    assert efectiva is not None
-    assert efectiva.id == 2
-
-
-@pytest.mark.unit
 def test_a_charge_with_a_confirmed_row_reads_confirmed():
-    """The scenario of IC-04: one `Confirmacion` in state `confirmado`."""
-    estado = estado_cargo([fila(1, ConfirmState.CONFIRMADO, dias=1)])
+    """A charge carrying a `confirmado` row reads `confirmado`."""
+    rows = [_row(ConfirmState.CONFIRMADO)]
 
-    assert estado.estado is ConfirmState.CONFIRMADO
-    assert estado.confirmacion is not None
-    assert estado.confirmacion.id == 1
+    estado = estado_cargo(rows)
+
+    assert estado.estado == ConfirmState.CONFIRMADO
+    assert estado.confirmacion is rows[0]
 
 
-@pytest.mark.unit
 def test_a_charge_with_no_rows_reads_sin_confirmar():
-    """The scenario of IC-04: a charge with no `Confirmacion`."""
+    """A charge with no rows reads `sin_confirmar`.
+
+    That state is **unreachable in normal operation**: rule 5 of §3.2
+    forbids a charge without a confirmation in the same transaction. It is
+    the value a hand-built fixture reads and the value a partially-written
+    charge would read — but the write path never lets that happen.
+    """
     estado = estado_cargo([])
 
-    assert estado.estado is ConfirmState.SIN_CONFIRMAR
+    assert estado.estado == ConfirmState.SIN_CONFIRMAR
     assert estado.confirmacion is None
 
 
-@pytest.mark.unit
-def test_a_disputed_charge_reads_en_disputa():
-    """A dispute row is the latest one, so the charge reads `en_disputa`."""
-    estado = estado_cargo([fila(1, ConfirmState.EN_DISPUTA, dias=1, importe_reclamado="4.00")])
+def test_the_effective_confirmation_is_the_latest_row():
+    """The latest row wins, by `(confirmado_en, id)`."""
+    primera = _row(ConfirmState.CONFIRMADO, id=1, minutos=0)
+    segunda = _row(ConfirmState.CONFIRMADO, id=2, minutos=10)
 
-    assert estado.estado is ConfirmState.EN_DISPUTA
+    efectiva = confirmacion_efectiva([primera, segunda])
 
-
-@pytest.mark.unit
-def test_the_state_follows_the_latest_confirmation():
-    """The state is derived from the rows, in order (IC-03, IC-04)."""
-    filas = [
-        fila(1, ConfirmState.CONFIRMADO, dias=10),
-        fila(2, ConfirmState.EN_DISPUTA, dias=5),
-    ]
-
-    assert estado_cargo(filas).estado is ConfirmState.EN_DISPUTA
-
-    # And the other way round: a dispute that came first, a confirmation
-    # after it, reads `confirmado`.
-    filas_invertidas = [
-        fila(1, ConfirmState.EN_DISPUTA, dias=10),
-        fila(2, ConfirmState.CONFIRMADO, dias=5),
-    ]
-
-    assert estado_cargo(filas_invertidas).estado is ConfirmState.CONFIRMADO
+    assert efectiva is segunda
 
 
-@pytest.mark.unit
-def test_a_charge_without_rows_may_be_confirmed():
-    """The guard lets the first confirmation through."""
-    refusal = transicion_permitida(
-        ConfirmState.SIN_CONFIRMAR,
-        ConfirmState.CONFIRMADO,
-        filas=[],
-        ya_reconciliada=False,
-    )
+def test_the_effective_confirmation_breaks_a_tie_by_id():
+    """Two rows with the same instant are ordered by their identifier.
 
-    assert refusal is None
-
-
-@pytest.mark.unit
-def test_a_confirmed_charge_may_not_be_confirmed_again():
-    """The presence of a `confirmado` row blocks a second confirmation."""
-    filas = [fila(1, ConfirmState.CONFIRMADO, dias=1)]
-
-    refusal = transicion_permitida(
-        ConfirmState.CONFIRMADO,
-        ConfirmState.CONFIRMADO,
-        filas=filas,
-        ya_reconciliada=False,
-    )
-
-    assert refusal == CARGO_YA_CONFIRMADO
-
-
-@pytest.mark.unit
-def test_a_charge_may_not_be_confirmed_again_after_a_dispute():
-    """The guard is the presence of the row, never the effective state.
-
-    A charge whose rows are `[confirmado, en_disputa]` still reads
-    `en_disputa` — but it may not be confirmed again, because the
-    `confirmado` row is there. A state-only guard would let this through.
+    The tie-breaker makes the answer total: there is never a tie left to
+    chance.
     """
-    filas = [
-        fila(1, ConfirmState.CONFIRMADO, dias=10),
-        fila(2, ConfirmState.EN_DISPUTA, dias=5),
-    ]
+    primera = _row(ConfirmState.CONFIRMADO, id=7, minutos=0)
+    segunda = _row(ConfirmState.CONFIRMADO, id=8, minutos=0)
 
-    # The effective state is `en_disputa`...
-    assert estado_cargo(filas).estado is ConfirmState.EN_DISPUTA
+    efectiva = confirmacion_efectiva([primera, segunda])
 
-    # ...and the guard still refuses the confirmation.
-    refusal = transicion_permitida(
-        ConfirmState.EN_DISPUTA,
-        ConfirmState.CONFIRMADO,
-        filas=filas,
-        ya_reconciliada=False,
-    )
-
-    assert refusal == CARGO_YA_CONFIRMADO
+    assert efectiva is segunda
 
 
-@pytest.mark.unit
-def test_a_charge_may_not_be_disputed_twice():
-    """The presence of an `en_disputa` row blocks a second dispute."""
-    filas = [fila(1, ConfirmState.EN_DISPUTA, dias=1)]
+def test_the_state_vocabulary_has_exactly_two_values():
+    """`ConfirmState` has two values: `sin_confirmar` and `confirmado`.
 
-    refusal = transicion_permitida(
-        ConfirmState.EN_DISPUTA,
-        ConfirmState.EN_DISPUTA,
-        filas=filas,
-        ya_reconciliada=False,
-    )
-
-    assert refusal == DISPUTA_ABIERTA
-
-
-@pytest.mark.unit
-def test_a_charge_may_be_disputed_after_it_was_confirmed():
-    """A confirmed charge may still be disputed — the states are separate."""
-    filas = [fila(1, ConfirmState.CONFIRMADO, dias=5)]
-
-    refusal = transicion_permitida(
-        ConfirmState.CONFIRMADO,
-        ConfirmState.EN_DISPUTA,
-        filas=filas,
-        ya_reconciliada=False,
-    )
-
-    assert refusal is None
-
-
-@pytest.mark.unit
-def test_a_reconciled_charge_may_not_be_disputed():
-    """A charge already reconciled by a `nota de crédito` is closed."""
-    refusal = transicion_permitida(
-        ConfirmState.EN_DISPUTA,
-        ConfirmState.EN_DISPUTA,
-        filas=[],
-        ya_reconciliada=True,
-    )
-
-    assert refusal == CARGO_YA_RECONCILIADO
-
-
-@pytest.mark.unit
-def test_the_guard_does_not_consult_the_effective_state():
-    """The guard reads the rows, not the projection.
-
-    The same rows and the same origin produce the same refusal whatever
-    the origin says: the rows decide.
+    The v1 model carried a third, `en_disputa`, and with it the whole dispute
+    machinery. A charge either carries its confirmation or it does not exist
+    (ADR-18).
     """
-    filas = [fila(1, ConfirmState.CONFIRMADO, dias=5)]
+    values = {estado.value for estado in ConfirmState}
 
-    como_confirmado = transicion_permitida(
-        ConfirmState.CONFIRMADO,
-        ConfirmState.CONFIRMADO,
-        filas=filas,
-        ya_reconciliada=False,
+    assert values == {"sin_confirmar", "confirmado"}
+    assert "en_disputa" not in values
+
+
+# ---------------------------------------------------------------------------
+# The guard — the one-way proposal transition
+# ---------------------------------------------------------------------------
+
+
+def test_a_pending_proposal_may_be_confirmed():
+    """`pendiente -> confirmado` is allowed."""
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+        )
+        is None
     )
-    como_sin_confirmar = transicion_permitida(
-        ConfirmState.SIN_CONFIRMAR,
-        ConfirmState.CONFIRMADO,
-        filas=filas,
-        ya_reconciliada=False,
-    )
-
-    assert como_confirmado == como_sin_confirmar == CARGO_YA_CONFIRMADO
 
 
-@pytest.mark.unit
-def test_a_charge_is_escalated_after_seven_days_without_confirmation():
-    """`estado is sin_confirmar and age_in_days(occurred_at, at) > dias`.
+def test_a_pending_proposal_may_be_cancelled():
+    """`pendiente -> cancelado` is allowed.
 
-    The comparison is strictly greater: at exactly seven days the charge
-    has not crossed the threshold yet.
+    A cancellation writes nothing but the instant: no charge, no debt.
     """
-    ocurrido = BASE - 8 * DIA
-
-    assert escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, ocurrido, BASE) is True
-
-
-@pytest.mark.unit
-def test_a_charge_of_exactly_seven_days_is_not_escalated():
-    """The threshold is exclusive: seven days is not yet eight."""
-    ocurrido = BASE - 7 * DIA
-
-    assert escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, ocurrido, BASE) is False
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.PENDIENTE, PropuestaEstado.CANCELADO
+        )
+        is None
+    )
 
 
-@pytest.mark.unit
-def test_a_fresh_charge_is_not_escalated():
-    """A charge of today has no age to escalate."""
-    assert escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, BASE, BASE) is False
+def test_a_confirmed_proposal_may_not_be_confirmed_again():
+    """A confirmed proposal is refused with `propuesta_ya_confirmada`."""
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
+        )
+        == PROPUESTA_YA_CONFIRMADA
+    )
 
 
-@pytest.mark.unit
-def test_a_confirmed_charge_is_never_escalated():
-    """The flag is about a charge nobody confirmed."""
-    ocurrido = BASE - 30 * DIA
-
-    assert escalado_sin_confirmar(ConfirmState.CONFIRMADO, ocurrido, BASE) is False
-
-
-@pytest.mark.unit
-def test_a_disputed_charge_is_never_escalated():
-    """A dispute is an answer, even if it is not a confirmation."""
-    ocurrido = BASE - 30 * DIA
-
-    assert escalado_sin_confirmar(ConfirmState.EN_DISPUTA, ocurrido, BASE) is False
+def test_a_cancelled_proposal_may_not_be_cancelled_again():
+    """A cancelled proposal is refused with `propuesta_ya_cancelada`."""
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.CANCELADO, PropuestaEstado.CANCELADO
+        )
+        == PROPUESTA_YA_CANCELADA
+    )
 
 
-@pytest.mark.unit
-def test_the_escalation_days_are_configurable():
-    """The threshold is a parameter, not a constant."""
-    ocurrido = BASE - 10 * DIA
+def test_the_transition_is_one_way():
+    """Neither terminal state goes back to `pendiente`.
 
-    assert escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, ocurrido, BASE, dias=7) is True
-    assert escalado_sin_confirmar(ConfirmState.SIN_CONFIRMAR, ocurrido, BASE, dias=20) is False
+    The machine has two branches and no way back: a confirmed proposal stays
+    confirmed and a cancelled one stays cancelled.
+    """
+    for estado in (PropuestaEstado.CONFIRMADO, PropuestaEstado.CANCELADO):
+        refusals = {
+            propuesta_transicion_permitida(estado, destino)
+            for destino in PropuestaEstado
+        }
+        assert None not in refusals, (
+            f"a {estado.value} proposal must not be able to move anywhere"
+        )
+
+
+def test_a_confirmed_proposal_may_not_be_cancelled():
+    """A confirmed proposal is already a charge; it cannot be withdrawn."""
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.CONFIRMADO, PropuestaEstado.CANCELADO
+        )
+        == PROPUESTA_YA_CONFIRMADA
+    )
+
+
+def test_a_cancelled_proposal_may_not_be_confirmed():
+    """A cancelled proposal never becomes a charge."""
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.CANCELADO, PropuestaEstado.CONFIRMADO
+        )
+        == PROPUESTA_YA_CANCELADA
+    )
+
+
+def test_the_guard_reads_the_stored_state_not_a_projection():
+    """The guard is the proposal's own state.
+
+    A proposal is a stored row with a stored `estado`; the transition guard
+    reads it and nothing else. There is no projection of the ledger to
+    reconcile — the proposal *is* the state.
+    """
+    # The same destination, two different stored states, two different
+    # answers. The guard consults the stored state, never the destination
+    # alone.
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+        )
+        is None
+    )
+    assert (
+        propuesta_transicion_permitida(
+            PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
+        )
+        == PROPUESTA_YA_CONFIRMADA
+    )
+
+
+def test_the_v1_transition_table_is_gone():
+    """The v1 `transicion_permitida` no longer exists.
+
+    It was a two-state transition table over a charge's confirmation
+    history, and the dispute machinery it served is gone (ADR-18). The
+    proposal transition replaced it.
+    """
+    from tienda.domain import confirmation as modulo
+
+    assert not hasattr(modulo, "transicion_permitida")
+    assert not hasattr(modulo, "escalado_sin_confirmar")
+    assert not hasattr(modulo, "DISPUTA_ABIERTA")
+    assert not hasattr(modulo, "CARGO_YA_RECONCILIADO")
+
+
+# ---------------------------------------------------------------------------
+# The rule — a charge requires its confirmation
+# ---------------------------------------------------------------------------
+
+
+def test_a_charge_that_does_not_exist_yet_may_be_written():
+    """A new charge may be written: its confirmation goes with it."""
+    assert confirmacion_requerida(charge_exists=False, confirmation_rows=[]) is True
+
+
+def test_a_charge_with_a_confirmation_may_be_written():
+    """A charge that already carries its confirmation is consistent."""
+    filas = [_row(ConfirmState.CONFIRMADO)]
+
+    assert confirmacion_requerida(charge_exists=True, confirmation_rows=filas) is True
+
+
+def test_a_charge_without_a_confirmation_may_not_be_written():
+    """Rule 5: a charge without a confirmation is refused.
+
+    This is the shape the write path must never let exist. It is
+    unreachable through the API — ADR-19 gives the ledger a single entry
+    point — and the check exists so no other write path can create it.
+    """
+    assert confirmacion_requerida(charge_exists=True, confirmation_rows=[]) is False

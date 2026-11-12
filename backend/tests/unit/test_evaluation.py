@@ -1,11 +1,14 @@
 """The derived state of a customer: the debt, the suspension and its cause.
 
-Covers **PA-06** (the suspension is automatic and evaluated on read) and
-**PA-04** (a disputed charge is still debt, not a credit), with the two
-boundaries the design calls out:
+Covers **PA-06** (the suspension is automatic and evaluated on read), with
+the two boundaries the design calls out:
 
 * `credit_limit=None` — «sin límite» — **never** fires `limite_superado`;
 * `override=True` lifts the automatic suspension.
+
+And the one boundary rule 19 added: the outstanding is never negative,
+because a `pago` never exceeds the debt it retires and the excess leaves
+the counter as change (ADR-26).
 
 None of these tests carries the `django_db` marker, and none of them can:
 the rule reads no database, and pytest-django would raise `RuntimeError:
@@ -216,11 +219,11 @@ def test_a_payment_that_retires_the_oldest_charge_lifts_the_suspension():
 
 
 @pytest.mark.unit
-def test_a_disputed_charge_is_still_debt():
-    """PA-04: a dispute removes no amount from the debt.
+def test_a_confirmed_charge_is_still_debt():
+    """A confirmed charge is debt in full, and ages in its own bucket.
 
-    The rule never reads the confirmation rows, so a charge under an open
-    dispute is counted in full and ages in its own bucket.
+    The rule never reads the confirmation rows: a charge's confirmation is
+    about whether it exists, not about how much it is worth.
     """
     estado = evaluate_customer(
         [cargo(1, "6.40", dias=40)], credit_limit=None, at=BASE
@@ -252,16 +255,16 @@ def test_the_antiguedad_ignores_a_charge_that_is_not_yet_owed():
 
 
 @pytest.mark.unit
-def test_a_credit_note_reduces_the_debt_and_lifts_the_suspension():
-    """A `nota de crédito` is money given back: it reduces the debt."""
+def test_a_payment_that_retires_the_debt_lifts_the_suspension():
+    """A payment reduces the debt and the age with it.
+
+    There is no `nota de crédito` any more: the v1 version of this test
+    proved that a credit note reduced the debt and lifted the suspension.
+    The only money that retires debt now is a `pago` (ADR-19).
+    """
     lineas = [
         cargo(1, "20.00", dias=45),
-        LedgerLine(
-            id=20,
-            kind=EntryKind.NOTA_CREDITO,
-            amount=Decimal("20.00"),
-            occurred_at=BASE - DIA,
-        ),
+        pago(10, "20.00", dias=1),
     ]
 
     estado = evaluate_customer(lineas, credit_limit=None, at=BASE)
@@ -269,6 +272,28 @@ def test_a_credit_note_reduces_the_debt_and_lifts_the_suspension():
     assert estado.total == Decimal("0")
     assert estado.antiguedad_max_dias == 0
     assert estado.suspendido is False
+
+
+@pytest.mark.unit
+def test_the_outstanding_is_never_negative():
+    """The outstanding never goes below zero.
+
+    A `pago` never exceeds the debt it retires (rule 19): the shop returns
+    the excess as change and it never enters the book. So there is no
+    `credit_a_favor` state, and the rule has no third term to subtract
+    (ADR-26).
+    """
+    from tienda.domain.types import EntryKind as _EntryKind
+
+    assert not hasattr(_EntryKind, "NOTA_CREDITO")
+
+    # A payment that fits exactly leaves nothing owed.
+    estado = evaluate_customer(
+        [cargo(1, "20.00", dias=1), pago(10, "20.00", dias=1)],
+        credit_limit=None,
+        at=BASE,
+    )
+    assert estado.total == Decimal("0")
 
 
 @pytest.mark.unit
