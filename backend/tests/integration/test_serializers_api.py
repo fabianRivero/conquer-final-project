@@ -302,18 +302,53 @@ def test_no_route_exposes_a_mutating_method_for_a_ledger_row():
             elif isinstance(patron, URLResolver):
                 yield from patrones(patron)
 
+    # The routes that may mutate, and why. The `PATCH` of the customer's
+    # detail changes the `credit_limit`, and that is the owner's own record
+    # and policy - not a row of the book (design section 3.1). The
+    # append-only guarantee is about the BOOK: LedgerEntry, CargoLinea,
+    # Confirmacion, PropuestaLinea and ImputacionPago are never modified.
+    MUTACION_PERMITIDA = {"clientes/<int:cliente_id>/"}
+
     mutantes = []
     for patron in patrones(get_resolver()):
         # Django's own admin and auth routes are not the API's.
         if patron.name in {"login", "logout", "password_reset", "password_change"}:
             continue
         prohi = _metodos_de(patron.callback) & {"put", "patch", "delete"}
-        if prohi:
-            mutantes.append(f"{patron.pattern} -> {sorted(prohi)}")
+        if not prohi:
+            continue
+        if str(patron.pattern) in MUTACION_PERMITIDA:
+            continue
+        mutantes.append(f"{patron.pattern} -> {sorted(prohi)}")
 
     assert mutantes == [], (
         "the project exposes a mutating route: " + ", ".join(mutantes)
     )
+
+
+def test_only_the_customer_detail_may_be_patched():
+    """Exactly one route of the API accepts a `PATCH`, and it is this one.
+
+    The `credit_limit` is the owner's own record and policy. Everything
+    else - the cash, the close, the position, the catalogue, the customer
+    list and the ledger - answers only `get` and `post`.
+    """
+    from django.urls import URLPattern, URLResolver
+
+    def patrones(resolver):
+        for patron in resolver.url_patterns:
+            if isinstance(patron, URLPattern):
+                yield patron
+            elif isinstance(patron, URLResolver):
+                yield from patrones(patron)
+
+    con_patch = {
+        str(p.pattern)
+        for p in patrones(get_resolver())
+        if "patch" in _metodos_de(p.callback)
+    }
+
+    assert con_patch == {"clientes/<int:cliente_id>/"}
 
 
 def test_the_mutating_route_check_can_see_the_api_routes():
@@ -358,25 +393,48 @@ def test_the_client_routes_live_under_their_own_prefix():
     assert not set(cliente_rutas) & set(personal_rutas)
 
 
-def test_the_api_mount_answers_501_on_every_route():
+def test_the_api_mount_is_live():
     """The map is MOUNTED, not merely declared.
 
-    `config/urls.py` builds the `/api/v1/` patterns from this module, and
-    the mount was guarded while the module did not exist. The guard has to
-    pick it up now, and the route has to answer with the 501 of a pending
-    view rather than with a 404 of a missing route.
+    `config/urls.py` includes `tienda.api.urls` as a urlconf module under
+    the namespace `api`, so the routes inside it are reversible. The mount
+    was guarded while the module did not exist, and the guard has to pick
+    it up now.
+
+    A staff route with no session answers **403** — the staff scope is the
+    session, and a request without one has no scope (design §7.1). A **404**
+    would mean the route does not exist; the route exists.
     """
     from django.test import Client
 
     cliente = Client()
     respuesta = cliente.get("/api/v1/posicion/", HTTP_HOST="testserver")
 
+    assert respuesta.status_code == 403
+    import json
+
+    cuerpo = json.loads(respuesta.content.decode())
+    assert cuerpo["codigo_error"] == "permiso_insuficiente"
+
+
+def test_a_pending_route_still_answers_501():
+    """A route whose view has not landed says so.
+
+    The proposal routes are Phase 5 and the client's are Phase 6. They
+    answer 501 naming the slice that owes them, not 404: a 404 would say
+    the route does not exist, which is a statement about the CONTRACT.
+    """
+    from django.test import Client
+
+    cliente = Client()
+    respuesta = cliente.get("/api/v1/propuestas/", HTTP_HOST="testserver")
+
     assert respuesta.status_code == 501
     import json
 
     cuerpo = json.loads(respuesta.content.decode())
     assert cuerpo["codigo_error"] == "vista_pendiente"
-    assert cuerpo["slice"] == "PR 4c"
+    assert cuerpo["slice"] == "PR 5"
 
 
 def test_a_view_that_has_not_landed_answers_501_and_names_the_slice():
