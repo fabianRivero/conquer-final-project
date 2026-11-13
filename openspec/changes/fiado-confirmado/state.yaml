@@ -180,26 +180,64 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 32
+  tasks_completed: 41
   tasks_completed_note: >-
-    Thirty-two of the sixty-nine v2 tasks are complete: the seven of Phase 2,
-    the thirteen of Phase 3 and the twelve of Phase 4. The figure excludes the
-    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
-    exactly as they are and are therefore not re-planned here. Phases 4 to 8
-    are pending. With the seven v1 Phase 1 tasks the change as a whole is 76
-    tasks, 39 complete.
+    Forty-one of the sixty-nine v2 tasks are complete: the seven of Phase 2,
+    the thirteen of Phase 3 and the twenty-one of Phase 4. The Phase 4 chain
+    is COMPLETE: the service layer, the 422 contract, the permission model,
+    the serializers, the URL map, the staff surface, the credential, the
+    throttle, the leak walk and the scope matrix. The figure excludes the
+    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay
+    valid exactly as they are and are therefore not re-planned here. Phases 5
+    to 8 are pending. With the seven v1 Phase 1 tasks the change as a whole
+    is 76 tasks, 48 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 4e - the leak walk and the permission matrix. Tasks 4.1 and 4.2,
-    and 4.6 to 4.12: the recursive JSON walk over every response of every
-    audience, the scope matrix, and the seven credential RED tests. It is the
-    fifth and last slice of the Phase 4 chain, and it is the one that closes
-    the leak surface: the credential code of PR 4d is already in place, so
-    these tests land AFTER it.
+    Phase 5 - the proposal, the shop's screen and the confirmation. Nine
+    tasks: 5.1 to 5.7 are the RED suites and 5.8 and 5.9 are the service
+    operations and the routes. It is the heart of the v2 model: the charge
+    exists only at the confirmation, the client never writes to the book, and
+    the four proposal routes are the ones the N5 gate closes to the
+    dependiente.
+  phase4e_delivered:
+    completed: '2026-11-13'
+    tasks: 9
+    files:
+      - backend/tests/walk.py
+      - backend/tests/integration/test_no_leak.py
+    lines: 564
+    budget: size-exception
+    evidence: >-
+      128 unit and 217 integration tests pass - 23 of them new. The ORM-free
+      boundary holds: 21 rules, no Django, no database.
+    the_walk: >-
+      The walk goes over the WHOLE tree: every key and every value of a JSON
+      body, recursively, looking for a forbidden token anywhere. A check of
+      the top-level keys would miss a credential nested three levels down,
+      and a credential that reaches a response reaches a log, a cache and the
+      browser's developer console. The report names the PATH of every leak,
+      because "there is a leak" is not an actionable report.
+    what_the_tests_found: >-
+      The CSRF tests were proving nothing, and that was OUR gap rather than
+      the code's. The test authenticated with force_authenticate, which
+      bypasses the authentication machinery entirely - the CSRF and all - and
+      Django's test client sets _dont_enforce_csrf_checks by default, so the
+      check did not even run. The tests now use a REAL session and opt in with
+      enforce_csrf_checks=True. And the token and the cookie are NOT the same
+      value: the cookie carries the SECRET (32 characters) and the header
+      carries its MASKED form (64), and Django unmasks the header and
+      compares it with the cookie. A test that puts the same value in both
+      places is refused - and it was.
+    proof_non_vacuous: >-
+      Seven probes, each failing the test it should: the walk only looking at
+      the top level, the walk ignoring the keys, the walk ignoring the values,
+      the client schema declaring a staff-only field, the dependiente
+      reaching the credit book, a staff session reaching a client route, and
+      the dependent board listing the customers.
   phase4d_delivered:
     completed: '2026-11-13'
     tasks: 2
