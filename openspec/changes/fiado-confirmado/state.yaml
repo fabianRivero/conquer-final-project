@@ -180,25 +180,60 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 23
+  tasks_completed: 26
   tasks_completed_note: >-
-    Twenty-three of the sixty-nine v2 tasks are complete: the seven of Phase 2,
-    the thirteen of Phase 3 and the three of Phase 4. The figure excludes the
+    Twenty-six of the sixty-nine v2 tasks are complete: the seven of Phase 2,
+    the thirteen of Phase 3 and the six of Phase 4. The figure excludes the
     seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
     exactly as they are and are therefore not re-planned here. Phases 4 to 8
     are pending. With the seven v1 Phase 1 tasks the change as a whole is 76
-    tasks, 30 complete.
+    tasks, 33 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 4b - the serializers and the URL map. Tasks 4.18, 4.19 and 4.21: the
-    five staff schemas, the client schema, and the URL map with no PUT, PATCH
-    or DELETE for a ledger row. It is the second slice of the Phase 4 chain
-    and it stands on the service layer, the 422 contract and the permission
-    model that PR 4a delivered.
+    Phase 4c - the staff surface. Tasks 4.3, 4.4 and 4.5 - the three RED route
+    suites - and 4.20, the staff views that answer them. It is the third slice
+    of the Phase 4 chain, and it is the first that produces a real response
+    body: the schemas of PR 4b get their first data.
+  phase4b_delivered:
+    completed: '2026-11-12'
+    tasks: 3
+    files:
+      - backend/tienda/api/serializers/staff.py
+      - backend/tienda/api/serializers/cliente.py
+      - backend/tienda/api/serializers/fields.py
+      - backend/tienda/api/urls.py
+      - backend/tests/integration/test_serializers_api.py
+    lines: 661
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic for the same reason as PR 4a: the tests import the
+      module they test.
+    evidence: >-
+      128 unit and 133 integration tests pass - 19 of them new. The API mount
+      answers 501 on every route, which proves the map is mounted and not
+      merely declared.
+    proof_non_vacuous: >-
+      Seven probes, each failing the test it should: the client schema
+      declaring a staff-only field, the dependent position declaring the
+      ladder, the dependent position querying the customers, the dependent's
+      close carrying the date, a route disappearing from the map, a mutating
+      route appearing, and a mutating route accepted by a view whose methods
+      are declared.
+    defect_found_in_a_test: >-
+      The check that no route exposes a mutating method walked only the ROOT
+      patterns, and the API's routes live one level down under the /api/v1/
+      resolver. A check that can only pass is not a check. It now walks the
+      whole tree, and the probe that adds a DELETE-accepting route fails IT
+      and not only the route count.
+    what_the_design_says: >-
+      The nine staff-only fields are the nine THE CLIENT must never see, and
+      the other five staff classes declare some of them by design. The
+      dependent's position declares caja of the nine, because the dependent
+      reads the drawer and CP-05 requires it to read the close.
   phase4a_delivered:
     completed: '2026-11-12'
     tasks: 3
