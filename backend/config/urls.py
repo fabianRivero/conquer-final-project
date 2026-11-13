@@ -44,6 +44,12 @@ def _api_urlpatterns():
     `tienda.api.urls` arrives with task 4.21. The import is guarded so the
     project boots and every non-API route keeps working before then; once the
     module exists the mount is picked up with no change here.
+
+    The patterns are included under the namespace **`api`**, so a route is
+    reversed as `api:caja` rather than as `caja`. A plain `include()` of a
+    list builds an unnamed resolver, and the names inside it are then not
+    reversible at all — which would leave the tests unable to name the route
+    they exercise. The namespace is the price of `reverse()`.
     """
     try:
         from tienda.api import urls as tienda_api_urls
@@ -62,4 +68,4 @@ urlpatterns = [
 ]
 
 # The API mount is appended last so the explicit routes above always win.
-urlpatterns += [path("api/v1/", include(_api_urlpatterns()))]
+urlpatterns += [path("api/v1/", include("tienda.api.urls"))]

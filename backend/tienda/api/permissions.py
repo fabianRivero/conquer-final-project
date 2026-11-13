@@ -99,13 +99,21 @@ def exigir_shop(request):
 class RoleRequired(BasePermission):
     """The acting user must belong to one of the named shop roles.
 
+    DRF instantiates the classes in `permission_classes`, so the roles
+    cannot be constructor arguments: a view declares
+    `permission_classes = [RoleRequired]` and the roles live in the class
+    attribute `roles`. A subclass names them:
+
+        class CashView(APIView):
+            permission_classes = [RoleRequired]
+            roles = ("dueno", "dependiente")
+
     The message carries no request data: it says which role was required and
     nothing about who the request is.
     """
 
-    def __init__(self, *roles: str):
-        super().__init__()
-        self.roles = roles
+    #: The groups that are admitted. Overridden by the subclass.
+    roles: tuple[str, ...] = ()
 
     def has_permission(self, request, view) -> bool:
         user = getattr(request, "user", None)
@@ -118,6 +126,29 @@ class RoleRequired(BasePermission):
         # queryset: `current_shop(request)` scopes every row before it is
         # fetched, so there is never an unscoped object to check.
         return True
+
+
+class SoloPersonal(RoleRequired):
+    """The two shop roles, and only them.
+
+    The cash, the close and the position are the shop's business: the
+    `dueno` and the `dependiente` may both take part in them, and the
+    client may not.
+    """
+
+    roles = (GRUPO_DUENO, GRUPO_DEPENDIENTE)
+
+
+class SoloDueno(RoleRequired):
+    """The `dueno`, and only the `dueno`.
+
+    The credit book is the owner's alone: the customer list and detail,
+    the ledger, the balances, the ageing and the credit limit all answer
+    403 to the `dependiente`, with no partial data in any field
+    (design §7.1).
+    """
+
+    roles = (GRUPO_DUENO,)
 
 
 class IsDueno(BasePermission):

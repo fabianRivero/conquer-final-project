@@ -31,6 +31,16 @@ from __future__ import annotations
 from django.http import JsonResponse
 from django.urls import path
 
+from tienda.api.views import (
+    CajaView,
+    CatalogoView,
+    CierreView,
+    ClienteDetalleView,
+    ClienteLibretaView,
+    ClientesView,
+    PosicionView,
+)
+
 #: The slices of the Phase 4 chain that owe the views. A route whose view
 #: has not landed answers 501 with this map, so the answer says what is
 #: missing and not merely that something is.
@@ -79,18 +89,28 @@ def vista_pendiente(nombre: str):
     return _vista
 
 
+#: The namespace of the API. Django's `include()` of a urlconf module
+#: needs an `app_name` for the routes inside it to be reversible, and the
+#: namespace is what makes them so: `reverse("api:caja")`.
+app_name = "api"
+
+
 # ---------------------------------------------------------------------------
 # The staff routes
 # ---------------------------------------------------------------------------
 
 urlpatterns = [
-    path("posicion/", vista_pendiente("posicion"), name="posicion"),
-    path("caja/", vista_pendiente("caja"), name="caja"),
-    path("cierre/", vista_pendiente("cierre"), name="cierre"),
-    path("catalogo/", vista_pendiente("catalogo"), name="catalogo"),
+    path("posicion/", PosicionView.as_view(), name="posicion"),
+    path("caja/", CajaView.as_view(), name="caja"),
+    path("cierre/", CierreView.as_view(), name="cierre"),
+    path("catalogo/", CatalogoView.as_view(), name="catalogo"),
     path("existencias/", vista_pendiente("existencias"), name="existencias"),
-    path("clientes/", vista_pendiente("clientes"), name="clientes"),
-    path("clientes/<int:cliente_id>/", vista_pendiente("clientes"), name="cliente_detalle"),
+    path("clientes/", ClientesView.as_view(), name="clientes"),
+    path(
+        "clientes/<int:cliente_id>/",
+        ClienteDetalleView.as_view(),
+        name="cliente_detalle",
+    ),
     path(
         "clientes/<int:cliente_id>/codigo/",
         vista_pendiente("codigo"),
@@ -98,7 +118,7 @@ urlpatterns = [
     ),
     path(
         "clientes/<int:cliente_id>/libreta/",
-        vista_pendiente("libreta"),
+        ClienteLibretaView.as_view(),
         name="cliente_libreta",
     ),
     path(
