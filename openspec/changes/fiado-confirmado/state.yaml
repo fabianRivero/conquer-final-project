@@ -180,25 +180,65 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 30
+  tasks_completed: 32
   tasks_completed_note: >-
-    Thirty of the sixty-nine v2 tasks are complete: the seven of Phase 2, the
-    thirteen of Phase 3 and the ten of Phase 4. The figure excludes the seven
-    v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
+    Thirty-two of the sixty-nine v2 tasks are complete: the seven of Phase 2,
+    the thirteen of Phase 3 and the twelve of Phase 4. The figure excludes the
+    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
     exactly as they are and are therefore not re-planned here. Phases 4 to 8
     are pending. With the seven v1 Phase 1 tasks the change as a whole is 76
-    tasks, 37 complete.
+    tasks, 39 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 4d - the credential and its throttle. Tasks 4.16 and 4.17:
-    client_auth.py with resolver_credencial and throttle.py with the throttle
-    ledger. It is the fourth slice of the Phase 4 chain, and it needs no
-    database of its own: the credential is resolved from the header and the
-    throttle counts the failures.
+    Phase 4e - the leak walk and the permission matrix. Tasks 4.1 and 4.2,
+    and 4.6 to 4.12: the recursive JSON walk over every response of every
+    audience, the scope matrix, and the seven credential RED tests. It is the
+    fifth and last slice of the Phase 4 chain, and it is the one that closes
+    the leak surface: the credential code of PR 4d is already in place, so
+    these tests land AFTER it.
+  phase4d_delivered:
+    completed: '2026-11-13'
+    tasks: 2
+    files:
+      - backend/tienda/api/client_auth.py
+      - backend/tienda/api/throttle.py
+      - backend/tests/integration/test_credencial_api.py
+    lines: 517
+    budget: inside
+    evidence: >-
+      128 unit and 194 integration tests pass - 25 of them new. It is the
+      SMALLEST slice of the chain so far and it fits inside the 400-line
+      budget.
+    two_things_the_design_did_not_say_clearly: >-
+      The prefix is unique INSIDE a shop - UNIQUE (shop_id, prefix) - while
+      section 8 speaks of the shop_id carried by the matching CustomerCodigo,
+      in the singular. The resolution now compares every candidate of every
+      shop with that prefix, and the shop comes from the credential that
+      MATCHES, never from the prefix. Neither statement of the design is
+      broken. And the alphabet table of section 5 says "no 0/O, no 1/I/L",
+      but the alphabet it writes - ABCDEFGHJKLMNPQRSTUVWXYZ23456789 - DOES
+      contain the L; what it excludes from the letters is the I and the O.
+      The string is the normative one - 32 symbols, exactly 100 bits - and
+      the module uses exactly those 32.
+    proof_non_vacuous: >-
+      Eight probes, each failing the test it should: the alphabet accepting an
+      ambiguous symbol, the credential shorter than twenty symbols, the
+      plaintext stored instead of the digest, the credential read from a query
+      parameter too, a revoked credential still resolving, the throttle never
+      refusing, the throttle ledger holding the plaintext, and the throttle
+      window never forgetting.
+    the_probe_that_found_a_gap: >-
+      The probe that made the credential readable from a query parameter was NOT
+      caught. The tests asserted a STATUS CODE, and the route answers the same
+      either way - a 501 of a pending view - so the assertion could not
+      distinguish resolved from not-resolved. The tests now assert on the
+      RESOLUTION, and the companion test - the header DOES resolve - was added
+      with them. That companion matters: without it, "the URL does not resolve"
+      would pass on a resolution that never resolves.
   phase4c_delivered:
     completed: '2026-11-13'
     tasks: 4
