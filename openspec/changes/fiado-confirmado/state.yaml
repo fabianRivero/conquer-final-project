@@ -180,24 +180,75 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 26
+  tasks_completed: 30
   tasks_completed_note: >-
-    Twenty-six of the sixty-nine v2 tasks are complete: the seven of Phase 2,
-    the thirteen of Phase 3 and the six of Phase 4. The figure excludes the
-    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
+    Thirty of the sixty-nine v2 tasks are complete: the seven of Phase 2, the
+    thirteen of Phase 3 and the ten of Phase 4. The figure excludes the seven
+    v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
     exactly as they are and are therefore not re-planned here. Phases 4 to 8
     are pending. With the seven v1 Phase 1 tasks the change as a whole is 76
-    tasks, 33 complete.
+    tasks, 37 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 4c - the staff surface. Tasks 4.3, 4.4 and 4.5 - the three RED route
-    suites - and 4.20, the staff views that answer them. It is the third slice
-    of the Phase 4 chain, and it is the first that produces a real response
-    body: the schemas of PR 4b get their first data.
+    Phase 4d - the credential and its throttle. Tasks 4.16 and 4.17:
+    client_auth.py with resolver_credencial and throttle.py with the throttle
+    ledger. It is the fourth slice of the Phase 4 chain, and it needs no
+    database of its own: the credential is resolved from the header and the
+    throttle counts the failures.
+  phase4c_delivered:
+    completed: '2026-11-13'
+    tasks: 4
+    files:
+      - backend/tienda/api/views.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/permissions.py
+      - backend/config/urls.py
+      - backend/tests/integration/test_cash_api.py
+      - backend/tests/integration/test_ledger_api.py
+    lines: 1424
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic for the same reason as PR 4a: the tests import the
+      views they test.
+    evidence: >-
+      128 unit and 169 integration tests pass - 36 of them new. The ORM-free
+      boundary holds: 21 rules, no Django, no database.
+    contract_changes: >-
+      Two changes of the CONTRACT, not of the code. The API is now mounted with
+      a NAMESPACE - an include() of a list of patterns builds an unnamed
+      resolver whose names are not reversible, so the tests could not name the
+      route they exercised; the routes now reverse as api:caja. And
+      RoleRequired takes no constructor argument, because DRF INSTANTIATES
+      the classes in permission_classes: the roles live in the class attribute,
+      and there are two classes - SoloPersonal for the two shop roles and
+      SoloDueno for the owner alone.
+    third_layer_of_append_only: >-
+      DRF's APIView accepts put, patch and delete BY DEFAULT, so a view
+      would answer DELETE if a route were ever added. Every view now declares
+      the methods it answers, and the only PATCH of the API is the customer
+      detail - which changes the credit_limit, the owner's own record and
+      policy, not a row of the book.
+    proof_non_vacuous: >-
+      Seven probes, each failing the test it should: the ledger accepting a
+      cargo written directly, the payment accepting more than the outstanding,
+      the ledger accepting a client-supplied occurred_at, the close accepting
+      a client-supplied esperado, the dependent reading the whole board, the
+      dependent querying the customers, and the dependent reaching the credit
+      book.
+    the_probe_that_found_a_gap: >-
+      The probe that made the dependent read the whole board was NOT caught -
+      because the dependent's reduced board was not tested AT ALL. The view
+      existed, answered correctly, and nobody looked at it. The suite was
+      missing the coverage, not the probe. Five tests closed the gap, and the
+      probe now fails it. The stronger form of the guarantee is a
+      CaptureQueriesContext that asserts the dependent's request never
+      touches the customer table, and a companion test that the owner's DOES
+      list them - without the companion, the first would pass on a board
+      that shows nobody.
   phase4b_delivered:
     completed: '2026-11-12'
     tasks: 3

@@ -253,8 +253,16 @@ def test_an_anonymous_principal_is_neither_role():
 
 
 def test_role_required_refuses_a_user_outside_the_named_roles(db):
-    """`RoleRequired` admits only the named groups."""
+    """`RoleRequired` admits only the named groups.
+
+    The roles live in the class attribute, because DRF **instantiates** the
+    classes in `permission_classes` — a constructor argument would have
+    made the permission uncallable.
+    """
     from django.contrib.auth.models import Group
+
+    class _Personal(permissions.RoleRequired):
+        roles = ("dueno", "dependiente")
 
     user = User.objects.create_user(username="nadie", password="x")
     user.groups.add(Group.objects.create(name="dueno"))
@@ -263,12 +271,38 @@ def test_role_required_refuses_a_user_outside_the_named_roles(db):
     request = factory.get("/api/v1/clientes/")
     request.user = user
 
-    permiso = permissions.RoleRequired("dueno", "dependiente")
+    permiso = _Personal()
 
     assert permiso.has_permission(request, None) is True
 
     user.groups.clear()
     assert permiso.has_permission(request, None) is False
+
+
+def test_the_two_shop_roles_are_the_classes_the_views_use(db):
+    """The views use `SoloPersonal` and `SoloDueno`.
+
+    `SoloPersonal` admits the two shop roles — the cash, the close and the
+    position are the shop's business. `SoloDueno` admits only the owner:
+    the credit book is his alone (CAC-02).
+    """
+    from django.contrib.auth.models import Group
+
+    owner = User.objects.create_user(username="dueno", password="x")
+    owner.groups.add(Group.objects.create(name="dueno"))
+    helper = User.objects.create_user(username="dependiente", password="x")
+    helper.groups.add(Group.objects.create(name="dependiente"))
+
+    factory = APIRequestFactory()
+    request = factory.get("/api/v1/clientes/")
+    request.user = owner
+
+    assert permissions.SoloDueno().has_permission(request, None) is True
+    assert permissions.SoloPersonal().has_permission(request, None) is True
+
+    request.user = helper
+    assert permissions.SoloDueno().has_permission(request, None) is False
+    assert permissions.SoloPersonal().has_permission(request, None) is True
 
 
 def test_is_dueno_refuses_the_dependiente(db):
