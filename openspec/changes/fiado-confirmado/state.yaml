@@ -180,25 +180,61 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 20
+  tasks_completed: 23
   tasks_completed_note: >-
-    Twenty of the sixty-nine v2 tasks are complete: the seven of Phase 2 and
-    the thirteen of Phase 3. The figure excludes the seven v1 Phase 1 tasks,
-    which were delivered under the v1 plan, stay valid exactly as they are
-    and are therefore not re-planned here. Phases 4 to 8 are pending. With
-    the seven v1 Phase 1 tasks the change as a whole is 76 tasks, 27
-    complete.
+    Twenty-three of the sixty-nine v2 tasks are complete: the seven of Phase 2,
+    the thirteen of Phase 3 and the three of Phase 4. The figure excludes the
+    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay valid
+    exactly as they are and are therefore not re-planned here. Phases 4 to 8
+    are pending. With the seven v1 Phase 1 tasks the change as a whole is 76
+    tasks, 30 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 4 - the service and API layer. It is the first slice that converts
-    ORM rows into the plain records of domain/types.py, and the first that
-    could misuse them. It is where rules 1 to 21 become transaction-level
-    refusals with a codigo_error, and where the four proposal routes and the
-    client's proposed payment appear for the first time.
+    Phase 4b - the serializers and the URL map. Tasks 4.18, 4.19 and 4.21: the
+    five staff schemas, the client schema, and the URL map with no PUT, PATCH
+    or DELETE for a ledger row. It is the second slice of the Phase 4 chain
+    and it stands on the service layer, the 422 contract and the permission
+    model that PR 4a delivered.
+  phase4a_delivered:
+    completed: '2026-11-12'
+    tasks: 3
+    files:
+      - backend/tienda/services.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/api/permissions.py
+      - backend/tests/integration/test_excepciones_api.py
+      - backend/tests/integration/test_services.py
+    lines: 1218
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic: the tests import the module they test, so a PR with
+      the tests without the code would not even collect, and a PR with the
+      code without the tests would ship three modules nobody exercised. The
+      same reason the Phase 2 and Phase 3 slices were undivided.
+    evidence: >-
+      128 unit and 114 integration tests pass - 61 of them new. The error
+      vocabulary was compared against design section 9.3: seventeen codes in
+      the design, seventeen in the code, none extra, and none of the removed
+      ones - disputa_abierta, importe_reclamado, cargo_no_indicado - present.
+    probe_that_found_a_defect: >-
+      The test that a staff session cannot reach a client route was PASSING FOR
+      THE WRONG REASON. With the credential unresolved the permission is
+      refused anyway, so the test did not distinguish refused-by-session from
+      refused-by-no-credential, and the guard was never exercised. The test now
+      carries a resolved credential - the request that would otherwise be
+      admitted - and the probe that removes the guard now fails it.
+    proof_non_vacuous: >-
+      Eleven probes, each failing the test it should: the 403 body carrying
+      request data again, the vocabulary accepting any code, a code outside the
+      vocabulary reaching the client, the per-row twin accepting a non-positive
+      amount, the twin accepting an unknown kind, a field that is not admitted
+      being accepted, the day closed twice, a product of another shop accepted,
+      the staff scope read from somewhere else, and a staff session reaching a
+      client route.
   phase3a_v1_delivered:
     completed: '2026-11-02'
     model: v1
