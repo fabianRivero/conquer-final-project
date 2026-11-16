@@ -180,29 +180,32 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 50
+  tasks_completed: 58
   tasks_completed_note: >-
-    Fifty of the sixty-nine v2 tasks are complete: the seven of Phase 2, the
-    thirteen of Phase 3, the twenty-one of Phase 4 and the nine of Phase 5.
-    Phase 5 delivers the proposal, the shop's screen and the confirmation:
-    the charge is born at the confirmation, the client never writes to the
-    book, and the N5 gate is a named decision that is CLOSED. The figure
-    excludes the seven v1 Phase 1 tasks, which were delivered under the v1
-    plan, stay valid exactly as they are and are therefore not re-planned
-    here. Phases 6 to 8 are pending. With the seven v1 Phase 1 tasks the
-    change as a whole is 76 tasks, 57 complete.
+    Fifty-eight of the sixty-nine v2 tasks are complete: the seven of
+    Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
+    of Phase 5 and the eight of Phase 6. Phase 5 delivered the proposal,
+    the shop's screen and the confirmation - the charge is born at the
+    confirmation - and Phase 6 delivered the client's own surface and the
+    proposed payment: the client reads its statement and proposes a
+    payment, and it never writes to the book. The figure excludes the
+    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay
+    valid exactly as they are and are therefore not re-planned here.
+    Phases 7 and 8 are pending. With the seven v1 Phase 1 tasks the
+    change as a whole is 76 tasks, 65 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 6 - the client credential, the client surface and the proposed
-    payment. Eight tasks: the three client routes under their own prefix,
-    the proposed payment the owner validates, and the opening of the N5
-    gate with the object-level rule that the dependiente reaches the
-    proposal IT prepared and no other - the rule this slice deliberately
-    left out, because it is unreachable while the gate is closed.
+    Phase 7 - the seed, the frontend and the end-to-end suite. Nine
+    tasks: the idempotent seed command, the Vite and React shell with its
+    three routes, the three fetch layers, the owner's board, the shop's
+    screen and the client's access, and the e2e suite against the
+    deployed public URL. It is the first phase that touches something
+    other than the backend, and the first one whose evidence is a URL
+    rather than a test.
   phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
@@ -289,6 +292,109 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase6_delivered:
+    completed: '2026-11-16'
+    tasks: 8
+    files:
+      - backend/tienda/services.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/client_authentication.py
+      - backend/tests/integration/test_cliente_api.py
+      - backend/tests/integration/test_pago_propuesto_api.py
+    lines: 1482
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic for the same reason as the Phase 4 and Phase 5
+      slices: the tests import the module they test, and the views import
+      the service they call.
+    evidence: >-
+      128 unit and 269 integration tests pass - 23 of them new. The
+      ORM-free boundary holds: domain/ is untouched, so the Phase 3 rules
+      are still the rules, and the service layer is still the only layer
+      that writes.
+    the_client_reads_its_own_statement: >-
+      The statement holds that customer's own CONFIRMED charges, each with
+      its full `lineas[]`. The v1 rule "the itemisation lives only inside
+      the action" is gone: the client confirms in the shop and therefore
+      sees the `desglose` before the charge exists (CC-02, CC-06). The
+      confirmation is a FILTER on the read, not a decoration on the
+      payload - a charge without its `Confirmacion` does not exist.
+    the_paid_and_pending_split: >-
+      Each charge carries `pagado` and `saldo`, derived on read from the
+      `ImputacionPago` rows and never stored on the charge: a mutable
+      column would break the append-only guarantee of the book and would
+      be a stored derived value, which design 3.1 forbids (ADR-27).
+      Against charges of 8,00, 7,00 and 15,00 with a payment of 20,00,
+      the statement reads 8/8, 7/7 and 5/15, with 10,00 still owed.
+    the_client_never_writes_to_the_book: >-
+      This is the v2 invariant that replaces the v1 dispute tests: a
+      client request creates no `LedgerEntry`, no `CargoLinea`, no
+      `Confirmacion` and no `FiadoPropuesto`. The only row a client
+      request may create is its own `PagoPropuesto`. And the proposal
+      NAMES NO CHARGE: the body carries `importe` and `referencia` only,
+      and a body carrying a `cargo_id` is refused on the presence of the
+      field (ADR-27).
+    the_proposed_payment_is_a_request_not_a_scope: >-
+      The `PagoPropuesto` writes no ledger row; only the owner's
+      validation creates the `pago` and its `ImputacionPago` rows. The
+      amount is EXACTLY the proposal's `importe` - never recomputed, never
+      rounded. Rule 19 holds: a proposed amount larger than the
+      customer's outstanding is refused with `pago_excede_deuda`, writes
+      no `pago`, and leaves the proposal `pendiente` - the owner rejects
+      it and returns the excess as change (ADR-26).
+    the_credential_is_resolved_by_the_authentication_layer: >-
+      DRF's `EsCliente` permission reads `request.cliente`, and a
+      permission runs AFTER the authentication, so the credential has to
+      be resolved by something that runs earlier. `api/client_authentication.py`
+      is that thing: it resolves the credential, attaches the customer to
+      the request, and refuses a presentation that does not work with
+      `422 codigo_invalido` - the same answer an unknown, a revoked and a
+      throttled credential get, so the throttle is not an oracle.
+    proof_non_vacuous: >-
+      Nine probes, each failing the test it should: the credential
+      accepted from a cookie, the credential accepted from a URL
+      parameter, the statement carrying another customer's charges, the
+      proposal writing a ledger row, the validation writing a recomputed
+      amount, rule 19 not being checked, the proposal accepting a
+      `cargo_id`, the second validation not being refused, and the
+      repartition not being recorded. All nine were detected.
+    the_defects_the_tests_found: >-
+      Four, and all four were in the TESTS or in the wiring, not in the
+      rules. First, the credential never arrived: `APIClient.credentials()`
+      builds an HTTP authentication header, not a custom one, so every
+      client request was a request with no credential. The header travels
+      as `HTTP_X_CODIGO`, which is what the Phase 4 suite already used.
+      Second, the test that the client writes nothing to the book PASSED
+      against routes that answered 501 - it was vacuous, because a route
+      that does nothing also writes nothing; it now asserts that the
+      reads SUCCEEDED, so the two assertions together say what the test
+      means. Third, two tests stamped their charges in the FUTURE, and a
+      charge in the future is not part of the outstanding at the payment's
+      instant - so the rule 19 bound was computed on the wrong set. The
+      rule was right and the stamps were wrong. Fourth, the
+      `proponer_pago` operation did not set the shop, and the model's
+      NOT NULL constraint caught it.
+    the_recursion_and_the_wiring: >-
+      The authentication class reads the request through
+      `request._request`, the plain Django request under the DRF wrapper.
+      DRF's `request.user` and `request.headers` are LAZY: the first
+      access calls `_authenticate()`, which calls the authenticator
+      again. Reading either from inside `authenticate()` is an infinite
+      recursion - and the first version of this class did exactly that,
+      and the symptom was a `RecursionError` on every client request.
+    not_delivered_by_this_slice: >-
+      The OBJECT-level rule of the N5 gate - that a `dependiente` reaches
+      the proposal IT prepared and no other - is NOT implemented, and it
+      is NOT this slice's work. The Phase 5 record said it was Phase 6's
+      work, and that was WRONG: no task of the plan opens the gate. Task
+      5.6 states the rule conditionally, and neither Phase 6 nor Phase 7
+      nor Phase 8 owns the opening. The gate is a decision under a
+      DECLARED HYPOTHESIS (design 18.3): the validation round with the
+      shop owners has not been run, so the conditional capability stays
+      absent from the code until its evidence gate closes - and its
+      absence IS the flag. The opening is a DECISION, not a task, and it
+      belongs to the validation round.
   phase5a_delivered:
     completed: '2026-11-16'
     tasks: 9
@@ -376,8 +482,16 @@ v2_redesign:
       The OBJECT-level rule of the gate - that a `dependiente` reaches
       the proposal IT prepared and no other - is NOT implemented. It is
       unreachable while the gate is closed, and it becomes reachable the
-      day the gate opens, which is Phase 6's work. The slice delivers the
-      gate that CLOSES; it does not deliver the gate that opens.
+      day the gate opens. The gate is a decision under a DECLARED
+      HYPOTHESIS (design 18.3): the validation round with the shop owners
+      has not been run, so the conditional capability stays absent from
+      the code until its evidence gate closes - and its absence IS the
+      flag. NO TASK of the plan opens it: task 5.6 states the rule
+      conditionally, and neither Phase 6 nor Phase 7 nor Phase 8 owns the
+      opening. The opening is therefore not a task but a DECISION, and it
+      belongs to the validation round, not to a slice. This slice delivers
+      the gate that CLOSES; it does not deliver the gate that opens, and
+      no slice in this plan will.
   phase4e_delivered:
     completed: '2026-11-13'
     tasks: 9

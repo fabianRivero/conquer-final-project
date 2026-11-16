@@ -35,9 +35,14 @@ from tienda.api.views import (
     CajaView,
     CatalogoView,
     CierreView,
+    ClienteCargoView,
     ClienteDetalleView,
+    ClienteEstadoView,
     ClienteLibretaView,
+    ClienteProponerPagoView,
     ClientesView,
+    PagoRechazarView,
+    PagoValidarView,
     PosicionView,
     PropuestaCancelarView,
     PropuestaConfirmarView,
@@ -156,25 +161,25 @@ urlpatterns = [
     ),
     path(
         "pagos-propuestos/<int:pago_id>/validar/",
-        vista_pendiente("validar"),
+        PagoValidarView.as_view(),
         name="pago_validar",
     ),
     path(
         "pagos-propuestos/<int:pago_id>/rechazar/",
-        vista_pendiente("rechazar"),
+        PagoRechazarView.as_view(),
         name="pago_rechazar",
     ),
     # The client routes. They live under their own prefix, and they never
     # share a route with a staff one.
-    path("cliente/estado/", vista_pendiente("cliente_estado"), name="cliente_estado"),
+    path("cliente/estado/", ClienteEstadoView.as_view(), name="cliente_estado"),
     path(
         "cliente/cargos/<int:cargo_id>/",
-        vista_pendiente("cliente_cargos"),
+        ClienteCargoView.as_view(),
         name="cliente_cargo",
     ),
     path(
         "cliente/pagos/proponer/",
-        vista_pendiente("cliente_proponer"),
+        ClienteProponerPagoView.as_view(),
         name="cliente_proponer_pago",
     ),
 ]

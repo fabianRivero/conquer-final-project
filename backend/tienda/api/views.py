@@ -37,8 +37,10 @@ from rest_framework.views import APIView
 
 from tienda import services
 from tienda.api import gates
+from tienda.api.client_authentication import CredencialCliente
 from tienda.api import permissions
 from tienda.api.exceptions import DomainValidationError
+from tienda.api.serializers import cliente as cliente_serializers
 from tienda.api.serializers import staff
 from tienda.models import (
     CashMovement,
@@ -776,6 +778,270 @@ class PropuestaCancelarView(_ApiViewBase):
             services.exigir_campos_no_admitidos(request.data, set())
             propuesta = services.cancelar_propuesta(
                 shop_id, request.user, propuesta_id=propuesta_id
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {"id": propuesta.id, "estado": propuesta.estado},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# The client's own surface - tasks 6.7 and 6.8
+# ---------------------------------------------------------------------------
+
+
+def _cliente_de(request):
+    """The customer resolved from the credential, or a refusal.
+
+    The credential is the ONLY source of the client scope: the route
+    reads the `X-Codigo` header and nothing else. There is no session
+    upgrade and no query parameter - a credential that arrived any other
+    way is not a credential this application accepts (R4).
+
+    The refusal is `422 codigo_invalido`, the same one an unknown, a
+    revoked or a throttled credential gets: the answer never says whether
+    the credential existed.
+    """
+    from tienda.api.client_auth import resolver_credencial
+
+    cliente = resolver_credencial(request)
+    if cliente is None:
+        raise DomainValidationError("codigo_invalido")
+    return cliente
+
+
+def _lineas_de_cargo(cargo):
+    """The cargo's itemisation, as the client sees it."""
+    lineas = []
+    for linea in cargo.lineas.order_by("id"):
+        lineas.append(
+            {
+                "producto": linea.producto.nombre,
+                "cantidad": linea.cantidad,
+                "precio_unitario": linea.precio_unitario,
+                "total": linea.total,
+            }
+        )
+    return lineas
+
+
+class ClienteEstadoView(_ApiViewBase):
+    """`GET /api/v1/cliente/estado/` - the client's own statement.
+
+    The alias, the total and the client's **confirmed** charges, each
+    with its full `desglose` (CC-02, CC-06).
+
+    The itemisation is always present: every charge in the statement is a
+    confirmed charge with a mandatory `desglose`, so every charge carries
+    its `lineas[]`. The v1 rule "the itemisation lives only inside the
+    action" is gone - the client confirms in the shop and therefore sees
+    the `desglose` before the charge exists.
+
+    `pagado` and `saldo` are **derived on read** from the
+    `ImputacionPago` rows, never stored on the charge (ADR-27).
+
+    The payload is built by `EstadoClienteSerializer`, which declares the
+    client's own data and **none** of the nine staff-only fields. The
+    guarantee is a property of the schema: DRF's `fields` is exhaustive,
+    so a field that is not declared cannot appear whatever the view
+    hands over.
+    """
+
+    # The credential is resolved by the AUTHENTICATION layer, which
+    # runs before the permission: `EsCliente` reads `request.cliente`,
+    # and a permission runs after the authentication.
+    authentication_classes = [CredencialCliente]
+    permission_classes = [permissions.EsCliente]
+
+    def get(self, request):
+        cliente = _cliente_de(request)
+
+        cargos = services.cargos_de_la_tienda(cliente)
+
+        filas = []
+        total = Decimal("0")
+        for cargo in cargos:
+            pagado = services.pagado_de(cargo)
+            saldo = services.saldo_de(cargo)
+            total += saldo
+            filas.append(
+                {
+                    "id": cargo.id,
+                    "fecha": cargo.occurred_at,
+                    "amount": cargo.amount,
+                    "confirmado_en": cargo.confirmaciones.first().confirmado_en,
+                    "pagado": pagado,
+                    "saldo": saldo,
+                    "lineas": _lineas_de_cargo(cargo),
+                }
+            )
+
+        return Response(
+            cliente_serializers.EstadoClienteSerializer(
+                {"alias": cliente.alias, "total": total, "cargos": filas}
+            ).data
+        )
+
+
+class ClienteCargoView(_ApiViewBase):
+    """`GET /api/v1/cliente/cargos/{id}/` - one of the client's own charges.
+
+    The full itemisation of a charge the client confirmed (CC-02).
+
+    A charge that is not the client's is refused with `cargo_ajeno` and
+    returns **no data**: the refusal is not a charge with the fields
+    blanked.
+    """
+
+    # The credential is resolved by the AUTHENTICATION layer, which
+    # runs before the permission: `EsCliente` reads `request.cliente`,
+    # and a permission runs after the authentication.
+    authentication_classes = [CredencialCliente]
+    permission_classes = [permissions.EsCliente]
+
+    def get(self, request, cargo_id):
+        cliente = _cliente_de(request)
+
+        cargo = services.cargo_de_la_tienda(cliente, cargo_id)
+        if cargo is None:
+            raise DomainValidationError("cargo_ajeno")
+
+        return Response(
+            cliente_serializers.CargoClienteSerializer(
+                {
+                    "id": cargo.id,
+                    "fecha": cargo.occurred_at,
+                    "amount": cargo.amount,
+                    "confirmado_en": cargo.confirmaciones.first().confirmado_en,
+                    "pagado": services.pagado_de(cargo),
+                    "saldo": services.saldo_de(cargo),
+                    "lineas": _lineas_de_cargo(cargo),
+                }
+            ).data
+        )
+
+
+class ClienteProponerPagoView(_ApiViewBase):
+    """`POST /api/v1/cliente/pagos/proponer/` - the client proposes a payment.
+
+    The body is `{importe, referencia?}`. **The proposal names no
+    charge**: the client does not choose which debt it pays, so it
+    proposes an amount and the FIFO decides which charges it retires
+    (ADR-27). A body that carries a `cargo_id` is refused on the
+    **presence** of the field.
+
+    The proposal writes **no ledger row** (CC-07, PA-09): the `pago`
+    itself is a separate `LedgerEntry` that the OWNER appends when he
+    validates it, so the book stays append-only even though the request
+    that preceded it is not.
+    """
+
+    # The credential is resolved by the AUTHENTICATION layer, which
+    # runs before the permission: `EsCliente` reads `request.cliente`,
+    # and a permission runs after the authentication.
+    authentication_classes = [CredencialCliente]
+    permission_classes = [permissions.EsCliente]
+
+    def post(self, request):
+        cliente = _cliente_de(request)
+
+        try:
+            services.exigir_campos_no_admitidos(
+                request.data, {"importe", "referencia"}
+            )
+            propuesta = services.proponer_pago(
+                cliente,
+                importe=request.data.get("importe", 0),
+                referencia=request.data.get("referencia", ""),
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {
+                "id": propuesta.id,
+                "estado": propuesta.estado,
+                "importe": str(propuesta.importe),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------------
+# The proposed payments - the owner's routes
+# ---------------------------------------------------------------------------
+
+
+class PagoValidarView(_ApiViewBase):
+    """`POST /api/v1/pagos-propuestos/{id}/validar/` - the owner validates.
+
+    The owner's alone (CAC-02, PA-09).
+
+    The `pago` is written here and nowhere else: the amount is
+    **exactly** the proposal's `importe` - never recomputed, never
+    rounded - and the `ImputacionPago` rows are one per charge the
+    payment retires, FIFO by charge (ADR-27).
+
+    Rule 19: a proposed amount larger than the customer's outstanding is
+    refused with `pago_excede_deuda`, writes **no** `pago`, and leaves
+    the proposal `pendiente` - the owner rejects it and returns the
+    excess as change (ADR-26).
+    """
+
+    permission_classes = [permissions.SoloDueno]
+
+    def post(self, request, pago_id):
+        shop_id = _scope(request)
+
+        try:
+            services.exigir_campos_no_admitidos(request.data, set())
+            pago, propuesta = services.validar_pago(
+                shop_id, request.user, pago_id=pago_id
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {
+                "id": pago.id,
+                "kind": pago.kind,
+                "amount": str(pago.amount),
+                "propuesta": propuesta.id,
+                "estado": propuesta.estado,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PagoRechazarView(_ApiViewBase):
+    """`POST /api/v1/pagos-propuestos/{id}/rechazar/` - the owner rejects.
+
+    The owner's alone. It writes **no** `pago`: the proposal moves to
+    `rechazado` with its `resolved_at` and its `resolved_by_id`, and the
+    book is untouched.
+    """
+
+    permission_classes = [permissions.SoloDueno]
+
+    def post(self, request, pago_id):
+        shop_id = _scope(request)
+
+        try:
+            services.exigir_campos_no_admitidos(request.data, set())
+            propuesta = services.rechazar_pago(
+                shop_id, request.user, pago_id=pago_id
             )
         except DomainValidationError as exc:
             return Response(

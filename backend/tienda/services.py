@@ -43,6 +43,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 from django.http import Http404
 from django.utils import timezone
 
@@ -58,6 +59,7 @@ from tienda.domain.types import (
     ConfirmState,
     EntryKind,
     LedgerLine,
+    PagoPropuestoEstado,
     PropuestaEstado,
     StockLine,
 )
@@ -659,4 +661,210 @@ def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
         propuesta.estado = destino
         propuesta.canceled_at = momento
         propuesta.save(update_fields=["estado", "canceled_at"])
+    return propuesta
+
+
+# ---------------------------------------------------------------------------
+# The client's own reads, and the proposed payment - tasks 6.4 to 6.8
+# ---------------------------------------------------------------------------
+
+
+def cargos_de_la_tienda(customer: Customer, at=None) -> list:
+    """The customer's CONFIRMED charges, as ORM rows.
+
+    **Confirmed only.** A charge without its `Confirmacion` does not
+    exist - the client confirms in the shop, and only then does the
+    charge become debt (ADR-19). The confirmation is therefore a filter
+    on the read, not a decoration on the payload.
+
+    The rows come back in the order the FIFO retires them: oldest
+    first, and by id within the same instant.
+    """
+    if at is None:
+        at = timezone.now()
+    return list(
+        LedgerEntry.objects.filter(
+            customer=customer,
+            kind=EntryKind.CARGO.value,
+            occurred_at__lte=at,
+        )
+        .filter(confirmaciones__estado=ConfirmState.CONFIRMADO.value)
+        .order_by("occurred_at", "id")
+        .distinct()
+    )
+
+
+def cargo_de_la_tienda(customer: Customer, cargo_id: int):
+    """One of the customer's confirmed charges, or `None`.
+
+    A charge of another customer is **not found**, not refused: the
+    answer says nothing about whether it exists. The route turns that
+    into `cargo_ajeno`, because the client asked for a charge by id and
+    the id it named is not one of its own.
+    """
+    return (
+        LedgerEntry.objects.filter(
+            customer=customer,
+            kind=EntryKind.CARGO.value,
+            id=cargo_id,
+        )
+        .filter(confirmaciones__estado=ConfirmState.CONFIRMADO.value)
+        .first()
+    )
+
+
+def pagado_de(cargo) -> Decimal:
+    """How much of a charge the client has already paid.
+
+    **Derived on read**, never stored: `pagado` is the sum of the
+    `ImputacionPago` rows against the charge, and `saldo` is the
+    amount minus it. A mutable `pagado` column on the charge would
+    break the append-only guarantee of the book and would be a stored
+    derived value, which design 3.1 forbids and landmine 12 polices
+    (ADR-27).
+    """
+    total = (
+        ImputacionPago.objects.filter(cargo=cargo).aggregate(
+            suma=Sum("importe")
+        )["suma"]
+        or Decimal("0")
+    )
+    return Decimal(total)
+
+
+def saldo_de(cargo) -> Decimal:
+    """What is still owed on a charge: its amount minus its `pagado`."""
+    return Decimal(cargo.amount) - pagado_de(cargo)
+
+
+def proponer_pago(customer: Customer, *, importe, referencia="", at=None):
+    """The client proposes a payment. Nothing is written to the book.
+
+    The proposal creates a `PagoPropuesto(pendiente)` and **no ledger
+    row**: the `pago` itself is a separate `LedgerEntry` that the OWNER
+    appends when he validates it. The book stays append-only even though
+    the request that preceded it is not (CC-07, PA-09).
+
+    Rule 17: the amount is strictly positive.
+
+    **The proposal names NO charge.** The client does not choose which
+    debt it pays: it proposes an amount and the FIFO decides which
+    charges it retires (ADR-27). There is no `cargo_id` on the entity,
+    and the route refuses a body that carries one.
+    """
+    valor = Decimal(importe)
+    if valor <= 0:
+        raise DomainValidationError("importe_no_positivo")
+
+    return PagoPropuesto.objects.create(
+        shop=customer.shop,
+        customer=customer,
+        importe=valor,
+        referencia=referencia or "",
+        estado=PagoPropuestoEstado.PENDIENTE.value,
+        created_at=at or timezone.now(),
+    )
+
+
+def _pago_propuesto_bloqueado(shop_id, pago_id: int) -> PagoPropuesto:
+    """The proposed payment of a shop, with its row locked.
+
+    The move is one-way (rule 18), so two validations of the same
+    proposal must not both pass the state check: the lock is what makes
+    the check-then-write atomic.
+    """
+    propuesta = (
+        PagoPropuesto.objects.select_for_update()
+        .filter(shop_id=shop_id, id=pago_id)
+        .first()
+    )
+    if propuesta is None:
+        raise Http404
+    return propuesta
+
+
+def validar_pago(shop_id, user, *, pago_id: int, at=None):
+    """The owner validates a proposed payment. **The `pago` is written here.**
+
+    The write is one transaction, and it appends three things together:
+    the `LedgerEntry(pago)`, its `ImputacionPago` rows - one per charge
+    the payment retires, FIFO by charge - and the `PagoPropuesto`'s
+    move to `validado` with its `resolved_at` and `resolved_by_id`.
+
+    **The amount is EXACTLY the proposal's `importe`** - never
+    recomputed, never rounded. The proposal is what the client asked
+    for; the owner's act is to record it, not to change it.
+
+    Rule 19: a `pago` never exceeds the debt it retires. The bound is
+    the customer's TOTAL outstanding, not one charge's. The excess
+    leaves the counter as change and never enters the book, so no
+    customer credit can exist (ADR-26).
+
+    Rule 18: a proposal is resolved once. A second validation is
+    refused with `pago_ya_resuelto` and appends no second `pago`.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _pago_propuesto_bloqueado(shop_id, pago_id)
+
+        # Rule 18: the move is one-way.
+        if propuesta.estado != PagoPropuestoEstado.PENDIENTE.value:
+            raise DomainValidationError("pago_ya_resuelto")
+
+        # Rule 19: the bound is the customer's TOTAL outstanding.
+        pendiente = pendiente_de(propuesta.customer, momento)
+        if Decimal(propuesta.importe) > pendiente:
+            raise DomainValidationError("pago_excede_deuda")
+
+        pago = LedgerEntry.objects.create(
+            shop_id=shop_id,
+            customer=propuesta.customer,
+            user=user,
+            kind=EntryKind.PAGO.value,
+            amount=propuesta.importe,
+            occurred_at=momento,
+        )
+
+        # The repartition, recorded per charge (ADR-27).
+        from tienda.domain import allocation as reglas_asignacion
+
+        cargos, pagos = pendientes_de(propuesta.customer, momento)
+        asignacion = reglas_asignacion.allocate_payments(
+            cargos, [linea_ledger(pago)]
+        )
+        for imputacion in reglas_asignacion.imputations_of(asignacion, pago.id):
+            ImputacionPago.objects.create(
+                pago=pago,
+                cargo_id=imputacion.cargo_id,
+                importe=imputacion.importe,
+            )
+
+        propuesta.estado = PagoPropuestoEstado.VALIDADO.value
+        propuesta.resolved_at = momento
+        propuesta.resolved_by = user
+        propuesta.save(update_fields=["estado", "resolved_at", "resolved_by"])
+    return pago, propuesta
+
+
+def rechazar_pago(shop_id, user, *, pago_id: int, at=None):
+    """The owner rejects a proposed payment. **No `pago` is written.**
+
+    The proposal moves to `rechazado` with its `resolved_at` and its
+    `resolved_by_id`, and the book is untouched: the client asked and
+    the owner said no.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _pago_propuesto_bloqueado(shop_id, pago_id)
+
+        # Rule 18: the move is one-way.
+        if propuesta.estado != PagoPropuestoEstado.PENDIENTE.value:
+            raise DomainValidationError("pago_ya_resuelto")
+
+        propuesta.estado = PagoPropuestoEstado.RECHAZADO.value
+        propuesta.resolved_at = momento
+        propuesta.resolved_by = user
+        propuesta.save(update_fields=["estado", "resolved_at", "resolved_by"])
     return propuesta
