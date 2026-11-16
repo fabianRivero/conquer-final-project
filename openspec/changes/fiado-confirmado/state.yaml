@@ -203,6 +203,92 @@ v2_redesign:
     exists only at the confirmation, the client never writes to the book, and
     the four proposal routes are the ones the N5 gate closes to the
     dependiente.
+  phase4_chain_delivered:
+    completed: '2026-11-16'
+    tasks: 21
+    lines_added: 5968
+    budget: size-exception
+    lines_note: >-
+      The line figures are the ADDITIONS of each pull request, measured
+      against the base it was merged onto - the slice exactly as it was
+      reviewed. The convention is the one the v1 plan already used: its
+      pull request 1 records 240 and its diff reads 240 insertions. The
+      deletions are not counted, because a rewritten line is not a line of
+      new review surface.
+    why_exception: >-
+      Phase 4 is twenty-one tasks and does not fit the 400-line review budget
+      as one unit. It was split into five slices, each independently green,
+      and each merged into main on its own.
+    strategy: >-
+      The slices were first chained by BRANCH - each pull request based on the
+      previous branch - which is right for REVIEW, because each pull request
+      then shows exactly one slice and nothing else. It is wrong for
+      DELIVERY, and the chain proved it: GitHub always merges against a pull
+      request's BASE, so a pull request based on the previous BRANCH lands
+      its content on that branch and not on main. The chain was re-based on
+      main and every pull request was re-pointed at main, so each one now
+      shows one slice and the content lands in main as it is reviewed.
+    pull_requests:
+      - number: 11
+        branch: feat/pr4-0-planificacion
+        base: main
+        lines_added: 175
+        content: the planning-only slice - the proposal rewritten to the v2 model and the repaired task plan
+      - number: 17
+        branch: feat/pr4-0-planificacion
+        base: main
+        lines_added: 1678
+        content: the landing of slice 4a - the service layer, the 422 contract and the permission model
+      - number: 13
+        branch: feat/pr4b-serializers-urls
+        base: main
+        lines_added: 900
+        content: slice 4b - the serializers and the URL map of the API
+      - number: 14
+        branch: feat/pr4c-superficie-personal
+        base: main
+        lines_added: 1612
+        content: slice 4c - the staff surface of the API
+      - number: 15
+        branch: feat/pr4d-credencial-throttle
+        base: main
+        lines_added: 785
+        content: slice 4d - the credential resolution and its throttle
+      - number: 16
+        branch: feat/pr4e-leak-walk-permisos
+        base: main
+        lines_added: 818
+        content: slice 4e - the leak walk and the permission matrix
+    pull_request_12: >-
+      The slice 4a pull request was first opened with the chained base
+      feat/pr4-0-planificacion. It was merged against that base - so its
+      content landed on the base branch and never reached main. It was
+      re-opened against main as pull request 17, which landed it. The pull
+      request 12 was merged and closed, but it did not deliver anything to
+      main on its own.
+    ci: >-
+      Passing on every pull request of the chain, on ubuntu-latest with
+      Python 3.14. Locally on main after the chain: 128 unit and 217
+      integration tests.
+    conflicts_and_how_they_were_resolved: >-
+      Every slice's delivery commit edits the SAME two lines of state.yaml
+      and of tasks.md - its own record and its own checkboxes - so every
+      slice conflicted with the one before it. The resolution was never
+      either side alone: main's content PLUS the slice's own additions.
+      Taking ours would have dropped the slice's record; taking theirs
+      would have dropped the records of the slices already merged. Both
+      files were checked after every resolution: the records of the merged
+      slices survive, the new one is added, and no checkbox is lost.
+    branches_deleted: >-
+      The six slice branches were deleted - locally and on the remote -
+      only after their pull request was merged and their content confirmed
+      to be in main. The branch feature/base-del-proyecto is KEPT: it is
+      the v1 tracker branch, its content is not in main, and it has no pull
+      request of its own.
+    evidence: >-
+      128 unit and 217 integration tests pass on main after the chain. The
+      ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
+      all twenty-one are marked done.
   phase4e_delivered:
     completed: '2026-11-13'
     tasks: 9
