@@ -39,6 +39,10 @@ from tienda.api.views import (
     ClienteLibretaView,
     ClientesView,
     PosicionView,
+    PropuestaCancelarView,
+    PropuestaConfirmarView,
+    PropuestaPantallaView,
+    PropuestasView,
 )
 
 #: The slices of the Phase 4 chain that owe the views. A route whose view
@@ -128,20 +132,20 @@ urlpatterns = [
     ),
     # The proposal routes. The N5 gate is closed, so the four proposal
     # routes answer 403 to the `dependiente` (design section 7.1).
-    path("propuestas/", vista_pendiente("propuestas"), name="propuestas"),
+    path("propuestas/", PropuestasView.as_view(), name="propuestas"),
     path(
         "propuestas/<int:propuesta_id>/pantalla/",
-        vista_pendiente("pantalla"),
+        PropuestaPantallaView.as_view(),
         name="propuesta_pantalla",
     ),
     path(
         "propuestas/<int:propuesta_id>/confirmar/",
-        vista_pendiente("confirmar"),
+        PropuestaConfirmarView.as_view(),
         name="propuesta_confirmar",
     ),
     path(
         "propuestas/<int:propuesta_id>/cancelar/",
-        vista_pendiente("cancelar"),
+        PropuestaCancelarView.as_view(),
         name="propuesta_cancelar",
     ),
     # The proposed payments.

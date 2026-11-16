@@ -180,29 +180,29 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 41
+  tasks_completed: 50
   tasks_completed_note: >-
-    Forty-one of the sixty-nine v2 tasks are complete: the seven of Phase 2,
-    the thirteen of Phase 3 and the twenty-one of Phase 4. The Phase 4 chain
-    is COMPLETE: the service layer, the 422 contract, the permission model,
-    the serializers, the URL map, the staff surface, the credential, the
-    throttle, the leak walk and the scope matrix. The figure excludes the
-    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay
-    valid exactly as they are and are therefore not re-planned here. Phases 5
-    to 8 are pending. With the seven v1 Phase 1 tasks the change as a whole
-    is 76 tasks, 48 complete.
+    Fifty of the sixty-nine v2 tasks are complete: the seven of Phase 2, the
+    thirteen of Phase 3, the twenty-one of Phase 4 and the nine of Phase 5.
+    Phase 5 delivers the proposal, the shop's screen and the confirmation:
+    the charge is born at the confirmation, the client never writes to the
+    book, and the N5 gate is a named decision that is CLOSED. The figure
+    excludes the seven v1 Phase 1 tasks, which were delivered under the v1
+    plan, stay valid exactly as they are and are therefore not re-planned
+    here. Phases 6 to 8 are pending. With the seven v1 Phase 1 tasks the
+    change as a whole is 76 tasks, 57 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 5 - the proposal, the shop's screen and the confirmation. Nine
-    tasks: 5.1 to 5.7 are the RED suites and 5.8 and 5.9 are the service
-    operations and the routes. It is the heart of the v2 model: the charge
-    exists only at the confirmation, the client never writes to the book, and
-    the four proposal routes are the ones the N5 gate closes to the
-    dependiente.
+    Phase 6 - the client credential, the client surface and the proposed
+    payment. Eight tasks: the three client routes under their own prefix,
+    the proposed payment the owner validates, and the opening of the N5
+    gate with the object-level rule that the dependiente reaches the
+    proposal IT prepared and no other - the rule this slice deliberately
+    left out, because it is unreachable while the gate is closed.
   phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
@@ -289,6 +289,95 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase5a_delivered:
+    completed: '2026-11-16'
+    tasks: 9
+    files:
+      - backend/tienda/services.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/gates.py
+      - backend/tests/integration/test_propuesta_api.py
+    lines: 1424
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic for the same reason as the Phase 4 slices: the
+      tests import the module they test, and the views import the service
+      they call. A pull request with the tests without the code would not
+      even collect.
+    evidence: >-
+      128 unit and 246 integration tests pass - 29 of them new. The
+      ORM-free boundary holds: domain/ is untouched, so the Phase 3
+      rules are still the rules, and the service layer is still the only
+      layer that writes.
+    the_charge_is_born_at_the_confirmation: >-
+      This is the heart of the v2 model. Preparing a proposal writes a
+      `FiadoPropuesto` and its `PropuestaLinea[]`, and NOTHING else - no
+      `LedgerEntry`, no `CargoLinea`, no `Confirmacion` - and the
+      outstanding does not move. The confirmation writes the charge, the
+      lines COPIED from the proposal's own lines, and the confirmation, in
+      ONE transaction, and the outstanding moves at that exact instant.
+      Cancelling writes nothing but the instant.
+    the_rules_are_reused_not_reimplemented: >-
+      The price of a line is `domain.charges.precio_unitario_de`, the
+      line total is `domain.charges.total_de_linea`, the itemisation is
+      `domain.charges.propuesta_amount_matches`, the transition is
+      `domain.confirmation.propuesta_transicion_permitida`, and the
+      suspension is `domain.evaluation.evaluate_customer` through
+      `estado_de`. The service converts rows to plain values and calls the
+      rules; it decides no rule of its own. domain/ was NOT touched by
+      this slice.
+    the_n5_gate: >-
+      The gate is a NAMED decision, not an `if` repeated in four views:
+      `api/gates.py` holds `N5_ABIERTA = False` and the `PuertaN5`
+      permission reads it. While it is closed the `dependiente` reaches
+      NONE of the four proposal routes - preparing included - because
+      design 18.3 says the conditional capabilities are absent from the
+      code until their evidence gate closes, so their absence IS the
+      flag. When it opens, the change is one constant and no view is
+      touched.
+    the_lock: >-
+      The proposal row is locked with `select_for_update()` while it is
+      confirmed or cancelled. The transition is one-way, and two
+      confirmations of the same proposal must not both pass the state
+      check: the second transaction waits on the lock and then reads the
+      state the first one wrote, and refuses with `propuesta_ya_confirmada`.
+      The database's partial uniques - one pending proposal per customer,
+      one confirmation per charge - back this up, but the lock is what
+      makes the check-then-write atomic.
+    proof_non_vacuous: >-
+      Seven probes, each failing the test it should: the proposal writing
+      the charge at the preparation, the confirmation NOT copying the
+      lines, the state transition not being checked, the suspension not
+      being checked, the origin being read from the body instead of
+      inferred, the N5 gate not closing, and the screen carrying an extra
+      field. All seven were detected.
+    the_defects_the_probes_and_the_tests_found: >-
+      Five, and they are worth recording because four of them were in the
+      TESTS and not in the code. First, the test that the outstanding does
+      not move at the preparation PASSED against a route that answered
+      501 - it was vacuous, because a route that does nothing also moves
+      no outstanding; it now asserts that the proposal exists too, so the
+      two assertions together say what the test means. Second, the test
+      of the origin expected a confirmation to happen while the body
+      named the origin; the route refuses such a body with
+      `campo_no_admitido`, which is the CORRECT behaviour, and the test
+      was wrong. Third, the test of the screen expected `"3"` for the
+      quantity while the serializer declares three decimals, so `"3.000"`
+      is what the contract specifies and the test was wrong. Fourth, the
+      concurrency tests got 403 because `force_authenticate` alone does
+      not carry the shop scope: the scope lives in the session row, and a
+      thread opens its own connection, which cannot see a row written
+      inside the transaction that wraps the test. They need
+      `transaction=True`. Fifth, and in the CODE: the service took the
+      shop as an object while the views hold its id, which was an
+      AttributeError on every write.
+    not_delivered_by_this_slice: >-
+      The OBJECT-level rule of the gate - that a `dependiente` reaches
+      the proposal IT prepared and no other - is NOT implemented. It is
+      unreachable while the gate is closed, and it becomes reachable the
+      day the gate opens, which is Phase 6's work. The slice delivers the
+      gate that CLOSES; it does not deliver the gate that opens.
   phase4e_delivered:
     completed: '2026-11-13'
     tasks: 9
