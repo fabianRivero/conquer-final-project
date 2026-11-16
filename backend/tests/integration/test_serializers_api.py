@@ -420,21 +420,25 @@ def test_the_api_mount_is_live():
 def test_a_pending_route_still_answers_501():
     """A route whose view has not landed says so.
 
-    The proposal routes are Phase 5 and the client's are Phase 6. They
-    answer 501 naming the slice that owes them, not 404: a 404 would say
-    the route does not exist, which is a statement about the CONTRACT.
+    The client's routes are Phase 6. They answer 501 naming the slice
+    that owes them, not 404: a 404 would say the route does not exist,
+    which is a statement about the CONTRACT.
+
+    The proposal routes used to be the example, and they stopped being one
+    when Phase 5 landed their views. The mechanism is still in place, and
+    the client routes still use it.
     """
     from django.test import Client
 
     cliente = Client()
-    respuesta = cliente.get("/api/v1/propuestas/", HTTP_HOST="testserver")
+    respuesta = cliente.get("/api/v1/cliente/estado/", HTTP_HOST="testserver")
 
     assert respuesta.status_code == 501
     import json
 
     cuerpo = json.loads(respuesta.content.decode())
     assert cuerpo["codigo_error"] == "vista_pendiente"
-    assert cuerpo["slice"] == "PR 5"
+    assert cuerpo["slice"] == "PR 6"
 
 
 def test_a_view_that_has_not_landed_answers_501_and_names_the_slice():

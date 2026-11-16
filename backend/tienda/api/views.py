@@ -36,11 +36,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from tienda import services
+from tienda.api import gates
 from tienda.api import permissions
 from tienda.api.exceptions import DomainValidationError
 from tienda.api.serializers import staff
 from tienda.models import (
     CashMovement,
+    Confirmacion,
     Customer,
     DayClose,
     FiadoPropuesto,
@@ -585,3 +587,203 @@ class ClienteDetalleView(_ApiViewBase):
             )
 
         return Response({"id": cliente.id, "credit_limit": cliente.credit_limit})
+
+
+# ---------------------------------------------------------------------------
+# The proposal - tasks 5.9, CC-01, CC-03, CC-04
+# ---------------------------------------------------------------------------
+
+
+class PropuestasView(_ApiViewBase):
+    """`POST /api/v1/propuestas/` - prepare a fiado.
+
+    The owner prepares a fiado with its itemisation. **Nothing is written
+    to the book**: a proposal is a request, and the charge exists only at
+    the confirmation (ADR-19, CC-01).
+
+    The body is `{cliente_id, lineas[{producto_id, cantidad,
+    precio_unitario?}], total?}`. The `total` is optional: when it is
+    absent it is derived from the lines, and when it is present it must
+    equal their sum (rule 3).
+
+    The `dependiente` prepares proposals too, but the N5 gate is **closed**
+    on the current decision, so it reaches neither the screen, nor the
+    confirmation, nor the cancellation.
+    """
+
+    permission_classes = [permissions.SoloPersonal, gates.PuertaN5]
+
+    def post(self, request):
+        shop_id = _scope(request)
+
+        try:
+            # Rule 4: the request carries no field that is not admitted.
+            # `origen` and `facilitado_por` are NOT among them: rule 7b
+            # infers them from the acting session, and a body that names
+            # them is refused on their presence.
+            services.exigir_campos_no_admitidos(
+                request.data, {"cliente_id", "lineas", "total"}
+            )
+
+            cliente_id = request.data.get("cliente_id")
+            cliente = services.cliente_de_la_tienda(shop_id, cliente_id)
+            if cliente is None:
+                # A customer of another shop is NOT FOUND, not refused.
+                return Response(status=status.HTTP_404_NOT_FOUND)
+
+            lineas = request.data.get("lineas") or []
+            propuesta = services.preparar_propuesta(
+                shop_id,
+                request.user,
+                customer=cliente,
+                lineas=lineas,
+                total=request.data.get("total"),
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {
+                "id": propuesta.id,
+                "estado": propuesta.estado,
+                "total": str(propuesta.total),
+                "lineas": [
+                    {
+                        "producto": linea.producto_id,
+                        "cantidad": str(linea.cantidad),
+                        "precio_unitario": str(linea.precio_unitario),
+                        "total": str(linea.total),
+                    }
+                    for linea in propuesta.lineas.order_by("id")
+                ],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PropuestaPantallaView(_ApiViewBase):
+    """`GET /api/v1/propuestas/{id}/pantalla/` - the counter screen.
+
+    It shows one proposal's `desglose` and its `total`, and **nothing
+    else**: no balance, no ageing, no other customer, no `credit_limit`,
+    no `codigo` (CC-03, CAC-10).
+
+    The payload is built by `PropuestaPantallaSerializer`, which declares
+    exactly `total` and `lineas[]`. The screen is not the full payload
+    with fields removed - it is a different schema, so a field that is not
+    declared cannot appear whatever the query returns.
+
+    A proposal of another shop answers **404**: a 403 would confirm that
+    it exists.
+    """
+
+    permission_classes = [permissions.SoloPersonal, gates.PuertaN5]
+
+    def get(self, request, propuesta_id):
+        shop_id = _scope(request)
+
+        propuesta = (
+            FiadoPropuesto.objects.filter(shop_id=shop_id, id=propuesta_id)
+            .prefetch_related("lineas__producto")
+            .first()
+        )
+        if propuesta is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        lineas = []
+        for linea in propuesta.lineas.order_by("id"):
+            lineas.append(
+                {
+                    "producto": linea.producto.nombre,
+                    "cantidad": linea.cantidad,
+                    "precio_unitario": linea.precio_unitario,
+                    "total": linea.total,
+                }
+            )
+
+        return Response(
+            staff.PropuestaPantallaSerializer(
+                {"total": propuesta.total, "lineas": lineas}
+            ).data
+        )
+
+
+class PropuestaConfirmarView(_ApiViewBase):
+    """`POST /api/v1/propuestas/{id}/confirmar/` - the confirmation.
+
+    **This is where the charge is born** (ADR-19). The service writes the
+    `LedgerEntry(cargo)`, the `CargoLinea[]` copied from the proposal's own
+    lines, the `Confirmacion(confirmado)` and the proposal's
+    `confirmed_at` in one transaction, and the outstanding moves at that
+    exact instant (CC-01).
+
+    The body is empty: the origin and the facilitator are **inferred from
+    the acting session**, never read from the request (rule 7b).
+    """
+
+    permission_classes = [permissions.SoloPersonal, gates.PuertaN5]
+
+    def post(self, request, propuesta_id):
+        shop_id = _scope(request)
+
+        try:
+            services.exigir_campos_no_admitidos(request.data, set())
+            cargo, propuesta = services.confirmar_propuesta(
+                shop_id, request.user, propuesta_id=propuesta_id
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        confirmacion = Confirmacion.objects.get(cargo=cargo)
+        return Response(
+            {
+                "id": confirmacion.id,
+                "estado": confirmacion.estado,
+                "origen": confirmacion.origen,
+                "cargo": {
+                    "id": cargo.id,
+                    "kind": cargo.kind,
+                    "amount": str(cargo.amount),
+                },
+                "propuesta": propuesta.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PropuestaCancelarView(_ApiViewBase):
+    """`POST /api/v1/propuestas/{id}/cancelar/` - the client declined.
+
+    **Nothing is written but the instant**: no charge, no lines, no
+    confirmation. The outstanding never moved, because it never moved in
+    the first place (CC-04, design 13.2).
+
+    The body is empty, like the confirmation's.
+    """
+
+    permission_classes = [permissions.SoloPersonal, gates.PuertaN5]
+
+    def post(self, request, propuesta_id):
+        shop_id = _scope(request)
+
+        try:
+            services.exigir_campos_no_admitidos(request.data, set())
+            propuesta = services.cancelar_propuesta(
+                shop_id, request.user, propuesta_id=propuesta_id
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {"id": propuesta.id, "estado": propuesta.estado},
+            status=status.HTTP_200_OK,
+        )

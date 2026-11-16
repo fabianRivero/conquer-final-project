@@ -43,10 +43,12 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 
 from tienda.api.exceptions import DomainValidationError
 from tienda.domain import charges as reglas_cargos
+from tienda.domain import confirmation as reglas_confirmacion
 from tienda.domain import evaluation as reglas_evaluacion
 from tienda.domain import position as reglas_posicion
 from tienda.domain.types import (
@@ -56,6 +58,7 @@ from tienda.domain.types import (
     ConfirmState,
     EntryKind,
     LedgerLine,
+    PropuestaEstado,
     StockLine,
 )
 from tienda.models import (
@@ -402,3 +405,258 @@ def anular_suspension(customer, user, *, at=None):
     customer.suspended_override_by = user
     customer.save(update_fields=["suspended_override_at", "suspended_override_by"])
     return customer
+
+
+# ---------------------------------------------------------------------------
+# The proposal - tasks 5.8, CC-01, IC-03
+# ---------------------------------------------------------------------------
+
+
+def _precio_de_linea(producto: Producto, precio_unitario) -> Decimal:
+    """The unit price of a proposal line.
+
+    The price is a **snapshot** (IC-08): the catalogue holds the current
+    price, and the line freezes the price offered at the moment the
+    proposal was prepared. A later catalogue change never rewrites a
+    stored line.
+
+    The rule is `domain.charges.precio_unitario_de`: the override wins when
+    it is present, and the catalogue price is the price otherwise.
+    """
+    return reglas_cargos.precio_unitario_de(producto.precio, precio_unitario)
+
+
+def _facilitador_de(user):
+    """The facilitator of a proposal, inferred from the acting session.
+
+    Rule 7b: the origin is **inferred by the server**, never read from the
+    request body. The `dependiente` presenting the proposal at the counter
+    is `facilitado` and names itself; the owner is `tienda` and names
+    nobody.
+    """
+    from tienda.api.permissions import es_dependiente
+
+    return user if es_dependiente(user) else None
+
+
+def preparar_propuesta(
+    shop_id,
+    user,
+    *,
+    customer: Customer,
+    lineas: list[dict],
+    total=None,
+    at=None,
+):
+    """Prepare a proposal - a fiado the client has not confirmed yet.
+
+    **Nothing is written to the book.** The proposal and its itemisation
+    are stored, and the outstanding does not move: a proposal is a request,
+    and the charge exists only at the confirmation (ADR-19).
+
+    Rule 3 - the itemisation is mandatory: the declared total equals the
+    sum of the lines, and a proposal with no lines is refused with the same
+    code. A figure the client cannot see broken down is not a figure the
+    client confirmed.
+
+    Rule 11 - a line may not name a product of another shop.
+
+    The `facilitado_por` of the proposal is written **at INSERT**, by the
+    same server-side inference as rule 7b. It is never written afterwards.
+    """
+    if not lineas:
+        raise DomainValidationError("lineas_descuadradas")
+
+    momento = at or timezone.now()
+
+    filas = []
+    for linea in lineas:
+        producto = Producto.objects.filter(id=linea.get("producto_id")).first()
+        if producto is None or producto.shop_id != shop_id:
+            raise DomainValidationError("producto_ajeno")
+        cantidad = Decimal(linea["cantidad"])
+        precio = _precio_de_linea(producto, linea.get("precio_unitario"))
+        if cantidad <= 0:
+            raise DomainValidationError("importe_no_positivo")
+        if precio < 0:
+            raise DomainValidationError("importe_no_positivo")
+        filas.append(
+            {
+                "producto": producto,
+                "cantidad": cantidad,
+                "precio_unitario": precio,
+                "total": reglas_cargos.total_de_linea(cantidad, precio),
+            }
+        )
+
+    suma = sum((fila["total"] for fila in filas), Decimal("0"))
+    if total is not None and Decimal(total) != suma:
+        raise DomainValidationError("lineas_descuadradas")
+
+    with transaction.atomic():
+        propuesta = FiadoPropuesto.objects.create(
+            shop_id=shop_id,
+            customer=customer,
+            user=user,
+            estado=PropuestaEstado.PENDIENTE.value,
+            total=suma,
+            created_at=momento,
+            facilitado_por=_facilitador_de(user),
+        )
+        PropuestaLinea.objects.bulk_create(
+            [
+                PropuestaLinea(
+                    propuesta=propuesta,
+                    producto=fila["producto"],
+                    cantidad=fila["cantidad"],
+                    precio_unitario=fila["precio_unitario"],
+                    total=fila["total"],
+                )
+                for fila in filas
+            ]
+        )
+    return propuesta
+
+
+def _propuesta_bloqueada(shop_id, propuesta_id: int) -> FiadoPropuesto:
+    """The proposal of a shop, with its row locked.
+
+    The lock is what makes the check-then-write atomic: a second
+    confirmation of the same proposal waits here and then reads the state
+    the first one wrote.
+
+    A proposal of another shop is **NOT FOUND**, not refused: the answer is
+    a scoped 404, so a request cannot learn that the proposal exists
+    elsewhere.
+    """
+    propuesta = (
+        FiadoPropuesto.objects.select_for_update()
+        .filter(shop_id=shop_id, id=propuesta_id)
+        .first()
+    )
+    if propuesta is None:
+        raise Http404
+    return propuesta
+
+
+def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
+    """Confirm a proposal - **the only path that creates a charge**.
+
+    The write is one transaction and it writes four things together: the
+    `LedgerEntry(cargo)`, the `CargoLinea[]` copied from the proposal's own
+    lines, the `Confirmacion(confirmado)` and the `FiadoPropuesto.confirmed_at`.
+    If any of them fails, none of them survives.
+
+    Rule 7 - the transition is one-way: a proposal that is not `pendiente`
+    is refused with `propuesta_ya_confirmada` or `propuesta_ya_cancelada`.
+
+    Rule 8 - a proposal confirmed while the customer is suspended writes
+    **no** charge. The suspension is derived, never stored, and it is read
+    INSIDE the transaction: a customer suspended a moment ago is suspended
+    now.
+
+    Rule 7b - the origin is inferred by the server from the acting session.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _propuesta_bloqueada(shop_id, propuesta_id)
+
+        # Rule 7: the transition, decided by the stored state.
+        destino = PropuestaEstado.CONFIRMADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        # Rule 3: the declared total equals the sum of the proposal's own
+        # lines. The lines are the ones that will be copied, so this is the
+        # last point where a mismatch can be refused.
+        lineas = list(propuesta.lineas.order_by("id"))
+        if not reglas_cargos.propuesta_amount_matches(
+            [
+                CargoLine(
+                    id=linea.id,
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario,
+                    total=linea.total,
+                )
+                for linea in lineas
+            ],
+            propuesta.total,
+        ):
+            raise DomainValidationError("lineas_descuadradas")
+
+        # Rule 8: the derived suspension, read inside the transaction.
+        estado_cliente = estado_de(propuesta.customer, at=momento)
+        if estado_cliente.suspendido:
+            motivo = estado_cliente.motivo
+            raise DomainValidationError(
+                motivo.value if motivo is not None else "limite_superado"
+            )
+
+        # Rule 7b: the origin, inferred from the acting session.
+        facilitado = _facilitador_de(user)
+        origen = "facilitado" if facilitado is not None else "tienda"
+
+        cargo = LedgerEntry.objects.create(
+            shop_id=shop_id,
+            customer=propuesta.customer,
+            user=user,
+            kind=EntryKind.CARGO.value,
+            amount=propuesta.total,
+            occurred_at=momento,
+        )
+        CargoLinea.objects.bulk_create(
+            [
+                CargoLinea(
+                    cargo=cargo,
+                    producto=linea.producto,
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario,
+                    total=linea.total,
+                )
+                for linea in lineas
+            ]
+        )
+        Confirmacion.objects.create(
+            cargo=cargo,
+            estado=ConfirmState.CONFIRMADO.value,
+            confirmado_en=momento,
+            origen=origen,
+            facilitado_por=facilitado,
+        )
+        propuesta.estado = destino
+        propuesta.confirmed_at = momento
+        propuesta.save(update_fields=["estado", "confirmed_at"])
+    return cargo, propuesta
+
+
+def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
+    """Cancel a proposal - the client declined.
+
+    **Nothing is written but the instant.** No charge, no lines, no
+    confirmation: the outstanding never moved, because it never moved in
+    the first place (CC-04, design 13.2).
+
+    Rule 7: the transition is one-way, so a proposal that is not
+    `pendiente` is refused - `propuesta_ya_confirmada` when it was
+    confirmed, `propuesta_ya_cancelada` when it was already cancelled.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _propuesta_bloqueada(shop_id, propuesta_id)
+
+        destino = PropuestaEstado.CANCELADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        propuesta.estado = destino
+        propuesta.canceled_at = momento
+        propuesta.save(update_fields=["estado", "canceled_at"])
+    return propuesta
