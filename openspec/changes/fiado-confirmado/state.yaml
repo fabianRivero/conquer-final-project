@@ -180,32 +180,36 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 60
+  tasks_completed: 63
   tasks_completed_note: >-
-    Fifty-eight of the sixty-nine v2 tasks are complete: the seven of
+    Sixty-three of the sixty-nine v2 tasks are complete: the seven of
     Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
-    of Phase 5 and the eight of Phase 6. Phase 5 delivered the proposal,
-    the shop's screen and the confirmation - the charge is born at the
-    confirmation - and Phase 6 delivered the client's own surface and the
-    proposed payment: the client reads its statement and proposes a
-    payment, and it never writes to the book. The figure excludes the
-    seven v1 Phase 1 tasks, which were delivered under the v1 plan, stay
-    valid exactly as they are and are therefore not re-planned here.
-    Phases 7 and 8 are pending. With the seven v1 Phase 1 tasks the
-    change as a whole is 76 tasks, 65 complete.
+    of Phase 5, the eight of Phase 6 and the five of Phase 7 so far.
+    Phase 5 delivered the proposal, the shop's screen and the
+    confirmation - the charge is born at the confirmation - and Phase 6
+    delivered the client's own surface and the proposed payment: the
+    client reads its statement and proposes a payment, and it never
+    writes to the book. Phase 7 has delivered the seed, the Vite shell,
+    the router with its three routes, the three fetch layers and the
+    login the plan did not have. The figure excludes the seven v1 Phase 1
+    tasks, which were delivered under the v1 plan, stay valid exactly as
+    they are and are therefore not re-planned here. Phases 7 and 8 are
+    pending. With the seven v1 Phase 1 tasks the change as a whole is 76
+    tasks, 70 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 7 - the seed, the frontend and the end-to-end suite. Nine
-    tasks: the idempotent seed command, the Vite and React shell with its
-    three routes, the three fetch layers, the owner's board, the shop's
-    screen and the client's access, and the e2e suite against the
-    deployed public URL. It is the first phase that touches something
-    other than the backend, and the first one whose evidence is a URL
-    rather than a test.
+    Phase 7b-2 - the three surfaces. Six tasks: 7.6 the owner's board
+    with its seven components and the twenty-second poll, 7.7 the shop's
+    screen with its two actions, and 7.8 the client's statement with its
+    three components. The shell, the router, the fetch layers and the
+    login are already in place, so this slice is the SURFACES and
+    nothing else. After it, task 7.9 - the e2e suite against the
+    deployed public URL - which needs a deployment: Render, Neon and the
+    `PUBLIC_URL`, and it skips loudly until there is one.
   phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
@@ -292,6 +296,102 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase7b1_delivered:
+    completed: '2026-11-16'
+    tasks: 3
+    files:
+      - frontend/package-lock.json (generated; the pinned dependency tree)
+      - frontend/package.json
+      - frontend/vite.config.ts
+      - frontend/tsconfig.json
+      - frontend/index.html
+      - frontend/src/main.tsx
+      - frontend/src/router.tsx
+      - frontend/src/api/http.ts
+      - frontend/src/api/staff.ts
+      - frontend/src/api/cliente.ts
+      - frontend/src/surfaces/Posicion.tsx
+      - frontend/src/surfaces/Propuesta.tsx
+      - frontend/src/surfaces/Cliente.tsx
+      - backend/tienda/views_login.py
+      - backend/tienda/templates/tienda/login.html
+      - backend/config/urls.py
+      - backend/tests/integration/test_login.py
+      - backend/tests/integration/test_frontend.py
+    lines: 1418
+    budget: size-exception
+    lines_note: >-
+      The count is the AUTHORED lines: the frontend's own sources, the
+      login, the URL map, the tests and the workflow. The
+      `package-lock.json` is NOT counted - it is 1828 lines of a
+      GENERATED dependency tree, not code anyone wrote. It IS committed,
+      because `npm ci` installs from it and a build that is not
+      reproducible is not a build; but it is pinned, not authored.
+    why_exception: >-
+      The unit is atomic: the frontend's sources are the contract, and the
+      tests read them. A pull request with the tests without the sources
+      would assert nothing.
+    evidence: >-
+      128 unit and 303 integration tests pass - 21 of them new. The build
+      succeeds, the bundle lands in `STATIC_ROOT` and its URL answers 200
+      - landmine 2.
+    the_login_the_plan_did_not_have: >-
+      The design's route table says the staff surfaces answer "302 to
+      login", and the staff scope is "the `shop_id` written at login" -
+      but NO TASK of the plan creates the route that writes it. The staff
+      surface cannot work without it, so it lives here, with the shell it
+      enables.
+
+      It writes exactly ONE shop into the session: a `User` may belong to
+      several `Shop` rows through `Shop.usuarios`, but a session names
+      exactly one, and `current_shop(request)` reads that one and
+      nothing else. It authenticates with Django's own machinery, it
+      needs the CSRF token - it is a session-writing POST - and it
+      refuses a user with no shop, because a session that carries no
+      scope would look like a login and behave like a refusal.
+    the_same_origin_contract: >-
+      `http.ts` is the ONLY place a URL is built, and it refuses any
+      absolute URL - a path that names a scheme or starts with `//`. The
+      refusal is a THROWN error and not a silent correction: a silent
+      correction would hide the mistake, and the mistake is the whole
+      threat - a request that goes to another host carries the session
+      cookie to a host that does not own it.
+
+      The two audiences differ in ONE place and the difference is the
+      point: the staff sends `credentials: 'same-origin'` and the client
+      sends `credentials: 'omit'`, because the client holds no session
+      and sending one would blur the two scopes (ADR-4).
+    the_bundle_is_build_output: >-
+      The bundle is NOT committed. It is rebuilt by `npm --prefix frontend
+      run build`, and the CI now builds it - otherwise the test that
+      asserts the bundle's URL answers 200 would SKIP, and a skipped
+      test is not evidence.
+    proof_non_vacuous: >-
+      Ten probes, each failing the test it should: the login not writing
+      the `shop_id`, the login accepting any password, the staff surface
+      not redirecting, the client surface redirecting, `http.ts`
+      accepting an absolute URL, the client sending the cookies, the
+      client not sending the credential's header, the router losing a
+      route, the security policy relaxed, and the build writing
+      somewhere else. All ten were detected.
+    the_defects_the_probes_and_the_build_found: >-
+      Three, and they are worth recording because two of them were real
+      bugs that would have shipped. First, the Vite build wrote into
+      `backend/staticfiles` while `STATIC_ROOT` is `REPO_ROOT /
+      "staticfiles"` - the repository root's directory, not the
+      backend's. The bundle would have landed where WhiteNoise does not
+      look, and the test that compares the two paths caught it. Second,
+      the SPA served the bundle with `serve_static(request,
+      str(index))` - Django's `serve()` takes the path of the file
+      RELATIVE to `document_root`, so passing the file as the path made
+      it look for a file named after the directory, inside that
+      directory, and the route answered a 500. It was invisible until
+      the bundle existed for the first time, because the placeholder
+      answered instead. Third, and in the TESTS: the assertions on the
+      frontend's source read the DOCSTRINGS too, and a docstring that
+      mentions `"omit"` while explaining that the client does NOT send
+      it made the assertion pass for the wrong reason. The tests now
+      strip the comments and read the code.
   phase7a_delivered:
     completed: '2026-11-16'
     tasks: 2

@@ -11,8 +11,11 @@ Three kinds of mount:
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import redirect
 from django.urls import include, path, re_path
 from django.views.static import serve as serve_static
+
+from tienda.views_login import login_view, logout_view
 
 
 def health(request: HttpRequest) -> JsonResponse:
@@ -20,15 +23,27 @@ def health(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 
 
-def spa(request: HttpRequest, view_name: str = "") -> HttpResponse:
-    """Serve the single-page bundle for the two `/app/…` routes.
+def _bundle(request: HttpRequest, view_name: str) -> HttpResponse:
+    """The single-page bundle, or the placeholder that stands for it.
 
-    The bundle is built by Vite into `STATIC_ROOT` (task 6.3). Until that
-    build exists, a placeholder keeps the route resolvable instead of 404.
+    The bundle is built by Vite into `STATIC_ROOT` (task 7.3). Until that
+    build exists, a placeholder keeps the route resolvable instead of
+    404 - a route that does not exist and a route that is not built yet
+    look the same from the outside, and the difference is the difference
+    between "the contract is broken" and "the work is pending".
+
+    **The FILE is served, out of the DIRECTORY.** Django's `serve()`
+    takes the path of the file RELATIVE to `document_root`: it joins the
+    two and refuses to escape the root. So the call is
+    `serve(request, "index.html", document_root=STATIC_ROOT)` - the
+    directory is the root, and the name inside it is the bundle's entry
+    point. Passing the file as the path would look for a file named
+    after the directory, inside that directory, and answer a 500.
     """
-    index = settings.STATIC_ROOT / "index.html"
-    if index.exists():
-        return serve_static(request, str(index))
+    raiz = settings.STATIC_ROOT
+    indice = raiz / "index.html"
+    if indice.exists():
+        return serve_static(request, "index.html", document_root=str(raiz))
     return HttpResponse(
         "<!doctype html>"
         '<html lang="es"><head><meta charset="utf-8">'
@@ -36,6 +51,31 @@ def spa(request: HttpRequest, view_name: str = "") -> HttpResponse:
         f"<body><div id=\"root\" data-route=\"{view_name}\"></div></body></html>",
         content_type="text/html; charset=utf-8",
     )
+
+
+def spa_publico(request: HttpRequest, view_name: str = "") -> HttpResponse:
+    """The PUBLIC surface: the bundle, and never a redirect.
+
+    `/app/cliente/` is public - the client reads its statement with a
+    credential, not with a session - and the client's page carries no
+    CSRF token, because the client has no session for CSRF to protect
+    (ADR-4).
+    """
+    return _bundle(request, view_name)
+
+
+def spa_staff(request: HttpRequest, view_name: str = "") -> HttpResponse:
+    """The STAFF surface: the bundle, or a redirect to the login.
+
+    The staff scope lives in the session, so a request without one has
+    no scope and the surface answers "302 to login" - which is what the
+    design's route table says.
+    """
+    from tienda.api.permissions import current_shop
+
+    if current_shop(request) is None:
+        return redirect("/login/")
+    return _bundle(request, view_name)
 
 
 def _api_urlpatterns():
@@ -60,11 +100,23 @@ def _api_urlpatterns():
 
 urlpatterns = [
     path("health/", health, name="health"),
-    path("app/posicion/", lambda request: spa(request, "posicion"), name="app_posicion"),
-    path("app/cliente/", lambda request: spa(request, "cliente"), name="app_cliente"),
-    # The SPA owns its own sub-paths; anything under `/app/` that is not a
-    # surface above falls back to the same bundle.
-    re_path(r"^app/(?P<view_name>[a-z\-]+)/$", lambda request, view_name: spa(request, view_name)),
+    # The staff sign-in. It is the route that writes the session's
+    # `shop_id` - the one source of the staff scope - and the plan did
+    # not have it.
+    path("login/", login_view, name="login"),
+    path("logout/", logout_view, name="logout"),
+    # The owner's board: staff, so it redirects to the login without a
+    # session.
+    path("app/posicion/", lambda request: spa_staff(request, "posicion"), name="app_posicion"),
+    # The client's statement: public.
+    path("app/cliente/", lambda request: spa_publico(request, "cliente"), name="app_cliente"),
+    # The SPA owns its own sub-paths. The shop's screen is
+    # `/app/propuesta/{id}/`, so the pattern has to accept a segment with
+    # an id in it - not only a word.
+    re_path(
+        r"^app/(?P<view_name>[a-z\-]+)(?:/(?P<row_id>\d+))?/$",
+        lambda request, view_name, row_id=None: spa_staff(request, view_name),
+    ),
 ]
 
 # The API mount is appended last so the explicit routes above always win.

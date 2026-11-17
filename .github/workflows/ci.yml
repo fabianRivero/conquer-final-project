@@ -55,6 +55,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # The frontend bundle is BUILD OUTPUT and it is not committed, so
+      # the CI builds it: the test that asserts the bundle's URL answers
+      # 200 - landmine 2 - would otherwise SKIP, and a skipped test is
+      # not evidence.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build the frontend bundle
+        run: npm --prefix frontend run build
+
       # The Django configuration arrives in this PR, so the full system check
       # can run: `manage.py check` loads `backend/config/settings.py` and
       # reports no issues. PR 1a could only check the version, because the
