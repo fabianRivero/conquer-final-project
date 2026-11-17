@@ -15,10 +15,13 @@ import react from "@vitejs/plugin-react";
  * relative path of the build is resolved from `frontend/`, which is
  * where `vite.config.ts` lives.
  *
- * `base: "./"` makes the bundle's own URLs RELATIVE. An absolute
- * `/assets/…` would work on the deployed origin, but a relative one also
- * works when the bundle is served from a sub-path, and it is the form
- * that keeps the bundle from assuming where it lives.
+ * `base: "/"` makes the bundle's asset URLs ABSOLUTE from the root:
+ * `/assets/index-<hash>.js`. The application serves them - see the
+ * `assets/<name>` route of `config/urls.py` - because the production
+ * static files storage serves strictly from the manifest that
+ * `collectstatic` writes, and the bundle is not in it. With a relative
+ * base the URLs would depend on the page's route, and the bundle would
+ * be asked for in two different ways depending on where the page is.
  */
 export default defineConfig({
   plugins: [react()],
@@ -36,5 +39,5 @@ export default defineConfig({
       },
     },
   },
-  base: "./",
+  base: "/",
 });
