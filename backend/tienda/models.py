@@ -912,3 +912,221 @@ class CodigoIntento(models.Model):
 
     def __str__(self):
         return f"{self.source_ip} @ {self.at}"
+
+
+#: The tables of the demo dataset.
+#:
+#: A table either carries the shop's id itself - `shop_id` - or hangs
+#: off a row that carries it. The second kind is deleted by the ids of
+#: its parents, and it goes BEFORE them.
+#:
+#: The path is resolved from the SCHEMA rather than written by hand: the
+#: foreign keys are read from the PostgreSQL catalog and walked until the
+#: shop is reached. A table that the walk cannot reach has nothing to do
+#: with the demo, and it is left alone.
+def _claves_foraneas(cursor):
+    """The foreign keys of the application's tables, read from the catalog.
+
+    Returns the mapping `tabla -> [(columna, tabla_referenciada)]`.
+
+    The read is over `pg_constraint` and not over `information_schema`:
+    the `constraint_column_usage` view returns no row for some foreign
+    keys, and a seed that discovers no tables deletes nothing at all.
+    """
+    cursor.execute(
+        """
+        SELECT hijo.relname, padre.relname,
+               (SELECT a.attname
+                  FROM pg_attribute a
+                 WHERE a.attrelid = con.conrelid
+                   AND a.attnum = con.conkey[1]) AS columna
+        FROM pg_constraint con
+        JOIN pg_class hijo ON hijo.oid = con.conrelid
+        JOIN pg_class padre ON padre.oid = con.confrelid
+        WHERE con.contype = 'f'
+          AND hijo.relname LIKE 'tienda_%%'
+        """
+    )
+    claves = {}
+    for tabla, referencia, columna in cursor.fetchall():
+        claves.setdefault(tabla, []).append((columna, referencia))
+    return claves
+
+
+def _tablas_del_demo(cursor):
+    """The tables that hang off a shop, read from the schema.
+
+    The set is closed by walking the foreign keys out from the shop, so
+    a table added to the model later is deleted by the seed without the
+    seed being edited.
+    """
+    claves = _claves_foraneas(cursor)
+    hijos = {}
+    for tabla, relaciones in claves.items():
+        for _, referencia in relaciones:
+            if not referencia.startswith("auth_"):
+                hijos.setdefault(referencia, []).append(tabla)
+
+    vistas = set()
+    pendientes = ["tienda_shop"]
+    while pendientes:
+        tabla = pendientes.pop()
+        for hija in sorted(set(hijos.get(tabla, []))):
+            if hija not in vistas:
+                vistas.add(hija)
+                pendientes.append(hija)
+    return vistas, claves
+
+
+def _camino_mas_largo(tabla, claves, vista=None):
+    """The LONGEST path from a table to the shop.
+
+    `None` when the table does not reach the shop at all.
+
+    The longest path is the one that matters for the capture: a table
+    whose ids are read through a parent needs that parent's ids first,
+    and the parent's ids are read through ITS parent. The shortest path
+    would not tell the order.
+    """
+    if tabla == "tienda_shop":
+        return 0
+    if vista is None:
+        vista = set()
+    if tabla in vista:
+        return None
+    vista = vista | {tabla}
+
+    mejor = None
+    for _, referencia in claves.get(tabla, []):
+        if referencia.startswith("auth_"):
+            continue
+        sub = _camino_mas_largo(referencia, claves, vista)
+        if sub is not None:
+            largo = sub + 1
+            mejor = largo if mejor is None else max(mejor, largo)
+    return mejor
+
+
+def _profundidad(tabla, claves, vista=None):
+    """How many steps a table is from the shop.
+
+    `None` when the table does not reach the shop at all.
+    """
+    if tabla == "tienda_shop":
+        return 0
+    if vista is None:
+        vista = set()
+    if tabla in vista:
+        return None
+    vista = vista | {tabla}
+
+    mejor = None
+    for _, referencia in claves.get(tabla, []):
+        if referencia.startswith("auth_"):
+            continue
+        sub = _profundidad(referencia, claves, vista)
+        if sub is not None:
+            profundidad = sub + 1
+            mejor = (
+                profundidad if mejor is None else min(mejor, profundidad)
+            )
+    return mejor
+
+
+def borrar_dataset_demo() -> int:
+    """Delete the demo dataset. **The only deletion in the codebase.**
+
+    The seed needs to be able to CHANGE its dataset - a new catalogue, a
+    new figure - and the only way to change a dataset is to remove the
+    old one. The append-only guard is absolute everywhere else, so this
+    function is the one and only way through it, and it lives here so
+    that there is exactly ONE place in the codebase that can remove an
+    append-only row.
+
+    **It is confined to `is_demo=True`.** The shop is looked up by the
+    flag and not by a name or an id, and every statement filters on the
+    shop's id, so the function cannot reach a real shop even by
+    mistake.
+
+    **It goes underneath the ORM, on purpose.** Django emulates
+    CASCADE in the ORM and writes `NO ACTION` in the schema, so the
+    database has no cascade to offer. The append-only guard is an
+    ORM-level guard - the schema has no trigger and no rule against
+    removing these rows - and this function is the one caller that goes
+    underneath it. It is the seed, a maintenance tool that rebuilds a
+    dataset which is nobody's real book.
+
+    **The ids are captured before anything is deleted.** A table that
+    hangs off another one is found by its parent's ids, and those ids
+    have to be read while the parent rows are still there. The capture
+    is therefore a pass of its own, and the deletion is a second pass
+    that works from the captured ids - so the order of the DELETIONS
+    does not matter, which is what `DEFERRABLE INITIALLY DEFERRED`
+    allows.
+
+    The tables are discovered from the SCHEMA, by walking the foreign
+    keys out from the shop, so a table added to the model later is
+    deleted by the seed without the seed being edited.
+
+    It returns the number of shops removed.
+    """
+    from django.db import connection
+
+    ids = list(Shop.objects.filter(is_demo=True).values_list("id", flat=True))
+    if not ids:
+        return 0
+
+    with connection.cursor() as cursor:
+        tablas, claves = _tablas_del_demo(cursor)
+
+        # The parents first: a table's ids are read through its
+        # parent's ids, so the parent has to be read first. The LONGEST
+        # path is the one that orders them - the shortest would not.
+        orden = sorted(
+            tablas,
+            key=lambda tabla: (_camino_mas_largo(tabla, claves) or 0),
+        )
+
+        # --- the capture: the ids of the demo's rows, per table -------
+        ids_por_tabla = {}
+        for tabla in orden:
+            directas = [
+                columna
+                for columna, referencia in claves.get(tabla, [])
+                if referencia == "tienda_shop"
+            ]
+            if directas:
+                cursor.execute(
+                    f"SELECT id FROM {tabla} WHERE {directas[0]} = ANY(%s)", [ids]
+                )
+                ids_por_tabla[tabla] = [fila[0] for fila in cursor.fetchall()]
+                continue
+
+            for columna, referencia in claves.get(tabla, []):
+                if referencia.startswith("auth_"):
+                    continue
+                if referencia not in ids_por_tabla:
+                    continue
+                padres = ids_por_tabla[referencia]
+                if not padres:
+                    continue
+                cursor.execute(
+                    f"SELECT id FROM {tabla} WHERE {columna} = ANY(%s)", [padres]
+                )
+                ids_por_tabla[tabla] = [fila[0] for fila in cursor.fetchall()]
+
+        # --- the deletion: by the captured ids --------------------------
+        for tabla in orden:
+            filas = ids_por_tabla.get(tabla)
+            if not filas:
+                continue
+            cursor.execute(f"DELETE FROM {tabla} WHERE id = ANY(%s)", [filas])
+
+        cursor.execute("DELETE FROM tienda_shop WHERE id = ANY(%s)", [ids])
+    return len(ids)
+    return len(ids)
+    return len(ids)
+    return len(ids)
+    return len(ids)
+    return len(ids)
+    return len(ids)

@@ -180,7 +180,7 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 58
+  tasks_completed: 60
   tasks_completed_note: >-
     Fifty-eight of the sixty-nine v2 tasks are complete: the seven of
     Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
@@ -292,6 +292,84 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase7a_delivered:
+    completed: '2026-11-16'
+    tasks: 2
+    files:
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tienda/management/__init__.py
+      - backend/tienda/management/commands/__init__.py
+      - backend/tienda/models.py
+      - backend/tests/integration/test_seed.py
+    lines: 936
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic: the test imports the command it exercises.
+    evidence: >-
+      128 unit and 282 integration tests pass - 13 of them new. The
+      ORM-free boundary holds: domain/ is untouched.
+    what_the_seed_produces: >-
+      One shop flagged `is_demo=True`, the two accounts - `dueno` and
+      `dependiente`, with the emails the e2e suite signs in with - a
+      catalogue of thirty products including the seeded one at 1,20, a
+      customer with ONE hashed credential, one CONFIRMED charge with its
+      lines and its `Confirmacion(confirmado)`, one PENDING proposal so
+      the shop's screen is demonstrable, and one CANCELLED proposal.
+      The pending proposal moves no balance: the outstanding is the
+      confirmed charge and nothing else.
+    the_seeded_book_is_legal: >-
+      Rule 19 and ADR-26: every seeded `pago` is smaller than the debt
+      it retires, so no customer holds a credit. The seed is a legal
+      book and not an example of one.
+    the_deletion_is_the_only_one_in_the_codebase: >-
+      The seed deletes the demo shop and recreates it, and that deletion
+      is confined to `is_demo=True`: the shop is looked up by the FLAG
+      and not by a name or an id, and every statement filters on the
+      shop's id. A shop that is not the demo one, its customers and its
+      book are untouched - and there is a test that says so.
+
+      The mechanism lives in `models.borrar_dataset_demo`, so there is
+      exactly ONE place in the codebase that can remove an append-only
+      row. It goes UNDERNEATH the ORM on purpose: the append-only guard
+      is absolute on `instance.delete()`, `QuerySet.delete()` and
+      `QuerySet.update()`, and Django's collector refuses to collect
+      the append-only rows that hang off a shop - so the deletion cannot
+      be done through the ORM at all. The guard is an ORM-level guard:
+      the schema has no trigger and no rule against removing these rows.
+
+      Three facts, all read from the PostgreSQL catalog rather than
+      assumed: every foreign key of this database is `NO ACTION`,
+      because Django emulates CASCADE in the ORM; every one of them is
+      `DEFERRABLE INITIALLY DEFERRED`, so the constraint is checked at
+      the END OF THE TRANSACTION and the order of the deletions does not
+      matter; and `information_schema.constraint_column_usage` returns
+      no row for some foreign keys, so the tables are discovered with
+      `pg_constraint` instead - the first version of the discovery
+      returned an EMPTY set and the seed deleted nothing at all.
+
+      The ids are captured before anything is deleted, because a table
+      that hangs off another one is found by its parent's ids, and those
+      ids have to be read while the parent rows are still there.
+    proof_non_vacuous: >-
+      Eight probes, each failing the test it should: the seed not
+      deleting the previous dataset, the seed creating two confirmed
+      charges, the pending proposal not being pending, the credential
+      stored in clear, the dependent's account in the wrong group, the
+      seeded product not at 1,20, the pending proposal moving the
+      outstanding, and the deletion reaching a shop that is not the demo
+      one. All eight were detected.
+    the_defects_the_probes_found: >-
+      Two, and both of them were in the TESTS. First, the test of the
+      credential asserted that the CUSTOMER'S ALIAS was not in the
+      stored hash - which says nothing about the credential, because the
+      alias was never going to be there. The test now says what it
+      means: the stored form does not look like the plaintext and does
+      not verify against itself. Second, the test of the pending
+      proposal asserted that the outstanding had not moved - and the
+      probe that moved it MUTATED THE ROW IN MEMORY without saving it,
+      so nothing moved and the test could not fail. The probe was
+      wrong, and the test was strengthened with a companion: the pending
+      proposal has to EXIST for the assertion to mean anything.
   phase6_delivered:
     completed: '2026-11-16'
     tasks: 8
