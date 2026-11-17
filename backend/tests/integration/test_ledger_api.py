@@ -271,11 +271,17 @@ def test_the_catalogue_lists_the_active_products(cliente, producto):
 
 
 def test_the_catalogue_carries_the_product_fields(cliente, producto):
-    """PC-01: `nombre`, `precio`, `unidad` and `activo`."""
+    """PC-01: `nombre`, `precio`, `unidad` and `activo`.
+
+    Plus the product's `id`: the proposal form has to name the product it
+    is selling, and the id of a product of the OWNER's own catalogue is
+    not a secret - it is not one of the nine staff-only fields.
+    """
     respuesta = cliente.get(reverse("api:catalogo"))
 
     entrada = respuesta.json()[0]
-    assert set(entrada) == {"activo", "nombre", "precio", "unidad"}
+    assert set(entrada) == {"activo", "id", "nombre", "precio", "unidad"}
+    assert entrada["id"] == producto.id
 
 
 def test_the_dependiente_may_not_read_the_catalogue(tienda, helper, producto):
