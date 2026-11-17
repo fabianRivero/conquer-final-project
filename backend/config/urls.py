@@ -10,10 +10,12 @@ Three kinds of mount:
 """
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import include, path, re_path
 from django.views.static import serve as serve_static
+
+import mimetypes
 
 from tienda.views_login import login_view, logout_view
 
@@ -50,6 +52,46 @@ def _bundle(request: HttpRequest, view_name: str) -> HttpResponse:
         f"<title>{view_name}</title></head>"
         f"<body><div id=\"root\" data-route=\"{view_name}\"></div></body></html>",
         content_type="text/html; charset=utf-8",
+    )
+
+
+def asset_del_bundle(request: HttpRequest, nombre: str) -> HttpResponse:
+    """`/assets/<name>` - a file of the Vite bundle.
+
+    **The bundle is served BY THE APPLICATION, not by the static files
+    machinery.** The reason is the manifest: `collectstatic` writes
+    `staticfiles.json` and the production storage
+    (`CompressedManifestStaticFilesStorage`) serves STRICTLY from it -
+    the bundle is not in `STATICFILES_DIRS`, so `collectstatic` does not
+    know about it, and the bundle's assets are not in the manifest.
+
+    With `WHITENOISE_AUTOREFRESH` off - which is the production setting
+    - the bundle's URL answered **404**, and the page loaded a bundle
+    that could never boot. That is landmine 2, exactly: "the bundle URL
+    must return 200, not a blank page".
+
+    So the assets are served HERE, out of `STATIC_ROOT`, by name. The
+    name is checked against the bundle's own directory: a path with a
+    `..` in it is refused, and only a plain file name is read.
+
+    Serving the bundle from the application also makes the design's claim
+    provable: the pages and the API are on the SAME origin because the
+    same service serves both (CAC-06).
+    """
+    raiz = settings.STATIC_ROOT
+    # Only a plain file name: a path with a separator or a `..` in it
+    # could escape the bundle's directory.
+    if not nombre or "/" in nombre or "\\" in nombre or ".." in nombre:
+        return HttpResponse(status=404)
+
+    fichero = raiz / "assets" / nombre
+    if not fichero.is_file():
+        return HttpResponse(status=404)
+
+    return FileResponse(
+        fichero.open("rb"),
+        content_type=mimetypes.guess_type(str(fichero))[0]
+        or "application/octet-stream",
     )
 
 
@@ -100,6 +142,16 @@ def _api_urlpatterns():
 
 urlpatterns = [
     path("health/", health, name="health"),
+    # The bundle's assets. They are served by the APPLICATION and not by
+    # the static files machinery: the production storage serves strictly
+    # from the manifest that `collectstatic` writes, and the bundle is
+    # not in it - so the bundle's URL answered 404 and the page loaded a
+    # bundle that could never boot (landmine 2).
+    path(
+        "assets/<str:nombre>",
+        asset_del_bundle,
+        name="asset_del_bundle",
+    ),
     # The staff sign-in. It is the route that writes the session's
     # `shop_id` - the one source of the staff scope - and the plan did
     # not have it.
