@@ -30,6 +30,14 @@ export const staff = {
   cliente: (id: number) =>
     peticion(`/clientes/${id}/`, { credentials: "same-origin" }),
 
+  /** Issue or rotate a customer's credential. */
+  emitirCodigo: (id: number) =>
+    peticion(`/clientes/${id}/codigo/`, {
+      method: "POST",
+      credentials: "same-origin",
+      cuerpo: {},
+    }),
+
   registrarCaja: (movimiento: { kind: string; concept: string; amount: string }) =>
     peticion("/caja/", {
       method: "POST",

@@ -180,36 +180,38 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 63
+  tasks_completed: 66
   tasks_completed_note: >-
-    Sixty-three of the sixty-nine v2 tasks are complete: the seven of
-    Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
-    of Phase 5, the eight of Phase 6 and the five of Phase 7 so far.
-    Phase 5 delivered the proposal, the shop's screen and the
-    confirmation - the charge is born at the confirmation - and Phase 6
-    delivered the client's own surface and the proposed payment: the
-    client reads its statement and proposes a payment, and it never
-    writes to the book. Phase 7 has delivered the seed, the Vite shell,
-    the router with its three routes, the three fetch layers and the
-    login the plan did not have. The figure excludes the seven v1 Phase 1
-    tasks, which were delivered under the v1 plan, stay valid exactly as
-    they are and are therefore not re-planned here. Phases 7 and 8 are
-    pending. With the seven v1 Phase 1 tasks the change as a whole is 76
-    tasks, 70 complete.
+    Sixty-six of the sixty-nine v2 tasks are complete: the seven of Phase 2,
+    the thirteen of Phase 3, the twenty-one of Phase 4, the nine of Phase 5,
+    the eight of Phase 6 and the eight of Phase 7 so far. Phase 5 delivered
+    the proposal, the shop's screen and the confirmation - the charge is
+    born at the confirmation - and Phase 6 delivered the client's own
+    surface and the proposed payment: the client reads its statement and
+    proposes a payment, and it never writes to the book. Phase 7 has
+    delivered the seed, the Vite shell, the router with its three routes,
+    the three fetch layers, the login the plan did not have, and the three
+    surfaces with their eleven components. The figure excludes the seven v1
+    Phase 1 tasks, which were delivered under the v1 plan, stay valid
+    exactly as they are and are therefore not re-planned here. Task 7.9 and
+    Phase 8 are pending. With the seven v1 Phase 1 tasks the change as a
+    whole is 76 tasks, 73 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 7b-2 - the three surfaces. Six tasks: 7.6 the owner's board
-    with its seven components and the twenty-second poll, 7.7 the shop's
-    screen with its two actions, and 7.8 the client's statement with its
-    three components. The shell, the router, the fetch layers and the
-    login are already in place, so this slice is the SURFACES and
-    nothing else. After it, task 7.9 - the e2e suite against the
-    deployed public URL - which needs a deployment: Render, Neon and the
-    `PUBLIC_URL`, and it skips loudly until there is one.
+    Task 7.9 - the e2e suite against the deployed public URL. It asserts
+    HTTPS, one service serving both the pages and the API, `DEBUG=False`
+    with no debug information, both seeded accounts signing in and landing
+    in their own capability set, the owner's board and the client's page
+    fetching their APIs on the same origin, a 403 on the credit book for
+    the `dependiente`, no alias and no `codigo` in any response, and the
+    seeded figures matching. It needs a deployment - Render, Neon and the
+    `PUBLIC_URL` - and it skips LOUDLY until there is one, the way the
+    keepalive workflow does. After it, Phase 8: the two credential
+    boundary RED tests.
   phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
@@ -296,6 +298,89 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase7b2_delivered:
+    completed: '2026-11-17'
+    tasks: 3
+    files:
+      - frontend/src/components/Ecuacion.tsx
+      - frontend/src/components/Escalera.tsx
+      - frontend/src/components/Cinta.tsx
+      - frontend/src/components/Cierre.tsx
+      - frontend/src/components/Credenciales.tsx
+      - frontend/src/components/PropuestaForm.tsx
+      - frontend/src/components/PagosPropuestos.tsx
+      - frontend/src/components/Pantalla.tsx
+      - frontend/src/components/Acceso.tsx
+      - frontend/src/components/Estado.tsx
+      - frontend/src/components/ProponerPago.tsx
+      - frontend/src/components/index.ts
+      - frontend/src/surfaces/Posicion.tsx
+      - frontend/src/surfaces/Propuesta.tsx
+      - frontend/src/surfaces/Cliente.tsx
+      - frontend/src/api/staff.ts
+      - backend/tienda/api/views.py
+      - backend/tienda/api/urls.py
+      - backend/tests/integration/test_surfaces.py
+      - backend/tests/integration/test_tablas_tablero.py
+    lines: 1970
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic: the components are the contract, and the tests
+      read their sources.
+    evidence: >-
+      128 unit and 333 integration tests pass - 30 of them new. The build
+      succeeds and the bundle answers 200.
+    the_board_has_two_shapes: >-
+      The owner's payload carries `caja`, `fiado_pendiente`,
+      `posicion_real`, `buckets`, `clientes[]`, `serie_caja[]` and
+      `cierre_hoy`; the `dependiente`'s carries `caja`, `clientes` and
+      `cierre_hoy`, and NOTHING else. The reduced payload is not the full
+      one with the fields removed - it is built from a different schema -
+      and the SURFACE asks the payload which shape it is instead of
+      inventing the difference. A component that read a field the other
+      role does not get would be either a crash or a leak.
+    the_server_derives_and_the_client_shows: >-
+      The board does NOT compute anything: the equation's three figures
+      come from the API, and the ladder is NOT re-sorted - the API
+      already sorts it by `antiguedad_max_dias` descending, and a client
+      that sorted it again would be a second place where the order could
+      drift. The four ageing ribbons are NAMED - `vigente`,
+      `envejecido`, `viejo`, `cronico` - rather than taken from the
+      payload's keys, so a bucket cannot go missing from the board without
+      anyone noticing.
+    the_polling_contract: >-
+      The board polls `/api/v1/posicion/` every 20 seconds, and the poll
+      doubles as the keep-alive (ADR-10). The CLIENT's page does not
+      poll: a poll would multiply the credential's exposure for no
+      benefit.
+    the_credential_stays_in_the_state: >-
+      The client's credential lives in React state and nowhere else: not
+      in `localStorage`, not in `sessionStorage`, not in the URL, and it
+      is cleared on navigation. The field carries `autocomplete="off"`,
+      so the browser's password manager does not keep it where a leak
+      could reach it.
+    proof_non_vacuous: >-
+      Ten probes, each failing the test it should: the `dependiente`
+      seeing the ladder, the board sorting the ladder, a missing ribbon,
+      the client keeping the credential, the credential field
+      autocompleting, the proposal carrying a `cargo_id`, the screen
+      showing the `credit_limit`, the client polling, the screen losing
+      one of its two actions, and the equation computing the position.
+      All ten were detected.
+    what_the_shapes_found: >-
+      Three things, and two of them were bugs in the code that would have
+      shipped. First, the three lists the board reads answer a BARE
+      LIST, not a paginated object with `results` - the components read
+      `results` and would have shown nothing, and nothing looks like
+      "there is nothing to show". Second,
+      `GET /api/v1/pagos-propuestos/` answered 501: Phase 6 delivered
+      the owner's two routes - validate and reject - and left the LIST
+      as a stub, and the board's *PagosPropuestos* section reads it. The
+      route is built now, with the owner's scope and the PENDING ones
+      only: the section is a work list. Third, the catalogue carried NO
+      `id`, and the proposal form has to name the product it is selling;
+      the id of a product of the OWNER's own catalogue is not a secret,
+      and it is now declared.
   phase7b1_delivered:
     completed: '2026-11-16'
     tasks: 3

@@ -42,6 +42,7 @@ from tienda.api.views import (
     ClienteProponerPagoView,
     ClientesView,
     PagoRechazarView,
+    PagosPropuestosView,
     PagoValidarView,
     PosicionView,
     PropuestaCancelarView,
@@ -156,7 +157,7 @@ urlpatterns = [
     # The proposed payments.
     path(
         "pagos-propuestos/",
-        vista_pendiente("pagos_propuestos"),
+        PagosPropuestosView.as_view(),
         name="pagos_propuestos",
     ),
     path(

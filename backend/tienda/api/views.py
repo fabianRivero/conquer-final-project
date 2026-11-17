@@ -46,6 +46,7 @@ from tienda.models import (
     CashMovement,
     Confirmacion,
     Customer,
+    CustomerCodigo,
     DayClose,
     FiadoPropuesto,
     ImputacionPago,
@@ -470,6 +471,12 @@ class CatalogoView(_ApiViewBase):
         return Response(
             [
                 {
+                    # The id, because the proposal form has to name the
+                    # product it is selling. The identity of a product of
+                    # the OWNER's own catalogue is not a secret: it is not
+                    # one of the nine staff-only fields, and the form
+                    # cannot work without it.
+                    "id": p.id,
                     "nombre": p.nombre,
                     "precio": p.precio,
                     "unidad": p.unidad,
@@ -496,12 +503,31 @@ class ClientesView(_ApiViewBase):
     def get(self, request):
         shop_id = _scope(request)
         clientes = Customer.objects.filter(shop_id=shop_id).order_by("alias")
+
+        # The credential's state: the `prefix` - the NON-SECRET head of
+        # it - and the issuing date. Both are the OWNER's own data: the
+        # prefix is six symbols of the alphabet and cannot resolve to a
+        # credential without the digest, and the digest never leaves
+        # this table. The list carries them so the board reads one
+        # response and not one per customer.
+        codigos = {}
+        for codigo in CustomerCodigo.objects.filter(
+            shop_id=shop_id, revoked_at__isnull=True
+        ).order_by("id"):
+            codigos.setdefault(codigo.customer_id, codigo)
+
         return Response(
             [
                 {
                     "id": c.id,
                     "alias": c.alias,
                     "credit_limit": c.credit_limit,
+                    "prefix": (
+                        codigos[c.id].prefix if c.id in codigos else None
+                    ),
+                    "issued_at": (
+                        codigos[c.id].issued_at if c.id in codigos else None
+                    ),
                 }
                 for c in clientes
             ]
@@ -979,6 +1005,48 @@ class ClienteProponerPagoView(_ApiViewBase):
 # ---------------------------------------------------------------------------
 # The proposed payments - the owner's routes
 # ---------------------------------------------------------------------------
+
+
+class PagosPropuestosView(_ApiViewBase):
+    """`GET /api/v1/pagos-propuestos/` - the client's proposed payments.
+
+    The owner's alone (CAC-02, PA-09).
+
+    **Only the PENDING ones.** A proposal that was validated or rejected
+    is history, and the board's section is a work list: what is waiting
+    for the owner's decision.
+
+    A `PagoPropuesto` is a REQUEST and not a scope: it creates no ledger
+    row, and it grants no read of the credit book. What the list shows is
+    the proposal's amount, its reference and who proposed it - and the
+    amount the payment will have is **exactly** the proposed one, never
+    recomputed and never rounded (ADR-27).
+    """
+
+    permission_classes = [permissions.SoloDueno]
+
+    def get(self, request):
+        shop_id = _scope(request)
+
+        from tienda.domain.types import PagoPropuestoEstado
+
+        pagos = PagoPropuesto.objects.filter(
+            shop_id=shop_id,
+            estado=PagoPropuestoEstado.PENDIENTE.value,
+        ).order_by("id")
+
+        return Response(
+            [
+                {
+                    "id": p.id,
+                    "alias": p.customer.alias,
+                    "importe": p.importe,
+                    "referencia": p.referencia,
+                    "estado": p.estado,
+                }
+                for p in pagos
+            ]
+        )
 
 
 class PagoValidarView(_ApiViewBase):
