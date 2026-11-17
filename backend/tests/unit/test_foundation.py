@@ -144,8 +144,20 @@ def test_the_three_layers_are_declared_as_markers():
 
 @pytest.mark.unit
 def test_the_two_surfaces_are_routed():
-    """`/app/posicion/` and `/app/cliente/` are served by this service."""
+    """`/app/posicion/` and `/app/cliente/` are served by this service.
+
+    The two surfaces are NOT the same: `/app/posicion/` is a STAFF
+    route, so without a session it answers "302 to login" - which is
+    what the design's route table says. `/app/cliente/` is public, so it
+    answers 200.
+    """
     assert reverse("app_posicion") == "/app/posicion/"
     assert reverse("app_cliente") == "/app/cliente/"
-    for route in ("/app/posicion/", "/app/cliente/"):
-        assert Client().get(route).status_code == 200
+
+    # The client's surface is public.
+    assert Client().get("/app/cliente/").status_code == 200
+
+    # The staff's surface redirects to the login without a session.
+    respuesta = Client().get("/app/posicion/")
+    assert respuesta.status_code == 302
+    assert "/login/" in respuesta["Location"]

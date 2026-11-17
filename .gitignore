@@ -19,6 +19,14 @@
 # Frontend dependencies and build output.
 node_modules/
 frontend/dist/
+# The Vite build lands in `STATIC_ROOT`, which is `REPO_ROOT /
+# "staticfiles"` - the repository root's directory (design 18.1). The
+# bundle is BUILD OUTPUT and never a source of truth: it is rebuilt by
+# `npm --prefix frontend run build`, and the deployment's build command
+# does exactly that. Committing it would put a hashed artefact in the
+# history and let a stale bundle be served.
+staticfiles/
+backend/staticfiles/
 
 # Python bytecode and packaging artifacts.
 __pycache__/
