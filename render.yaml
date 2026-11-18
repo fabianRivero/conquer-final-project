@@ -27,26 +27,25 @@ services:
     startCommand: gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
     healthCheckPath: /health/
     envVars:
-      # Every variable carries `sync: false`: Render must never overwrite the
-      # deployment's own configuration (CAC-07, CP-01).
+      # Every variable carries the form that matches its own nature, and
+      # the three forms are MUTUALLY EXCLUSIVE: `value` is a hardcoded
+      # value, `generateValue` asks Render to generate one, and
+      # `sync: false` asks Render to PROMPT for it in the dashboard.
+      # Render rejects the whole file if two of them are combined.
+      #
+      # The three the owner fills by hand use `sync: false`, so Render
+      # asks for them and never invents a value (CAC-07, CP-01).
       - key: DATABASE_URL
         sync: false
-        value: ""   # the owner fills this with the Neon connection string
       - key: SECRET_KEY
-        sync: false
         generateValue: true
       - key: DEBUG
-        sync: false
         value: "False"
       - key: ALLOWED_HOSTS
         sync: false
-        value: ""   # the owner fills this with the Render domain, no scheme
       - key: CSRF_TRUSTED_ORIGINS
         sync: false
-        value: ""   # the owner fills this with the Render domain, with scheme
       - key: PYTHON_VERSION
-        sync: false
         value: "3.14.7"
       - key: NODE_VERSION
-        sync: false
         value: "24.21.0"
