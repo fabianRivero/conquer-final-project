@@ -30,3 +30,14 @@ iniconfig==2.3.0
 packaging==26.3
 pluggy==1.6.0
 colorama==0.4.6
+
+# YAML parser and JSON Schema validator — for the blueprint's validation.
+# The blueprint is a contract with Render, and Render publishes a schema
+# for it (`https://render.com/schema/render.yaml.json`). The suite
+# validates the file against that schema, so a mistake is found HERE
+# instead of at the dashboard: the file was rejected twice for a key
+# Render does not know and for a combination of variable forms that
+# Render forbids, and both errors were found by Render at deploy time.
+# Neither is used by the application itself.
+PyYAML==6.0.3
+jsonschema==4.26.0
