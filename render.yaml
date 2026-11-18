@@ -3,7 +3,7 @@
 #   GitHub (public) --push--> Render Web Service (free, managed TLS)
 #      build: pip install -r requirements.txt && npm --prefix frontend ci && npm --prefix frontend run build
 #             python backend/manage.py collectstatic --noinput && python backend/manage.py migrate --noinput && python backend/manage.py seed_demo
-#      run:   gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
+#      start: gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
 #      -->   Neon PostgreSQL (free, permanent)   [DATABASE_URL]
 #   frontend/dist --> STATIC_ROOT --> WhiteNoise --> SAME ORIGIN
 #
@@ -24,13 +24,14 @@ services:
       python backend/manage.py collectstatic --noinput &&
       python backend/manage.py migrate --noinput &&
       python backend/manage.py seed_demo
-    runCommand: gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
+    startCommand: gunicorn config.wsgi:application --chdir backend --workers 1 --threads 2
     healthCheckPath: /health/
     envVars:
       # Every variable carries `sync: false`: Render must never overwrite the
       # deployment's own configuration (CAC-07, CP-01).
       - key: DATABASE_URL
         sync: false
+        value: ""   # the owner fills this with the Neon connection string
       - key: SECRET_KEY
         sync: false
         generateValue: true
@@ -39,8 +40,10 @@ services:
         value: "False"
       - key: ALLOWED_HOSTS
         sync: false
+        value: ""   # the owner fills this with the Render domain, no scheme
       - key: CSRF_TRUSTED_ORIGINS
         sync: false
+        value: ""   # the owner fills this with the Render domain, with scheme
       - key: PYTHON_VERSION
         sync: false
         value: "3.14.7"
