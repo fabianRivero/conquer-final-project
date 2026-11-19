@@ -121,9 +121,77 @@ INSTALLED_APPS = [
 DATABASE_URL = env("DATABASE_URL")
 
 if DATABASE_URL:
-    from urllib.parse import unquote, urlparse
+    from urllib.parse import parse_qsl, unquote, urlparse
 
     _parsed = urlparse(DATABASE_URL)
+
+    # **The query string of the URL reaches the driver.** The connection
+    # used to be built from PARTS, and the URL's own parameters were
+    # thrown away: so `sslmode`, `channel_binding` and `sslrootcert` never
+    # arrived, and the deployment worked by ACCIDENT - the default
+    # happened to be the right one.
+    #
+    # The URL's parameters WIN over `DATABASE_SSLMODE`, because whoever
+    # wrote the URL wrote those parameters on purpose, and the URL is the
+    # most specific statement of intent. The variable stays as the
+    # fallback, with its default of "require" - Neon demands TLS and the
+    # CI's Postgres container serves none.
+    _opciones_url = dict(parse_qsl(_parsed.query))
+    _sslmode = _opciones_url.pop("sslmode", None) or env(
+        "DATABASE_SSLMODE", default="require"
+    )
+
+    # **The options are the ones the driver knows.** Django hands
+    # `OPTIONS` to `psycopg.connect(**options)`, so an unknown key is a
+    # TypeError on the FIRST connection - and the query string of a URL
+    # can carry anything. The whitelist is the driver's own.
+    _OPCIONES_CONOCIDAS = {
+        "sslmode",
+        "sslrootcert",
+        "sslcert",
+        "sslkey",
+        "sslcrl",
+        "channel_binding",
+        "connect_timeout",
+        "application_name",
+        "options",
+        "target_session_attrs",
+        "keepalives",
+        "keepalives_idle",
+        "keepalives_interval",
+        "keepalives_count",
+    }
+    _opciones = {
+        clave: valor
+        for clave, valor in _opciones_url.items()
+        if clave in _OPCIONES_CONOCIDAS
+    }
+    _opciones["sslmode"] = _sslmode
+
+    # **`sslrootcert=system` becomes an SSLContext.** The alias "system"
+    # is libpq's, and libpq looks for a FILE: on Windows it went
+    # looking for `root.crt` in the user's PostgreSQL directory, and the
+    # connection failed. The system trust store is not a file on Windows
+    # - it is the OS's own store, reachable only through
+    # `ssl.create_default_context()`. So when the URL asks for the
+    # system store, the context is BUILT here and handed to the driver
+    # as `context`, which works the same on Linux and on Windows.
+    #
+    # **The context verifies on its own.** `create_default_context()` has
+    # `verify_mode=CERT_REQUIRED`, so it checks the certificate against
+    # the store it loaded. The `sslmode` that goes with it says how
+    # MUCH is checked: "verify-full" also checks the HOSTNAME, and that
+    # is what `verify-ca` leaves out.
+    #
+    # The value is libpq's, with a HYPHEN: "verify-full", not Python's
+    # "verify_full" - the driver rejects the underscore form.
+    if _opciones.get("sslrootcert") == "system":
+        import ssl as _ssl
+
+        _opciones["sslmode"] = "verify-full"
+        _opciones.pop("sslrootcert")
+        _opciones["context"] = _ssl.create_default_context()
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -133,12 +201,7 @@ if DATABASE_URL:
             "HOST": _parsed.hostname or "",
             "PORT": str(_parsed.port or ""),
             "CONN_MAX_AGE": 60,
-            # Neon requires TLS and rejects a plain connection, so `require` is
-            # the default for the deployed database. It is an environment
-            # setting rather than a constant because the CI service container
-            # serves no TLS at all, and a hard-coded `require` makes every
-            # connection to it fail with `SSL is required`.
-            "OPTIONS": {"sslmode": env("DATABASE_SSLMODE", default="require")},
+            "OPTIONS": _opciones,
         }
     }
 else:
