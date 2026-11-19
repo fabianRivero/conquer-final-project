@@ -83,3 +83,36 @@ jobs:
 
       - name: Integration suite (PostgreSQL 16)
         run: python -m pytest backend/tests/integration -q
+
+  # The e2e suite runs against the DEPLOYED public URL, and it is a
+  # SEPARATE job on purpose: the integration suite must run against the
+  # test database, and the e2e against production. Mixing them would
+  # make the integration suite depend on a deployment being up.
+  #
+  # `PUBLIC_URL` is a repository variable. Without it the suite SKIPS -
+  # loudly, the way the keepalive workflow does - and a skipped test is
+  # not evidence, so the step says so.
+  e2e:
+    name: e2e against the deployed URL
+    runs-on: ubuntu-latest
+
+    env:
+      PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+      SECRET_KEY: ci-secret-key-not-for-production
+      DEBUG: "False"
+      SECURE_SSL_REDIRECT: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: The e2e suite (the deployed public URL)
+        run: python -m pytest backend/tests/e2e -q
