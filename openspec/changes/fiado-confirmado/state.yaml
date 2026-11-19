@@ -180,39 +180,32 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 66
+  tasks_completed: 67
   tasks_completed_note: >-
-    Sixty-six of the sixty-nine v2 tasks are complete: the seven of Phase 2,
-    the thirteen of Phase 3, the twenty-one of Phase 4, the nine of Phase 5,
-    the eight of Phase 6 and the eight of Phase 7 so far. Phase 5 delivered
-    the proposal, the shop's screen and the confirmation - the charge is
-    born at the confirmation - and Phase 6 delivered the client's own
-    surface and the proposed payment: the client reads its statement and
-    proposes a payment, and it never writes to the book. Phase 7 has
+    Sixty-seven of the sixty-nine v2 tasks are complete: the seven of
+    Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
+    of Phase 5, the eight of Phase 6 and the nine of Phase 7. Phase 7
     delivered the seed, the Vite shell, the router with its three routes,
-    the three fetch layers, the login the plan did not have, and the three
-    surfaces with their eleven components. The figure excludes the seven v1
-    Phase 1 tasks, which were delivered under the v1 plan, stay valid
-    exactly as they are and are therefore not re-planned here. Task 7.9 and
-    Phase 8 are pending. With the seven v1 Phase 1 tasks the change as a
-    whole is 76 tasks, 73 complete.
+    the three fetch layers, the login the plan did not have, the three
+    surfaces with their eleven components, and the e2e suite against the
+    DEPLOYED public URL. The figure excludes the seven v1 Phase 1 tasks,
+    which were delivered under the v1 plan, stay valid exactly as they
+    are and are therefore not re-planned here. Phase 8 is pending. With
+    the seven v1 Phase 1 tasks the change as a whole is 76 tasks, 74
+    complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Task 7.9 - the e2e suite against the deployed public URL. It asserts
-    HTTPS, one service serving both the pages and the API, `DEBUG=False`
-    with no debug information, both seeded accounts signing in and landing
-    in their own capability set, the owner's board and the client's page
-    fetching their APIs on the same origin, a 403 on the credit book for
-    the `dependiente`, no alias and no `codigo` in any response, and the
-    seeded figures matching. It needs a deployment - Render, Neon and the
-    `PUBLIC_URL` - and it skips LOUDLY until there is one, the way the
-    keepalive workflow does. After it, Phase 8: the two credential
-    boundary RED tests.
-  phase4_chain_delivered:
+    Phase 8 - the two credential boundary RED tests. Task 8.1: no field
+    of any model row holds the plaintext of a credential - the digest and
+    the prefix are all that is stored. Task 8.2: the credential is
+    unique in the shop, and a customer holds at most one ACTIVE
+    credential. Both go in `backend/tests/integration/test_constraints.py`,
+    with the schema's own constraints as the subject, and neither needs a
+    deployment.  phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
     lines_added: 5968
@@ -298,6 +291,70 @@ v2_redesign:
       128 unit and 217 integration tests pass on main after the chain. The
       ORM-free boundary holds. The v2 plan has twenty-one Phase 4 tasks and
       all twenty-one are marked done.
+  phase7c_delivered:
+    completed: '2026-11-19'
+    tasks: 1
+    files:
+      - backend/tests/e2e/test_public_url.py
+    lines: 457
+    budget: size-exception
+    why_exception: >-
+      The unit is atomic: the suite is the only thing that can prove the
+      DEPLOYED system, and a piece of it proves nothing.
+    evidence: >-
+      128 unit and 269 integration tests pass, and the e2e suite passes
+      against the deployed public URL: eleven tests, over HTTPS, against
+      the real service.
+    what_it_proves_against_the_real_deployment: >-
+      * HTTPS, and the TLS NEGOTIATED: the socket is opened against the
+        host, with the verification on, and the protocol and the
+        certificate are read. Asserting that the URL STRING starts with
+        `https://` would prove nothing - it would say what was typed in
+        an environment variable, not what happened on the wire.
+      * one service serves the pages AND the API: the page's own script
+        answers 200 with real bytes. The page answering 200 proves
+        almost nothing - it is Django serving the file - and the
+        application only boots if the SECOND request, for the script,
+        succeeds. That was landmine 2, and it was a real bug.
+      * `DEBUG=False` with no debug information: a 404 carries no
+        traceback, no settings and no environment.
+      * both seeded accounts sign in, and each lands in its own set: the
+        owner's board carries the whole thing and the `dependiente`'s
+        carries only `caja`, `clientes` and `cierre_hoy`. The two payloads
+        do not even share the same KEYS.
+      * a 403 on the credit book for the `dependiente`, with no partial
+        data in any field.
+      * the seeded figures matching: the drawer at 150,00, the credit
+        owed at 3,60, the four ribbons summing to the outstanding, the
+        ladder with one customer, and the catalogue with the seeded
+        product at 1,20.
+      * no third-party script, no external font, no analytics.
+    the_harness_is_the_standard_library: >-
+      `urllib` is enough for everything: GET, POST, following the
+      redirects, carrying the cookies, and reading the certificate. No
+      new dependency, and the deployment already has Python.
+    the_csrf_token_goes_in_the_body: >-
+      The login is a form-encoded POST with `csrfmiddlewaretoken` in the
+      BODY - the way the HTML form does it. Sending it in the
+      `X-CSRFToken` header with a JSON body does NOT authenticate, and
+      the refusal is the 401 of the login's own logic: it LOOKS like a
+      wrong password when it is a wrong request shape. The suite does
+      what the form does.
+    the_module_scoped_cookie_jar_was_a_trap: >-
+      The first version of the suite shared one cookie jar between the
+      tests, and the test that checks the redirect to the login passed
+      for the WRONG reason: the jar carried the owner's session from an
+      earlier test, so the page answered 200 and the redirect never
+      happened. A jar shared between tests leaks one test's session into
+      the next, and the suite would prove things that are not true. The
+      test now uses a FRESH browser with no session.
+    proof_non_vacuous: >-
+      Six probes, each failing the test it should: the socket not
+      wrapped in TLS, the certificate not covering the host, the bundle
+      never fetched, the credit book not answering 403, the dependent's
+      board carrying the forbidden keys, the seeded figures not matching,
+      the page carrying an external origin, and the suite against a URL
+      that is not the deployment. All were detected.
   phase7b2_delivered:
     completed: '2026-11-17'
     tasks: 3
