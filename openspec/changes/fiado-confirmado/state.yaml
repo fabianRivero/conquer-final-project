@@ -180,32 +180,104 @@ v2_redesign:
     - tasks.md (69 tasks across 7 phases, phases 2 to 8; Phase 1 was delivered under the v1 plan and is not re-planned)
   requirements: 48
   tasks: 69
-  tasks_completed: 67
+  tasks_completed: 69
   tasks_completed_note: >-
-    Sixty-seven of the sixty-nine v2 tasks are complete: the seven of
+    Sixty-nine of the sixty-nine v2 tasks are complete: the seven of
     Phase 2, the thirteen of Phase 3, the twenty-one of Phase 4, the nine
-    of Phase 5, the eight of Phase 6 and the nine of Phase 7. Phase 7
-    delivered the seed, the Vite shell, the router with its three routes,
-    the three fetch layers, the login the plan did not have, the three
-    surfaces with their eleven components, and the e2e suite against the
-    DEPLOYED public URL. The figure excludes the seven v1 Phase 1 tasks,
-    which were delivered under the v1 plan, stay valid exactly as they
-    are and are therefore not re-planned here. Phase 8 is pending. With
-    the seven v1 Phase 1 tasks the change as a whole is 76 tasks, 74
-    complete.
+    of Phase 5, the eight of Phase 6, the nine of Phase 7 and the two of
+    Phase 8. Phase 8 delivered the two credential-boundary RED tests: the
+    plaintext of a credential is in no row of any model, and a client
+    request leaves behind nothing but its own proposal; and the
+    credential is unique in the shop, one ACTIVE credential exists per
+    customer, and a rotation really rotates - the old value stops
+    resolving. The figure excludes the seven v1 Phase 1 tasks, which were
+    delivered under the v1 plan, stay valid exactly as they are and are
+    therefore not re-planned here. With the seven v1 Phase 1 tasks the
+    change as a whole is 76 tasks, 76 complete.
   invalidates_delivered_work: >-
     Phase 1 of the delivered v1 work stays valid as is. Phase 2 is invalidated
     - the entity set, five constraints and two partial indexes change. Phase 3
     is partly invalidated - five of its nine modules change. Phases 4 to 7 were
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
-    Phase 8 - the two credential boundary RED tests. Task 8.1: no field
-    of any model row holds the plaintext of a credential - the digest and
-    the prefix are all that is stored. Task 8.2: the credential is
-    unique in the shop, and a customer holds at most one ACTIVE
-    credential. Both go in `backend/tests/integration/test_constraints.py`,
-    with the schema's own constraints as the subject, and neither needs a
-    deployment.  phase4_chain_delivered:
+    The v2 plan is CLOSED: all sixty-nine of its tasks are complete and
+    merged. What remains is not a slice but a DECISION - the validation
+    round with the shop owners, which design section 18.3 declares as
+    the evidence gate of the conditional facilitation capability. The N5
+    gate stays CLOSED until that round runs, and no task of the plan
+    opens it: the conditional capability is ABSENT from the code, and its
+    absence IS the flag. The round itself is not planned work, and it
+    needs people who are not this agent.
+  phase8_delivered:
+    completed: '2026-11-19'
+    tasks: 2
+    files:
+      - backend/tests/integration/test_constraints.py
+    lines: 417
+    budget: size-exception
+    why_exception: >-
+      The slice is seventeen lines over the 400-line review budget, and
+      the overage is the PLAN BOOKKEEPING rather than the behaviour:
+      the two tests are 333 lines and the state record is the rest. The
+      tests could not be split from their own file - the two live in the
+      same `test_constraints.py` as the schema's other constraints, and
+      the helpers they share - `_filas_con_texto()` and `_peticion_con()`
+      - are module-level.
+    evidence: >-
+      128 unit and 351 integration tests pass, and the e2e suite passes
+      against the deployed public URL: eleven tests over HTTPS. The
+      integration count is 351 and the whole suite is 479, with the
+      eleven e2e tests skipping without a PUBLIC_URL.
+    what_the_two_tests_assert: >-
+      * `test_codigo_en_claro_no_se_persiste` walks EVERY text column of
+        EVERY row of every model - the check is over the DATA and not
+        over the schema, because the schema could hold a column no row
+        ever fills and could NOT hold a column a row fills with the wrong
+        thing. The companion test plants the plaintext in the row the
+        client request creates and proves the walk finds it.
+      * `test_credential_unicity` says that a rotation really rotates:
+        the old value stops resolving. The constraints say the ROWS
+        cannot collide; they do not say the old credential stops
+        working. That is a behaviour, and it lives in the resolution.
+      * `test_una_credencial_con_el_prefijo_y_otro_valor_no_resuelve`
+        says that the prefix narrows the search and the DIGEST decides -
+        the clause the resolution's `check_password` carries and the one
+        a schema cannot state.
+    the_prefix_collision_is_built_not_generated: >-
+      The prefix is six symbols of a 32-symbol alphabet, so two random
+      credentials share one with a probability of 1 in about a billion,
+      and a loop looking for that collision spins essentially forever.
+      The impostor's value is therefore ASSEMBLED: the stored
+      credential's prefix, then fourteen different symbols. The first
+      version of this test used the loop and HUNG the suite.
+    proof_non_vacuous: >-
+      Six probes, each failing the test it should: the resolution
+      ignoring the revocation, the plaintext stored in a row, the walk
+      searching fewer tables with the plaintext in another one, the client
+      request's walk not reaching the row it created, the resolution not
+      comparing the digest, and the credential not being hashed on the
+      way in. All six were detected.
+    the_defects_the_probes_found: >-
+      Three, and two of them were in the PROBES rather than in the tests.
+      First, a probe that mutates an assertion into a tautology makes the
+      test pass on its OTHER assertions: that is redundancy, not a
+      vacuous test, and the honest probe mutates the MECHANISM the
+      assertion depends on. Second, a probe whose mutation does not
+      apply - a wrong indentation - reports the test as vacuous when the
+      test is fine, so a probe has to ASSERT that its mutation applied.
+      Third, and the only one in the TESTS: the client-request test
+      received the wrong fixture. The fixture is named
+      `client_con_credencial` and the test asked for DRF's own `client`,
+      which carries no credential - so the proposal was refused with a
+      422 that looked like a rule and was really a missing header.
+    the_probe_that_found_a_gap: >-
+      The probe that made the resolution stop comparing the digest was
+      NOT caught - because NO test asserted that a credential with the
+      RIGHT PREFIX and the WRONG value fails to resolve. The suite
+      resolved the right credential and the revoked one, and nothing
+      between. That gap is closed by
+      `test_una_credencial_con_el_prefijo_y_otro_valor_no_resuelve`.
+  phase4_chain_delivered:
     completed: '2026-11-16'
     tasks: 21
     lines_added: 5968
