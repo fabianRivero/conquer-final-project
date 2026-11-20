@@ -345,7 +345,7 @@ def test_stockmovement_cantidad_and_kind_are_refused(shop):
     assert StockMovement.objects.count() == 0
 
 
-def test_confirmacion_declares_only_the_confirmado_state(cargo):
+def test_confirmacion_declares_only_the_confirmado_state(cargo, user):
     """`Confirmacion.estado` has one value only: `confirmado`.
 
     The v1 model carried `en_disputa` as a second state, with the
@@ -361,6 +361,7 @@ def test_confirmacion_declares_only_the_confirmado_state(cargo):
                     estado=estado,
                     confirmado_en=timezone.now(),
                     origen="tienda",
+                    confirmado_por=user,
                 )
     assert Confirmacion.objects.count() == 0
 
@@ -376,29 +377,27 @@ def test_confirmacion_declares_no_importe_reclamado():
     assert "nota" not in fields
 
 
-def test_confirmacion_facilitador_iff_origen_is_refused(cargo, user):
-    """`origen='facilitado'` if and only if `facilitado_por_id` is set."""
-    # `facilitado` without a facilitator is refused.
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            Confirmacion.objects.create(
-                cargo=cargo,
-                estado="confirmado",
-                confirmado_en=timezone.now(),
-                origen="facilitado",
-                facilitado_por=None,
-            )
-    # `tienda` with a facilitator is refused too.
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            Confirmacion.objects.create(
-                cargo=cargo,
-                estado="confirmado",
-                confirmado_en=timezone.now(),
-                origen="tienda",
-                facilitado_por=user,
-            )
-    assert Confirmacion.objects.count() == 0
+def test_confirmacion_always_names_its_actor(cargo, user):
+    """The confirmation names who confirmed it, ALWAYS.
+
+    The column replaced `facilitado_por`, which named a third actor that
+    the v2 model does not have. With the N5 gate open there are only two
+    actors - the owner and the `dependiente` - and both of them record
+    confirmations, so the name belongs in its own column and it is
+    **NOT NULL**: a confirmation without an actor is a false record.
+    """
+    fields = {field.name for field in Confirmacion._meta.get_fields()}
+
+    assert "confirmado_por" in fields
+    assert "facilitado_por" not in fields
+
+    campo = Confirmacion._meta.get_field("confirmado_por")
+    assert campo.null is False
+
+    # And the origin is a KIND of act, not a name: the two shop roles.
+    from tienda.models import CONFIRMATION_ORIGINS
+
+    assert CONFIRMATION_ORIGINS == ("tienda", "dependiente")
 
 
 def test_fiadopropuesto_estado_vocabulary_is_refused(shop, customer, user):
@@ -797,11 +796,13 @@ def test_only_one_active_codigo_per_customer(shop, customer, user):
     assert CustomerCodigo.objects.count() == 2
 
 
-def test_only_one_live_proposal_per_customer(shop, customer, user):
-    """Partial UNIQUE (customer_id) WHERE estado='pendiente'.
+def test_a_customer_may_have_several_live_proposals(shop, customer, user):
+    """A customer may have SEVERAL pending fiados at once.
 
-    At most one live proposal per customer: the shop shows one figure at the
-    counter at a time.
+    The partial UNIQUE (customer_id) WHERE estado='pendiente' is **gone**:
+    the client buys on credit more than once, and each proposal is its own
+    purchase. The index that remains is the one that always held - one
+    confirmation per charge.
     """
     FiadoPropuesto.objects.create(
         shop=shop,
@@ -810,22 +811,6 @@ def test_only_one_live_proposal_per_customer(shop, customer, user):
         estado="pendiente",
         total=Decimal("10.00"),
     )
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            FiadoPropuesto.objects.create(
-                shop=shop,
-                customer=customer,
-                user=user,
-                estado="pendiente",
-                total=Decimal("20.00"),
-            )
-    assert FiadoPropuesto.objects.count() == 1
-
-    # A cancelled proposal frees the slot.
-    propuesta = FiadoPropuesto.objects.get()
-    propuesta.estado = "cancelado"
-    propuesta.canceled_at = timezone.now()
-    propuesta.save()
     FiadoPropuesto.objects.create(
         shop=shop,
         customer=customer,
@@ -836,7 +821,7 @@ def test_only_one_live_proposal_per_customer(shop, customer, user):
     assert FiadoPropuesto.objects.count() == 2
 
 
-def test_one_confirmed_row_per_charge(cargo):
+def test_one_confirmed_row_per_charge(cargo, user):
     """A charge holds at most one confirmation, for the whole life of the charge.
 
     The partial unique index `uniq_confirmacion_one_confirmado_per_cargo` is
@@ -849,6 +834,7 @@ def test_one_confirmed_row_per_charge(cargo):
         estado="confirmado",
         confirmado_en=timezone.now(),
         origen="tienda",
+        confirmado_por=user,
     )
     with pytest.raises(IntegrityError):
         with transaction.atomic():
@@ -857,6 +843,7 @@ def test_one_confirmed_row_per_charge(cargo):
                 estado="confirmado",
                 confirmado_en=timezone.now(),
                 origen="tienda",
+                confirmado_por=user,
             )
     assert Confirmacion.objects.count() == 1
 
@@ -913,15 +900,16 @@ def test_cargolinea_cannot_be_updated_or_deleted(shop, cargo):
     assert CargoLinea.objects.count() == 1
 
 
-def test_confirmacion_cannot_be_updated_or_deleted(cargo):
+def test_confirmacion_cannot_be_updated_or_deleted(cargo, user):
     """A confirmation is immutable: a charge's confirmation is a fact."""
     confirmacion = Confirmacion.objects.create(
         cargo=cargo,
         estado="confirmado",
         confirmado_en=timezone.now(),
         origen="tienda",
+        confirmado_por=user,
     )
-    confirmacion.origen = "facilitado"
+    confirmacion.origen = "dependiente"
     with pytest.raises(LedgerImmutableError):
         confirmacion.save()
     with pytest.raises(LedgerImmutableError):
@@ -989,7 +977,6 @@ def test_the_partial_unique_indexes_sit_on_the_right_tables():
     """
     expected = {
         "uniq_confirmacion_one_confirmado_per_cargo": Confirmacion,
-        "uniq_fiadopropuesto_one_pendiente_per_customer": FiadoPropuesto,
         "uniq_codigo_one_active_per_customer": CustomerCodigo,
     }
 
@@ -1008,6 +995,12 @@ def test_the_partial_unique_indexes_sit_on_the_right_tables():
             if name in [c.name for c in m._meta.constraints]
         ]
         assert len(owners) == 1, f"{name} is declared on {owners}."
+
+    # The third one is GONE: a customer may have several pending fiados,
+    # because the client buys on credit more than once.
+    assert "uniq_fiadopropuesto_one_pendiente_per_customer" not in [
+        c.name for c in FiadoPropuesto._meta.constraints
+    ]
 
 
 def test_the_v1_partial_indexes_are_gone():

@@ -142,10 +142,14 @@ class SoloPersonal(RoleRequired):
 class SoloDueno(RoleRequired):
     """The `dueno`, and only the `dueno`.
 
-    The credit book is the owner's alone: the customer list and detail,
-    the ledger, the balances, the ageing and the credit limit all answer
-    403 to the `dependiente`, with no partial data in any field
-    (design §7.1).
+    The credit book's POLICY is the owner's alone: the `credit_limit`, the
+    suspension, the catalogue and the credential answer 403 to the
+    `dependiente`, with no partial data in any field (design §7.1).
+
+    The `dependiente` READS the credit book - it collects the payments -
+    and it does so through a **reduced schema** that declares the debts
+    and none of these fields. The reading and the policy are two
+    different capabilities.
     """
 
     roles = (GRUPO_DUENO,)

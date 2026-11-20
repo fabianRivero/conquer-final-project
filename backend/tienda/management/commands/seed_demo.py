@@ -285,6 +285,7 @@ class Command(BaseCommand):
             estado=ConfirmState.CONFIRMADO.value,
             confirmado_en=momento,
             origen="tienda",
+            confirmado_por=dueno,
         )
         return cargo
 

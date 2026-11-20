@@ -58,7 +58,6 @@ CODIGOS_ERROR = {
     "codigo_duplicado": "Ese prefijo de credencial ya existe.",
     "cargo_ajeno": "Ese cargo no es de este cliente.",
     "producto_ajeno": "Ese producto no es de esta tienda.",
-    "facilitador_invalido": "El facilitador no es valido.",
 }
 
 #: The code a refusal answers with. It is NOT part of the validation

@@ -154,6 +154,7 @@ def _cargo(tienda, customer, user, producto, *, cantidad="3", precio="1.00", whe
         estado="confirmado",
         confirmado_en=momento,
         origen="tienda",
+        confirmado_por=user,
     )
     return cargo
 
@@ -312,6 +313,7 @@ def test_the_statement_reads_the_paid_and_pending_split(
             estado="confirmado",
             confirmado_en=base + timezone.timedelta(minutes=i),
             origen="tienda",
+            confirmado_por=user,
         )
         cargos.append(cargo)
 

@@ -201,13 +201,126 @@ v2_redesign:
     never delivered and are re-planned against the v2 contract.
   next_work_unit: >-
     The v2 plan is CLOSED: all sixty-nine of its tasks are complete and
-    merged. What remains is not a slice but a DECISION - the validation
-    round with the shop owners, which design section 18.3 declares as
-    the evidence gate of the conditional facilitation capability. The N5
-    gate stays CLOSED until that round runs, and no task of the plan
-    opens it: the conditional capability is ABSENT from the code, and its
-    absence IS the flag. The round itself is not planned work, and it
-    needs people who are not this agent.
+    merged. The N5 gate was then OPENED by the owner - a product
+    decision under a declared hypothesis, not field evidence - and that
+    is the Phase 9 slice. What remains is still not a slice but a
+    DECISION: the validation round with the shop owners, which design
+    section 18.3 declares as the evidence gate. The gate is open under
+    the owner's decision, and the round would confirm or contradict it.
+    The project's `knowledge_basis` stays `design-hypothesis`, and the
+    round itself is not planned work: it needs people who are not this
+    agent.
+  phase9_delivered:
+    completed: '2026-11-20'
+    tasks: 0
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/api/gates.py
+      - backend/tienda/api/permissions.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/serializers/staff.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/migrations/0002_n5_abierta.py
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tests/integration/test_n5_abierta.py
+      - backend/tests/integration/test_constraints.py
+      - backend/tests/integration/test_propuesta_api.py
+      - backend/tests/integration/test_cliente_api.py
+      - backend/tests/integration/test_ledger_api.py
+      - backend/tests/integration/test_no_leak.py
+      - backend/tests/integration/test_pago_propuesto_api.py
+      - backend/tests/integration/test_excepciones_api.py
+      - frontend/src/surfaces/Posicion.tsx
+      - openspec/changes/fiado-confirmado/design.md
+      - openspec/changes/fiado-confirmado/data-model-index.md
+      - openspec/changes/fiado-confirmado/task-source-index.md
+      - openspec/changes/fiado-confirmado/tasks.md
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration, the permissions, the schemas and the tests
+      are ONE behaviour - the `dependiente` operates the counter - and a
+      PR with the model without the permission reaches nothing. The
+      change also touches the Phase 2 model and the Phase 5 rules,
+      which the protocol calls out as high risk.
+    the_decision: >-
+      The owner decided that the `dependiente` prepares, confirms and
+      collects. It is a **product decision under a declared hypothesis**,
+      not field evidence: the validation round with the shop owners has
+      not been run, and the project's `knowledge_basis` stays
+      `design-hypothesis`. The decision changes the capability, not the
+      base.
+    the_two_kinds_of_act: >-
+      A proposal is a PERSONAL act: who prepared it is who closes it,
+      and `FiadoPropuesto.user_id` is the ownership that says so. A
+      payment is a SHOP act: anybody at the counter collects, on any
+      debt, whoever originated it. The two rules are different because
+      the two acts are different - and that is what resolves what looked
+      like a contradiction in the owner's instructions.
+    what_the_gate_opened: >-
+      The four proposal routes, with the ownership filter on each: a
+      `dependiente` confirms and cancels only the proposals IT prepared,
+      and the refusal for somebody else's is a **404**, not a 403,
+      because a 403 would confirm that the proposal exists. The gate
+      opens the ROUTE; the ownership filter guards the OBJECT. They are
+      two different questions, answered in two different places.
+    what_the_gate_did_not_open: >-
+      The owner's POLICY: the `credit_limit`, the ageing, the suspension,
+      the credential and the catalogue stay the owner's. The
+      `dependiente` READS the credit book through a REDUCED schema -
+      `ClienteDependienteSerializer` declares the alias, the outstanding
+      and the charges, and it does NOT declare `credit_limit`,
+      `antiguedad_max_dias`, `suspended_reason`, `codigo` or `prefix`.
+      The reduced payload is not the owner's payload with fields
+      removed: it is a different schema, so a field that is not declared
+      cannot appear whatever the query returns.
+    the_model_changed_in_three_ways: >-
+      `Confirmacion.facilitado_por_id` became `Confirmacion.confirmado_por_id`
+      (NOT NULL - the row always names its actor, and there is no case
+      where the name is missing); `Confirmacion.origen` carries
+      `tienda`/`dependiente` instead of `tienda`/`facilitado`, because
+      the third actor that `facilitado` named does not exist in this
+      model - the client confirms on its own screen and no route brings
+      the two principals together; and `FiadoPropuesto.facilitado_por_id`
+      is gone, because `user_id` already says who prepared it. The
+      partial UNIQUE `(customer_id) WHERE estado='pendiente'` is gone
+      too: **a customer may have several pending fiados at once**,
+      because the client buys on credit more than once and each
+      proposal is its own purchase.
+    the_migration_loses_no_data: >-
+      Until the gate opened, the ONLY user who could confirm was the
+      owner, and the owner wrote the charge in the same transaction - so
+      every existing `Confirmacion` has `facilitado_por` NULL and the
+      backfill is `cargo.user`, which is the same person. The column
+      was added nullable, backfilled, and only then made NOT NULL. The
+      removed proposal column held no data at all.
+    the_error_code_that_died: >-
+      `facilitador_invalido` guarded a `facilitado_por` that named a
+      user outside the shop or outside the `dependiente` group. With
+      `confirmado_por` the actor IS the acting session - the server
+      stamps it - so there is nothing to validate and no code to refuse
+      with. The vocabulary loses one code.
+    evidence: >-
+      128 unit and 501 integration tests pass. The RED was observed
+      first: 19 failed and 3 passed before the implementation, and the
+      3 that passed were the ones asserting the owner KEEPS its own
+      rights - which is the direction the change did not touch.
+    the_tests_that_were_inverted: >-
+      Five in the Phase 5 file and one in the leak walk asserted the
+      `dependiente`'s 403 over the proposal routes. They were INVERTED,
+      not deleted, and the inversion carries the ownership: the Phase 5
+      file now asserts that the `dependiente` prepares, confirms and
+      cancels its OWN proposal, and that it reaches NOBODY else's -
+      with a 404.
+    the_defect_the_inversion_found: >-
+      The `dependiente` that records a payment needs a debt to pay:
+      rule 19 refuses a payment larger than the outstanding, so the
+      first version of the matrix test saw a 422 and read it as a
+      refusal of the capability. The test was wrong - it needed a debt
+      first - and the 422 was the RULE working. It is the same lesson
+      the Phase 5 slice recorded: a status code alone cannot tell
+      "refused" from "nothing to pay".
   phase8_delivered:
     completed: '2026-11-19'
     tasks: 2
@@ -1288,7 +1401,24 @@ v2_redesign:
     Regla_4: built
     Regla_5: built
     Regla_6: built
-    N5: closed
+    N5: open
+    N5_decision: >-
+      The owner opened the N5 gate on '2026-11-20': the `dependiente`
+      prepares, confirms and collects. It is a **product decision under a
+      declared hypothesis**, not field evidence - the validation round
+      with the shop owners has not been run, and the project's
+      `knowledge_basis` stays `design-hypothesis`. The decision changes
+      the capability, not the base: Regla 4, Regla 5 and Regla 6 keep
+      the base they had, and the cut mechanism stays live for all four.
+    N5_what_the_gate_opened: >-
+      The four proposal routes, with the ownership filter on each: a
+      `dependiente` confirms and cancels only the proposals IT prepared,
+      and the refusal for somebody else's is a 404. And the credit book
+      is READ by the `dependiente`, through a reduced schema, and the
+      payments are RECORDED by it, on any debt of the shop.
+    N5_what_the_gate_did_not_open: >-
+      The owner's policy: the `credit_limit`, the ageing, the suspension,
+      the credential and the catalogue stay the owner's.
 
   superseded: >-
     The closure decision was taken when no implementation had run. The owner
@@ -1306,8 +1436,16 @@ knowledge_basis:
     this variant. The four Regla gates are therefore design decisions under
     hypothesis, not interview findings: Regla 4 builds the client surface,
     Regla 5 builds the catalogue and CargoLinea, Regla 6 keeps
-    existencias_registradas as an optional ceiling, and N5 leaves the
-    conditional facilitation capability out of scope.
+    existencias_registradas as an optional ceiling, and N5 - **opened by the
+    owner on '2026-11-20'** - lets the `dependiente` prepare, confirm and
+    collect.
+  n5_is_an_owner_decision_not_evidence: >-
+    The owner opened the N5 gate as a **product decision**, and the decision
+    does not pretend to be field evidence. The validation round with the shop
+    owners has still not been run, and `mode` stays `design-hypothesis`: what
+    changed is the capability, not the base. Regla 4, Regla 5 and Regla 6
+    keep the base they had, and the cut mechanism below stays live for all
+    four gates.
   cut_mechanism: >-
     The reduction mechanism stays live. A future validation round that
     contradicts any gate applies exactly the cut described in design §19: a
