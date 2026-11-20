@@ -53,7 +53,7 @@ Each row is one requirement. The `Design home` column is already resolved from t
 | CC-06 | A confirmed charge shows its full itemisation | integration | 1 | C | §9.2 `EstadoClienteSerializer` (`lineas[]`); §13.4 |
 | CC-07 | The client may propose a payment and the owner records it | integration | 4 | C | §7 propose/validate rows; §8; §13.3; §3 `PagoPropuesto`, `ImputacionPago`; ADR-27 |
 | CF-01 | The `dependiente` prepares one proposal and records its confirmation | integration | 2 | C | §2 D6; §7 proposal rows; §6; §13.1 |
-| CF-02 | The facilitator is recorded and holds no client scope | integration | 2 | C | §3 `facilitado_por_id`; §8; §13.1 |
+| CF-02 | The actor is recorded and holds no client scope | integration | 2 | C | §3 `confirmado_por_id`; §8; §13.1 |
 
 ## Totals
 

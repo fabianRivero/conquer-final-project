@@ -40,6 +40,7 @@ from tienda.api import gates
 from tienda.api.client_authentication import CredencialCliente
 from tienda.api import permissions
 from tienda.api.exceptions import DomainValidationError
+from tienda.api.permissions import es_dependiente, es_dueno
 from tienda.api.serializers import cliente as cliente_serializers
 from tienda.api.serializers import staff
 from tienda.models import (
@@ -392,7 +393,7 @@ class ClienteLibretaView(_ApiViewBase):
     exists.
     """
 
-    permission_classes = [permissions.SoloDueno]
+    permission_classes = [permissions.SoloPersonal]
 
     def post(self, request, cliente_id):
         shop_id = _scope(request)
@@ -495,10 +496,19 @@ class CatalogoView(_ApiViewBase):
 class ClientesView(_ApiViewBase):
     """`GET` and `POST /api/v1/clientes/` — the credit book's list.
 
-    The owner's alone (CAC-02), and every row is scoped by the shop.
+    The owner reads the whole list. The `dependiente` reads it too, and
+    for the same reason it records payments: **collecting a debt needs to
+    see the debt**. But it reads it through a **reduced schema** - the
+    alias and the debts, and none of the owner's policy fields. The
+    reduced payload is not the full one with fields removed: it is built
+    from a different schema, so a field that is not declared cannot
+    appear whatever the query returns.
+
+    `POST` remains the owner's: creating a customer is a credit policy
+    act, not a counter act (CAC-02, design §7.1).
     """
 
-    permission_classes = [permissions.SoloDueno]
+    permission_classes = [permissions.SoloPersonal]
 
     def get(self, request):
         shop_id = _scope(request)
@@ -515,6 +525,17 @@ class ClientesView(_ApiViewBase):
             shop_id=shop_id, revoked_at__isnull=True
         ).order_by("id"):
             codigos.setdefault(codigo.customer_id, codigo)
+
+        if es_dependiente(request.user):
+            # The reduced payload: the debts, and no policy.
+            return Response(
+                [
+                    staff.ClienteDependienteSerializer(
+                        services.cliente_para_el_dependiente(c)
+                    ).data
+                    for c in clientes
+                ]
+            )
 
         return Response(
             [
@@ -534,6 +555,10 @@ class ClientesView(_ApiViewBase):
         )
 
     def post(self, request):
+        # Creating a customer is the owner's: it is the credit policy.
+        if not es_dueno(request.user):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
         shop_id = _scope(request)
         from tienda.models import Shop
 
@@ -576,7 +601,7 @@ class ClienteDetalleView(_ApiViewBase):
 
     http_method_names = ["get", "patch"]
 
-    permission_classes = [permissions.SoloDueno]
+    permission_classes = [permissions.SoloPersonal]
 
     def _cliente(self, request, cliente_id):
         shop_id = _scope(request)
@@ -586,6 +611,15 @@ class ClienteDetalleView(_ApiViewBase):
         cliente = self._cliente(request, cliente_id)
         if cliente is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if es_dependiente(request.user):
+            # The reduced payload: the debts, and no policy.
+            return Response(
+                staff.ClienteDependienteSerializer(
+                    services.cliente_para_el_dependiente(cliente)
+                ).data
+            )
+
         return Response(
             {
                 "id": cliente.id,
@@ -596,6 +630,11 @@ class ClienteDetalleView(_ApiViewBase):
         )
 
     def patch(self, request, cliente_id):
+        # The `credit_limit` is the owner's policy: the `dependiente` reads
+        # the credit book but does not set the limit.
+        if not es_dueno(request.user):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
         cliente = self._cliente(request, cliente_id)
         if cliente is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -646,7 +685,7 @@ class PropuestasView(_ApiViewBase):
 
         try:
             # Rule 4: the request carries no field that is not admitted.
-            # `origen` and `facilitado_por` are NOT among them: rule 7b
+            # `origen` and `confirmado_por` are NOT among them: rule 7b
             # infers them from the acting session, and a body that names
             # them is refused on their presence.
             services.exigir_campos_no_admitidos(
@@ -713,8 +752,17 @@ class PropuestaPantallaView(_ApiViewBase):
     def get(self, request, propuesta_id):
         shop_id = _scope(request)
 
+        # The ownership filter: a `dependiente` reaches only the proposals
+        # it prepared. The answer for somebody else's is a scoped 404, the
+        # same answer another shop's proposal gets.
+        from tienda.api.permissions import es_dependiente
+
+        filtros = {"shop_id": shop_id, "id": propuesta_id}
+        if es_dependiente(request.user):
+            filtros["user_id"] = request.user.id
+
         propuesta = (
-            FiadoPropuesto.objects.filter(shop_id=shop_id, id=propuesta_id)
+            FiadoPropuesto.objects.filter(**filtros)
             .prefetch_related("lineas__producto")
             .first()
         )

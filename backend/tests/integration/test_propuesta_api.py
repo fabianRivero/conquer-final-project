@@ -77,7 +77,15 @@ def owner(db):
 @pytest.fixture
 def helper(db):
     user = User.objects.create_user(username="dependiente", password="x")
-    user.groups.add(Group.objects.create(name="dependiente"))
+    user.groups.add(Group.objects.get_or_create(name="dependiente")[0])
+    return user
+
+
+@pytest.fixture
+def otro_helper(db):
+    """A second `dependiente` - the one whose proposals are not the first's."""
+    user = User.objects.create_user(username="dependiente2", password="x")
+    user.groups.add(Group.objects.get_or_create(name="dependiente")[0])
     return user
 
 
@@ -109,6 +117,12 @@ def api(owner, tienda):
 @pytest.fixture
 def api_dependiente(helper, tienda):
     return _api_de(helper, tienda)
+
+
+@pytest.fixture
+def api_otro_dependiente(otro_helper, tienda):
+    """A second `dependiente` - the one whose proposals are not the first's."""
+    return _api_de(otro_helper, tienda)
 
 
 @pytest.fixture
@@ -549,8 +563,8 @@ def test_the_screen_of_another_shop_answers_404(api, customer, producto, otra_ti
 def test_the_origin_is_inferred_from_the_session(api, customer, producto):
     """Rule 7b: the origin comes from the acting session.
 
-    The `dueno` prepares it, so `origen='tienda'` and `facilitado_por` is
-    NULL. Neither is read from the body.
+    The `dueno` prepares it, so `origen='tienda'` and `confirmado_por` is
+    the owner. Neither is read from the body.
     """
     _preparar(api, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
@@ -561,7 +575,7 @@ def test_the_origin_is_inferred_from_the_session(api, customer, producto):
 
     confirmacion = Confirmacion.objects.get()
     assert confirmacion.origen == "tienda"
-    assert confirmacion.facilitado_por_id is None
+    assert confirmacion.confirmado_por_id == propuesta.user_id
 
 
 def test_the_origin_is_never_read_from_the_body(api, customer, producto):
@@ -588,12 +602,11 @@ def test_the_origin_is_never_read_from_the_body(api, customer, producto):
 
 
 def test_the_origin_follows_the_acting_session(api, customer, producto):
-    """Rule 7b: with the gate open the `dependiente` would be `facilitado`.
+    """Rule 7b: the origin follows the acting session.
 
-    The gate is closed, so the `dependiente` cannot confirm at all. What
-    this test pins is the INFERENCE: the origin is derived from the
-    acting session and from nothing else. It is asserted on the owner,
-    where the session is the only input that could have produced it.
+    The gate is OPEN, so the `dependiente` may confirm. What this test
+    pins is the INFERENCE: the origin is derived from the acting session
+    and from nothing else, and the actor is named either way.
     """
     _preparar(api, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
@@ -604,10 +617,7 @@ def test_the_origin_follows_the_acting_session(api, customer, producto):
 
     confirmacion = Confirmacion.objects.get()
     assert confirmacion.origen == "tienda"
-    assert confirmacion.facilitado_por_id is None
-    # And the proposal itself names nobody as its facilitator.
-    propuesta.refresh_from_db()
-    assert propuesta.facilitado_por_id is None
+    assert confirmacion.confirmado_por_id == propuesta.user_id
 
 
 def test_a_facilitator_outside_the_shop_is_refused(api, customer, producto, tienda):
@@ -636,85 +646,82 @@ def test_a_facilitator_outside_the_shop_is_refused(api, customer, producto, tien
 # ---------------------------------------------------------------------------
 
 
-def test_the_dependiente_may_not_prepare_a_proposal(api_dependiente, customer, producto):
-    """5.6: the four proposal routes answer 403 to the `dependiente`.
+def test_the_dependiente_may_prepare_a_proposal(api_dependiente, customer, producto):
+    """9.1: the gate is OPEN, so the `dependiente` prepares.
 
-    The design's capability table marks **all four** proposal routes with
-    `*(N5)*` for the `dependiente`, and §18.3 is explicit: "the conditional
-    capabilities are absent from the code until their evidence gate closes,
-    so their absence is the flag". The gate is closed, so the
-    `dependiente` reaches **none** of them - preparing included.
+    The capability table marks the four proposal routes with `*(N5)*` for
+    the `dependiente`, and the owner has opened the gate. The proposal
+    exists and it names **its** preparer - which is also the ownership:
+    the `dependiente` confirms only its own.
     """
     respuesta = _preparar(api_dependiente, customer, producto)
 
-    assert respuesta.status_code == 403
-    assert FiadoPropuesto.objects.count() == 0
+    assert respuesta.status_code == 201
+    propuesta = FiadoPropuesto.objects.get()
+    assert propuesta.user_id == api_dependiente.handler._force_user.id
+    assert propuesta.estado == "pendiente"
 
 
-def test_the_dependiente_may_not_see_the_screen(api, api_dependiente, customer, producto):
-    """5.6: the four proposal routes answer 403 to the `dependiente`.
-
-    The N5 gate is CLOSED on the current decision, so the `dependiente`
-    reaches none of them.
-    """
-    _preparar(api, customer, producto)
+def test_the_dependiente_may_see_the_screen(api, api_dependiente, customer, producto):
+    """9.1: the `dependiente` reads the screen of **its own** proposal."""
+    _preparar(api_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
 
     respuesta = api_dependiente.get(
         reverse("api:propuesta_pantalla", args=[propuesta.id])
     )
 
-    assert respuesta.status_code == 403
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total"] == "3.00"
 
 
-def test_the_dependiente_may_not_confirm(api, api_dependiente, customer, producto):
-    """5.6: the `dependiente` does not record the confirmation.
-
-    The proposal is prepared by the owner - the `dependiente` cannot
-    prepare one while the gate is closed - and then the `dependiente`
-    tries to confirm it.
-    """
-    _preparar(api, customer, producto)
+def test_the_dependiente_may_confirm(api_dependiente, customer, producto):
+    """9.1: the `dependiente` confirms the proposal it prepared."""
+    _preparar(api_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
 
     respuesta = api_dependiente.post(
         reverse("api:propuesta_confirmar", args=[propuesta.id]), {}, format="json"
     )
 
-    assert respuesta.status_code == 403
-    assert LedgerEntry.objects.count() == 0
+    assert respuesta.status_code == 201
+    assert LedgerEntry.objects.count() == 1
+    assert Confirmacion.objects.count() == 1
 
 
-def test_the_dependiente_may_not_cancel(api, api_dependiente, customer, producto):
-    """5.6: the `dependiente` does not cancel."""
-    _preparar(api, customer, producto)
+def test_the_dependiente_may_cancel(api_dependiente, customer, producto):
+    """9.1: the `dependiente` cancels its own proposal."""
+    _preparar(api_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
 
     respuesta = api_dependiente.post(
         reverse("api:propuesta_cancelar", args=[propuesta.id]), {}, format="json"
     )
 
-    assert respuesta.status_code == 403
+    assert respuesta.status_code == 200
     propuesta.refresh_from_db()
-    assert propuesta.estado == "pendiente"
+    assert propuesta.estado == "cancelado"
+    assert LedgerEntry.objects.count() == 0
 
 
-def test_the_refusal_of_the_gate_carries_no_data(api, api_dependiente, customer, producto):
-    """The refusal is TOTAL: no partial data in any field.
+def test_the_dependiente_reaches_only_its_own_proposals(
+    api_dependiente, api_otro_dependiente, customer, producto
+):
+    """9.2: the ownership. Each one confirms only what it prepared.
 
-    No alias, no customer identifier, no `codigo`, no prefix, no count.
+    The refusal is **404**, not 403: a 403 would confirm that the
+    proposal exists. The gate opened the ROUTE; the ownership filter
+    guards the OBJECT.
     """
-    _preparar(api, customer, producto)
+    _preparar(api_otro_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
 
-    respuesta = api_dependiente.get(
-        reverse("api:propuesta_pantalla", args=[propuesta.id])
+    respuesta = api_dependiente.post(
+        reverse("api:propuesta_confirmar", args=[propuesta.id]), {}, format="json"
     )
 
-    assert respuesta.status_code == 403
-    cuerpo = respuesta.json()
-    assert set(cuerpo.keys()) == {"codigo_error", "detail"}
-    assert "Ana" not in str(cuerpo)
+    assert respuesta.status_code == 404
+    assert LedgerEntry.objects.count() == 0
 
 
 # ---------------------------------------------------------------------------

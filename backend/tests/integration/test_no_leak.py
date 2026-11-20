@@ -100,6 +100,50 @@ def _api(user, tienda):
     return api
 
 
+def _cargo_de_una_deuda(customer, user, importe="10.00"):
+    """One confirmed charge, so the customer has a debt to pay.
+
+    Rule 19 refuses a payment larger than the outstanding, so a test
+    that records a payment needs a debt first - otherwise the 422 says
+    "there is nothing to pay" and not "the payment was refused".
+    """
+    from decimal import Decimal
+
+    from django.utils import timezone
+
+    from tienda.models import CargoLinea, Confirmacion, Producto
+
+    cargo = LedgerEntry.objects.create(
+        shop=customer.shop,
+        customer=customer,
+        user=user,
+        kind="cargo",
+        amount=Decimal(importe),
+        occurred_at=timezone.now(),
+    )
+    producto = Producto.objects.create(
+        shop=customer.shop,
+        nombre="Pan",
+        precio=Decimal(importe),
+        unidad="unidad",
+    )
+    CargoLinea.objects.create(
+        cargo=cargo,
+        producto=producto,
+        cantidad=Decimal("1"),
+        precio_unitario=Decimal(importe),
+        total=Decimal(importe),
+    )
+    Confirmacion.objects.create(
+        cargo=cargo,
+        estado="confirmado",
+        confirmado_en=timezone.now(),
+        origen="tienda",
+        confirmado_por=user,
+    )
+    return cargo
+
+
 # ---------------------------------------------------------------------------
 # 4.1 — the walk itself
 # ---------------------------------------------------------------------------
@@ -220,22 +264,30 @@ def test_codigo_ausente_de_todo_arbol_staff(owner, helper, tienda, customer, cre
 def test_dependiente_ve_cero_credenciales(helper, tienda, customer, credencial):
     """R7: the `dependiente` sees neither the credential nor the prefix.
 
-    Every credit-book endpoint answers 403, and no 200 staff response of
-    either role holds the credential.
+    With the N5 gate open the `dependiente` READS the credit book - it
+    collects the payments, and collecting needs to see the debt - but it
+    reads it through the **reduced schema**, which declares neither the
+    credential nor the prefix. The guarantee is unchanged: the plaintext
+    and the prefix are in no response of either role.
     """
     valor, _ = credencial
 
     for ruta in (
         reverse("api:clientes"),
         reverse("api:cliente_detalle", args=[customer.id]),
-        reverse("api:catalogo"),
     ):
         respuesta = _api(helper, tienda).get(ruta)
-        assert respuesta.status_code == 403, f"{ruta} answered {respuesta.status_code}"
+        assert respuesta.status_code == 200, f"{ruta} answered {respuesta.status_code}"
         cuerpo = respuesta.json()
-        # The refusal is total: no request data reaches it.
-        assert sorted(cuerpo) == ["codigo_error", "detail"]
+        # The reduced schema carries the debts and none of the policy.
+        for prohibido in ("codigo", "prefix", "issued_at", "credit_limit"):
+            assert prohibido not in str(cuerpo), f"{ruta} carries {prohibido}"
         assert valor not in respuesta.content.decode()
+
+    # The catalogue stays the owner's.
+    respuesta = _api(helper, tienda).get(reverse("api:catalogo"))
+    assert respuesta.status_code == 403
+    assert valor not in respuesta.content.decode()
 
 
 # ---------------------------------------------------------------------------
@@ -494,21 +546,56 @@ def test_una_sesion_de_personal_no_lleva_ambito_de_cliente(owner, helper, tienda
 def test_la_matriz_de_capacidades_se_impone_en_el_servidor(helper, tienda, customer):
     """CAC-01: a denied capability is refused whatever the interface shows.
 
-    The matrix of §7, row by row, against the live routes.
+    The matrix of §7, row by row, against the live routes - **both**
+    directions, because the matrix changed when the N5 gate opened.
+
+    With the gate open the `dependiente` READS the credit book and
+    RECORDS the payments. What stays the owner's is the POLICY: the
+    catalogue, the `credit_limit`, the suspension and the credential.
     """
     api = _api(helper, tienda)
 
-    # Denied to the `dependiente`.
+    # Granted to the `dependiente`: the credit book, read and collected.
     for ruta, metodo in (
         (reverse("api:clientes"), "get"),
-        (reverse("api:catalogo"), "get"),
         (reverse("api:cliente_detalle", args=[customer.id]), "get"),
-        (reverse("api:cliente_libreta", args=[customer.id]), "post"),
+    ):
+        respuesta = getattr(api, metodo)(ruta)
+        assert respuesta.status_code == 200, (
+            f"{ruta} answered {respuesta.status_code} to the dependiente"
+        )
+
+    # And the payment: it needs a debt to pay, so one is created first.
+    _cargo_de_una_deuda(customer, helper)
+    respuesta = api.post(
+        reverse("api:cliente_libreta", args=[customer.id]),
+        {"kind": "pago", "amount": "1.00"},
+        format="json",
+    )
+    assert respuesta.status_code == 201
+
+    # Denied to the `dependiente`: the owner's policy.
+    for ruta, metodo in (
+        (reverse("api:catalogo"), "get"),
     ):
         respuesta = getattr(api, metodo)(ruta)
         assert respuesta.status_code == 403, (
             f"{ruta} answered {respuesta.status_code} to the dependiente"
         )
+
+    # The `credit_limit` is the owner's, and so is creating a customer.
+    respuesta = api.patch(
+        reverse("api:cliente_detalle", args=[customer.id]),
+        {"credit_limit": "500.00"},
+        format="json",
+    )
+    assert respuesta.status_code == 403
+
+    respuesta = api.post(
+        reverse("api:clientes"), {"alias": "Bruno"}, format="json"
+    )
+    assert respuesta.status_code == 403
+    assert Customer.objects.count() == 1
 
 
 def test_una_mutacion_sin_csrf_es_rechazada(owner, tienda, customer):

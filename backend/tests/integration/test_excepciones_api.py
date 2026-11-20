@@ -64,7 +64,6 @@ def test_the_vocabulary_has_the_seventeen_codes_of_the_design():
         "codigo_duplicado",
         "cargo_ajeno",
         "producto_ajeno",
-        "facilitador_invalido",
     }
 
     assert set(exceptions.CODIGOS_ERROR) == esperados

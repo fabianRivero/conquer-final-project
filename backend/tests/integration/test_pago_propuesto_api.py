@@ -154,6 +154,7 @@ def _cargo(tienda, customer, owner, producto, *, importe="8.00", when=None):
         estado="confirmado",
         confirmado_en=momento,
         origen="tienda",
+        confirmado_por=owner,
     )
     return cargo
 

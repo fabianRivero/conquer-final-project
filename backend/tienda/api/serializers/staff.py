@@ -157,6 +157,47 @@ class LineaPropuestaSerializer(serializers.Serializer):
     total = serializers.DecimalField(max_digits=12, decimal_places=2)
 
 
+class CargoDependienteSerializer(serializers.Serializer):
+    """One confirmed charge, as the `dependiente` sees it at the counter.
+
+    The `dependiente` collects the payments, and collecting needs to see
+    the debt: the charge's `id`, when it was confirmed, how much it was,
+    how much of it has been paid and how much is still owed.
+
+    It carries **none** of the owner's policy: no `credit_limit`, no
+    `antiguedad_max_dias`, no `suspended_reason`, no `codigo`, no
+    `prefix`. Those are the owner's, and the class does not declare them.
+    """
+
+    id = serializers.IntegerField()
+    fecha = serializers.DateTimeField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    confirmado_en = serializers.DateTimeField(allow_null=True, required=False)
+    pagado = serializers.DecimalField(max_digits=12, decimal_places=2)
+    saldo = serializers.DecimalField(max_digits=12, decimal_places=2)
+    lineas = LineaPropuestaSerializer(many=True)
+
+
+class ClienteDependienteSerializer(serializers.Serializer):
+    """One customer, as the `dependiente` sees it at the counter.
+
+    The alias, the outstanding and the charges. The `dependiente` records
+    the payments, and recording needs to see the debt - which is why it
+    reads the credit book at all.
+
+    The reduced payload is not the owner's payload with fields removed: it
+    is a **different schema**, so a field that is not declared cannot
+    appear whatever the query returns. The fields it does NOT declare are
+    the owner's policy: `credit_limit`, `antiguedad_max_dias`,
+    `suspended_reason`, `codigo` and `prefix`.
+    """
+
+    id = serializers.IntegerField()
+    alias = serializers.CharField()
+    pendiente = serializers.DecimalField(max_digits=12, decimal_places=2)
+    cargos = CargoDependienteSerializer(many=True)
+
+
 class PropuestaPantallaSerializer(serializers.Serializer):
     """The proposal on the counter screen.
 

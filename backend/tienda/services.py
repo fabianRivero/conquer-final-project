@@ -428,17 +428,22 @@ def _precio_de_linea(producto: Producto, precio_unitario) -> Decimal:
     return reglas_cargos.precio_unitario_de(producto.precio, precio_unitario)
 
 
-def _facilitador_de(user):
-    """The facilitator of a proposal, inferred from the acting session.
+def _origen_de(user):
+    """What KIND of act a confirmation is, inferred from the acting session.
 
     Rule 7b: the origin is **inferred by the server**, never read from the
-    request body. The `dependiente` presenting the proposal at the counter
-    is `facilitado` and names itself; the owner is `tienda` and names
-    nobody.
+    request body. The `dependiente` recording the confirmation is
+    `dependiente`; the owner recording it is `tienda`.
+
+    The origin says **what kind of act** it was, not who did it - the name
+    of the actor is in `Confirmacion.confirmado_por`, and it is always
+    there. The two are different questions: a `dependiente` recording a
+    confirmation is a **counter act** by the shop's staff, and the row
+    says so twice, once as a kind and once as a name.
     """
     from tienda.api.permissions import es_dependiente
 
-    return user if es_dependiente(user) else None
+    return "dependiente" if es_dependiente(user) else "tienda"
 
 
 def preparar_propuesta(
@@ -462,9 +467,6 @@ def preparar_propuesta(
     client confirmed.
 
     Rule 11 - a line may not name a product of another shop.
-
-    The `facilitado_por` of the proposal is written **at INSERT**, by the
-    same server-side inference as rule 7b. It is never written afterwards.
     """
     if not lineas:
         raise DomainValidationError("lineas_descuadradas")
@@ -503,7 +505,6 @@ def preparar_propuesta(
             estado=PropuestaEstado.PENDIENTE.value,
             total=suma,
             created_at=momento,
-            facilitado_por=_facilitador_de(user),
         )
         PropuestaLinea.objects.bulk_create(
             [
@@ -520,7 +521,7 @@ def preparar_propuesta(
     return propuesta
 
 
-def _propuesta_bloqueada(shop_id, propuesta_id: int) -> FiadoPropuesto:
+def _propuesta_bloqueada(shop_id, propuesta_id: int, *, user=None) -> FiadoPropuesto:
     """The proposal of a shop, with its row locked.
 
     The lock is what makes the check-then-write atomic: a second
@@ -530,11 +531,23 @@ def _propuesta_bloqueada(shop_id, propuesta_id: int) -> FiadoPropuesto:
     A proposal of another shop is **NOT FOUND**, not refused: the answer is
     a scoped 404, so a request cannot learn that the proposal exists
     elsewhere.
+
+    **The ownership filter.** With the N5 gate open, a `dependiente`
+    confirms and cancels only the proposals **it prepared**. The filter is
+    on the queryset - the shop scope and the ownership scope are filters on
+    the same read - and it applies to every role: the owner confirms the
+    proposals it prepared, the `dependiente` confirms its own, and nobody
+    confirms somebody else's. The refusal is a **404**, not a 403: a 403
+    would confirm that the proposal exists.
     """
+    from tienda.api.permissions import es_dependiente
+
+    filtros = {"shop_id": shop_id, "id": propuesta_id}
+    if user is not None and es_dependiente(user):
+        filtros["user_id"] = user.id
+
     propuesta = (
-        FiadoPropuesto.objects.select_for_update()
-        .filter(shop_id=shop_id, id=propuesta_id)
-        .first()
+        FiadoPropuesto.objects.select_for_update().filter(**filtros).first()
     )
     if propuesta is None:
         raise Http404
@@ -562,7 +575,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     momento = at or timezone.now()
 
     with transaction.atomic():
-        propuesta = _propuesta_bloqueada(shop_id, propuesta_id)
+        propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
         # Rule 7: the transition, decided by the stored state.
         destino = PropuestaEstado.CONFIRMADO.value
@@ -598,9 +611,9 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
                 motivo.value if motivo is not None else "limite_superado"
             )
 
-        # Rule 7b: the origin, inferred from the acting session.
-        facilitado = _facilitador_de(user)
-        origen = "facilitado" if facilitado is not None else "tienda"
+        # Rule 7b: the origin, inferred from the acting session, and the
+        # actor, who is always named.
+        origen = _origen_de(user)
 
         cargo = LedgerEntry.objects.create(
             shop_id=shop_id,
@@ -627,7 +640,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
             estado=ConfirmState.CONFIRMADO.value,
             confirmado_en=momento,
             origen=origen,
-            facilitado_por=facilitado,
+            confirmado_por=user,
         )
         propuesta.estado = destino
         propuesta.confirmed_at = momento
@@ -649,7 +662,7 @@ def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     momento = at or timezone.now()
 
     with transaction.atomic():
-        propuesta = _propuesta_bloqueada(shop_id, propuesta_id)
+        propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
         destino = PropuestaEstado.CANCELADO.value
         error = reglas_confirmacion.propuesta_transicion_permitida(
@@ -735,6 +748,64 @@ def pagado_de(cargo) -> Decimal:
 def saldo_de(cargo) -> Decimal:
     """What is still owed on a charge: its amount minus its `pagado`."""
     return Decimal(cargo.amount) - pagado_de(cargo)
+
+
+def cliente_para_el_dependiente(customer: Customer, at=None) -> dict:
+    """One customer, as the `dependiente` sees it at the counter.
+
+    The `dependiente` records the payments, and recording needs to see
+    the debt. What it sees is the **alias**, the **outstanding** and the
+    **confirmed charges** with their itemisation.
+
+    **What it does not see** is the owner's policy: the `credit_limit`,
+    the `antiguedad_max_dias`, the `suspended_reason`, the `codigo` and
+    the `prefix`. The function does not build those keys at all, so they
+    cannot reach the response - the boundary is the absence of the field,
+    not a filter applied afterwards.
+
+    The charges are the **confirmed** ones: a charge without its
+    `Confirmacion` does not exist, and a pending proposal is not a debt
+    yet (ADR-19).
+    """
+    if at is None:
+        at = timezone.now()
+
+    cargos = cargos_de_la_tienda(customer, at)
+
+    filas = []
+    pendiente = Decimal("0")
+    for cargo in cargos:
+        pagado = pagado_de(cargo)
+        saldo = saldo_de(cargo)
+        pendiente += saldo
+        filas.append(
+            {
+                "id": cargo.id,
+                "fecha": cargo.occurred_at,
+                "amount": cargo.amount,
+                "confirmado_en": getattr(
+                    cargo.confirmaciones.first(), "confirmado_en", None
+                ),
+                "pagado": pagado,
+                "saldo": saldo,
+                "lineas": [
+                    {
+                        "producto": linea.producto.nombre,
+                        "cantidad": linea.cantidad,
+                        "precio_unitario": linea.precio_unitario,
+                        "total": linea.total,
+                    }
+                    for linea in cargo.lineas.order_by("id")
+                ],
+            }
+        )
+
+    return {
+        "id": customer.id,
+        "alias": customer.alias,
+        "pendiente": pendiente,
+        "cargos": filas,
+    }
 
 
 def proponer_pago(customer: Customer, *, importe, referencia="", at=None):

@@ -215,8 +215,13 @@ def test_a_payment_that_fits_is_recorded(cliente, customer, cargo):
     assert LedgerEntry.objects.filter(kind="pago").count() == 1
 
 
-def test_the_dependiente_may_not_reach_the_ledger(tienda, helper, customer, cargo):
-    """CAC-02: the credit book is the owner's alone."""
+def test_the_dependiente_may_record_a_payment(tienda, helper, customer, cargo):
+    """9.5: collecting is a counter act, and the `dependiente` collects.
+
+    The credit book's POLICY stays the owner's - the `credit_limit`, the
+    suspension and the credential - but the `dependiente` records the
+    payments, because that is what the counter does.
+    """
     api = APIClient()
     api.force_authenticate(helper)
     _sesion(api, tienda)
@@ -227,12 +232,8 @@ def test_the_dependiente_may_not_reach_the_ledger(tienda, helper, customer, carg
         format="json",
     )
 
-    assert respuesta.status_code == 403
-    assert LedgerEntry.objects.filter(kind="pago").count() == 0
-    # And the refusal carries no request data.
-    cuerpo = respuesta.json()
-    assert sorted(cuerpo) == ["codigo_error", "detail"]
-    assert "Ana" not in respuesta.content.decode()
+    assert respuesta.status_code == 201
+    assert LedgerEntry.objects.filter(kind="pago").count() == 1
 
 
 def test_a_customer_of_another_shop_is_not_found(cliente, customer, tienda):

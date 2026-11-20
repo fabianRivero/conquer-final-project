@@ -1,29 +1,32 @@
 """The N5 gate - design §7.1, §2 D6, §18.3.
 
-**The gate is closed.** On the current decision the `dependiente` reaches
-none of the four proposal routes, and the refusal is total: 403 with no
-partial data in any field (design §7.1).
+**The gate is OPEN.** The owner has decided that the `dependiente`
+operates the counter: it prepares a fiado, confirms it, cancels it, reads
+the credit book and collects the payments.
 
-The gate exists as a **named, single decision** rather than as an `if`
-repeated in four views, for two reasons:
+The decision is a **product decision under a declared hypothesis**, not
+field evidence. The project's `knowledge_basis` stays
+`design-hypothesis`: the validation round with the shop owners has not
+been run, and the owner's decision does not pretend otherwise. What
+changed is that the conditional capability is no longer *absent* - it is
+present, and its boundary is written down here.
 
-* the four views must answer the same way, and a decision copied four
-  times is a decision that will drift;
-* the gate is a **decision under a declared hypothesis**, not a permanent
-  fact. The design names the hypothesis: when the shop owners validate the
-  flow, the `dependiente` may gain exactly one capability - the proposal
-  **it** prepared, and no more. Flipping the gate is therefore a one-line
-  change here, and no view is touched when it opens.
+**What the gate does NOT decide.** The gate is about the ROLE, not about
+the OBJECT. A `dependiente` that passes the gate reaches the four
+proposal routes, and each of them filters by **ownership**: a
+`dependiente` confirms and cancels only the proposals **it prepared**.
+Nobody confirms somebody else's, and the refusal is a **404**, not a 403,
+because a 403 would confirm that the proposal exists.
 
-The gate governs the `dependiente` only. The `dueno` owns the credit book
-and is never gated: preparing, confirming and cancelling a proposal are
-the owner's acts.
+The ownership filter lives with the queryset that fetches the proposal,
+because the shop scope and the ownership scope are filters on the same
+read.
 
-What the gate does NOT do: it does not decide *which* proposal a
-`dependiente` may reach. That is the object-level rule - a `dependiente`
-reaches the proposal it prepared and no other - and it lives with the
-queryset that fetches the proposal, because the shop scope and the
-ownership scope are both filters on the same read.
+**What the gate does NOT open.** The gate is not a licence for the
+`dependiente` to touch the owner's policy. The `credit_limit`, the
+suspension, the catalogue and the credential stay the owner's, and the
+`dependiente` reads the credit book through a **reduced schema** that
+declares the debts and none of those fields.
 """
 
 from __future__ import annotations
@@ -34,25 +37,31 @@ from tienda.api.permissions import GRUPO_DEPENDIENTE, _en_grupo
 
 #: Whether the N5 gate is open.
 #:
-#: It is **closed**: the validation round with the shop owners has not been
-#: run, and the design takes the gate as a decision under a declared
-#: hypothesis (§18.3). When that round opens the gate, this constant is the
-#: ONLY thing that changes - the four views read it and never hard-code a
-#: refusal.
-N5_ABIERTA = False
+#: It is **open**: the owner has decided that the `dependiente` prepares,
+#: confirms and collects. The decision is recorded here because the gate
+#: is a **named, single decision** rather than an `if` repeated in four
+#: views - the four views must answer the same way, and a decision copied
+#: four times is a decision that will drift.
+#:
+#: It is a decision under a DECLARED HYPOTHESIS (design §18.3): the
+#: validation round with the shop owners has not been run, and the
+#: project's `knowledge_basis` says so.
+N5_ABIERTA = True
 
 
 class PuertaN5(BasePermission):
     """The N5 gate, applied to the four proposal routes.
 
-    While the gate is **closed**, the `dependiente` is refused with the
-    total 403 of design §7.1: no alias, no customer identifier, no
-    `codigo`, no prefix, no count - not in the body, not in a header, not
-    in the error message.
+    While it is **closed**, the `dependiente` is refused with the total
+    403 of design §7.1: no alias, no customer identifier, no `codigo`, no
+    prefix, no count - not in the body, not in a header, not in the error
+    message.
 
     While it is **open**, the `dependiente` passes the gate and the
-    object-level rule takes over: it reaches the proposal it prepared and
-    no other.
+    **object-level rule** takes over: it reaches the proposal it prepared
+    and no other. The gate opens the ROUTE; the ownership filter guards
+    the OBJECT. They are two different questions and they are answered in
+    two different places.
     """
 
     def has_permission(self, request, view) -> bool:

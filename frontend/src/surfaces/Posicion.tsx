@@ -66,6 +66,21 @@ interface TableroDependiente {
   } | null;
 }
 
+/**
+ * One customer, as the `dependiente` reads it.
+ *
+ * The reduced schema carries the alias and the debts - and NONE of the
+ * owner's policy: no `credit_limit`, no ageing, no `codigo`, no prefix.
+ * The type declares only what the `dependiente` may see, so a field that
+ * the server does not send has no place to be read from.
+ */
+interface ClienteDependiente {
+  id: number;
+  alias: string;
+  pendiente: string;
+  cargos: unknown[];
+}
+
 type Tablero = TableroDueno | TableroDependiente;
 
 /** How often the board polls. The poll doubles as the keep-alive. */
@@ -99,6 +114,9 @@ export function Posicion() {
       estado: string;
     }[]
   >([]);
+  const [clientesDependiente, setClientesDependiente] = useState<ClienteDependiente[]>(
+    [],
+  );
 
   const refrescar = useCallback(async () => {
     try {
@@ -139,6 +157,23 @@ export function Posicion() {
     setClientes(datos ?? []);
   }, []);
 
+  /**
+   * The `dependiente`'s customer list.
+   *
+   * The reduced schema: the alias and the debts, and none of the owner's
+   * policy. The `dependiente` prepares the fiados, so it needs to know
+   * **who** it is fiando - and the debts it already carries, because it
+   * collects them.
+   */
+  const recargarClientesDependiente = useCallback(async () => {
+    const respuesta = await staff.clientes();
+    if (!respuesta.ok) {
+      return;
+    }
+    const datos = await cuerpo<ClienteDependiente[]>(respuesta);
+    setClientesDependiente(datos ?? []);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       // The three lists answer a BARE LIST, not a paginated object with
@@ -164,9 +199,10 @@ export function Posicion() {
         >(propuestos);
         setPagos(datos ?? []);
       }
+      // The `dependiente`'s customers: the reduced schema.
+      await recargarClientesDependiente();
     })();
-  }, [recargarCredenciales]);
-
+  }, [recargarCredenciales, recargarClientesDependiente]);
   if (!tablero) {
     return (
       <main>
@@ -256,6 +292,30 @@ export function Posicion() {
               if (!respuesta.ok) {
                 const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
                 setError(fallo?.codigo_error ?? "el cierre no se pudo registrar");
+              }
+            }}
+            error={error}
+          />
+          {/*
+            The `dependiente` prepares the fiados too, so it gets the
+            proposal form - with the customers of the REDUCED schema, and
+            with the catalogue, which is the owner's.
+          */}
+          <PropuestaForm
+            clientes={clientesDependiente.map((cliente) => ({
+              id: cliente.id,
+              alias: cliente.alias,
+            }))}
+            productos={productos}
+            onPreparar={async (clienteId, lineas, total) => {
+              const respuesta = await staff.prepararPropuesta({
+                cliente_id: clienteId,
+                lineas,
+                ...(total ? { total } : {}),
+              });
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
+                setError(fallo?.codigo_error ?? "la propuesta no se pudo preparar");
               }
             }}
             error={error}

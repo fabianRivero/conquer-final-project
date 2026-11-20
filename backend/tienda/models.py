@@ -48,10 +48,21 @@ MOVEMENT_KINDS = ("entrada", "salida")
 # `en_disputa`, so there is no second row per charge either.
 CONFIRMATION_STATES = ("confirmado",)
 
-# The vocabulary of `Confirmacion.origen`. `facilitado` is the only origin
-# that names a facilitator. The origin is **inferred by the server** from the
-# acting session, never taken from the request body (rule 7b).
-CONFIRMATION_ORIGINS = ("tienda", "facilitado")
+# The vocabulary of `Confirmacion.origen`. The origin says **what kind of
+# act** the confirmation was - the owner recorded it, or a `dependiente` did -
+# and `confirmado_por` says **who** did it, always.
+#
+# The vocabulary changed when the N5 gate opened. It used to carry
+# `facilitado`, which named a **third actor**: someone presenting at the
+# counter a charge somebody else had prepared. That actor does not exist in
+# the v2 model - the client confirms on their own screen and there is no route
+# where the two principals meet - so the word described nothing that could
+# happen, and the name of the actor now lives in its own column, where it is
+# always present.
+#
+# The origin is **inferred by the server** from the acting session, never
+# taken from the request body (rule 7b).
+CONFIRMATION_ORIGINS = ("tienda", "dependiente")
 
 # The vocabulary of `FiadoPropuesto.estado`. The proposal moves from
 # `pendiente` to exactly one of `confirmado` or `cancelado`, never back.
@@ -249,10 +260,9 @@ class FiadoPropuesto(models.Model):
     `confirmed_at`, `canceled_at`. The move is one-way — `pendiente` to
     exactly one of `confirmado` or `cancelado`, never back (rule 7).
 
-    `facilitado_por` is written **at INSERT**, when the proposal is prepared,
-    by the same server-side inference as rule 7b: the preparing user belongs
-    to the `dependiente` group -> it is that user; otherwise it stays NULL.
-    It is never written afterwards.
+    `user` is the **preparer**, and it is also the **ownership**: with the
+    N5 gate open, a `dependiente` confirms and cancels only the proposals
+    it prepared. Nobody confirms somebody else's.
     """
 
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="propuestas")
@@ -260,17 +270,12 @@ class FiadoPropuesto(models.Model):
         Customer, on_delete=models.CASCADE, related_name="propuestas"
     )
     # The staff member who prepared the proposal.
+    #
+    # This column is also the **ownership**: a `dependiente` confirms and
+    # cancels only the proposals it prepared, and `user` is what makes that
+    # filter possible.
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="propuestas_preparadas"
-    )
-    # The helper who presented the proposal at the counter. NULL when the
-    # owner prepared it directly.
-    facilitado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="propuestas_facilitadas",
-        blank=True,
-        null=True,
     )
     estado = models.CharField(
         max_length=20, choices=[(e, e) for e in PROPUESTA_ESTADOS], default="pendiente"
@@ -316,13 +321,6 @@ class FiadoPropuesto(models.Model):
             # The total is never negative.
             models.CheckConstraint(
                 condition=models.Q(total__gte=0), name="chk_fiadopropuesto_total_non_negative"
-            ),
-            # Partial UNIQUE (customer_id) WHERE estado='pendiente' — at most
-            # one live proposal per customer at a time.
-            models.UniqueConstraint(
-                fields=["customer"],
-                condition=Q(estado="pendiente"),
-                name="uniq_fiadopropuesto_one_pendiente_per_customer",
             ),
         ]
 
@@ -535,14 +533,17 @@ class Confirmacion(AppendOnlyModel):
     origen = models.CharField(
         max_length=20, choices=[(o, o) for o in CONFIRMATION_ORIGINS], default="tienda"
     )
-    # The user who presented the proposal at the counter. Only set for the
-    # origin `facilitado`.
-    facilitado_por = models.ForeignKey(
+    # The user who recorded the confirmation. **Always set** - the row says
+    # who acted, and it says it without a condition on the origin.
+    #
+    # The column replaced `facilitado_por`, which named a third actor that
+    # the v2 model does not have. With the N5 gate open there are only two
+    # actors - the owner and the `dependiente` - and both of them record
+    # confirmations, so the name belongs here and nowhere else.
+    confirmado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
-        related_name="confirmaciones_facilitadas",
-        blank=True,
-        null=True,
+        related_name="confirmaciones_registradas",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -554,22 +555,6 @@ class Confirmacion(AppendOnlyModel):
             models.CheckConstraint(
                 condition=models.Q(estado__in=CONFIRMATION_STATES),
                 name="chk_confirmacion_estado_vocabulary",
-            ),
-            # `origen='facilitado'` if and only if `facilitado_por_id` is set.
-            #
-            # Rule 7b is a biconditional: the acting user belongs to the
-            # `dependiente` group -> `origen='facilitado'` and
-            # `facilitado_por_id` is that user; otherwise `origen='tienda'`
-            # and `facilitado_por_id` stays NULL. Both directions are
-            # enforced, because the column records who presented the proposal
-            # at the counter and a row that says "the owner did it" while
-            # naming a facilitator would be a false record of the act.
-            models.CheckConstraint(
-                condition=(
-                    models.Q(origen="facilitado", facilitado_por__isnull=False)
-                    | models.Q(origen="tienda", facilitado_por__isnull=True)
-                ),
-                name="chk_confirmacion_facilitador_iff_origen",
             ),
             # Partial UNIQUE (cargo_id) WHERE estado='confirmado' — at most
             # one confirmation per charge, for the whole life of the charge.
