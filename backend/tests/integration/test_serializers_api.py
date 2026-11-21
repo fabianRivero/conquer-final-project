@@ -373,24 +373,42 @@ def test_the_mutating_route_check_can_see_the_api_routes():
 
 
 def test_the_client_routes_live_under_their_own_prefix():
-    """The two audiences keep separate prefixes.
+    """The audiences keep separate prefixes.
 
     There is no route that accepts both a session and a credential — the
     design §8 invariant is structural, and the map is where it is visible.
+
+    There are **three** audiences now, and each keeps its own prefix:
+
+    * the STAFF, at the root of the map - the shop's routes;
+    * the CLIENT, under `cliente/` - the client's own reads;
+    * the PERSON, under `cuenta/` and `perfiles/` - the account she owns.
     """
     from tienda.api import urls as urls_api
 
     cliente_rutas = [
         p for p, _, _ in _todas_las_rutas() if p.startswith("cliente/")
     ]
+    persona_rutas = [
+        p
+        for p, _, _ in _todas_las_rutas()
+        if p.startswith("cuenta/") or p.startswith("perfiles/")
+    ]
     personal_rutas = [
-        p for p, _, _ in _todas_las_rutas() if not p.startswith("cliente/")
+        p
+        for p, _, _ in _todas_las_rutas()
+        if not p.startswith("cliente/")
+        and not p.startswith("cuenta/")
+        and not p.startswith("perfiles/")
     ]
 
     assert len(cliente_rutas) == 3
+    assert len(persona_rutas) == 6
     assert len(personal_rutas) == 17
-    # And no route serves both audiences.
+    # And no route serves two audiences.
     assert not set(cliente_rutas) & set(personal_rutas)
+    assert not set(persona_rutas) & set(personal_rutas)
+    assert not set(persona_rutas) & set(cliente_rutas)
 
 
 def test_the_api_mount_is_live():

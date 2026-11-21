@@ -162,6 +162,9 @@ urlpatterns = [
     path("app/posicion/", lambda request: spa_staff(request, "posicion"), name="app_posicion"),
     # The client's statement: public.
     path("app/cliente/", lambda request: spa_publico(request, "cliente"), name="app_cliente"),
+    # The person's own account: public too - she signs in from it, and
+    # the bundle has to be served before she has any session.
+    path("app/cuenta/", lambda request: spa_publico(request, "cuenta"), name="app_cuenta"),
     # The SPA owns its own sub-paths. The shop's screen is
     # `/app/propuesta/{id}/`, so the pattern has to accept a segment with
     # an id in it - not only a word.

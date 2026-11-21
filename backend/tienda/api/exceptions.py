@@ -58,6 +58,15 @@ CODIGOS_ERROR = {
     "codigo_duplicado": "Ese prefijo de credencial ya existe.",
     "cargo_ajeno": "Ese cargo no es de este cliente.",
     "producto_ajeno": "Ese producto no es de esta tienda.",
+    # The person's account. The refusals of the account say nothing about
+    # WHICH part was wrong: "no such user" is an oracle, and an oracle is
+    # a way to enumerate accounts.
+    "usuario_duplicado": "Ese nombre de usuario ya esta en uso.",
+    "usuario_requerido": "El nombre de usuario es obligatorio.",
+    "contrasena_corta": "La contrasena debe tener mas de cinco caracteres.",
+    "credenciales_invalidas": "Usuario o contrasena incorrectos.",
+    "perfil_ya_existe": "Ya tienes un perfil de cliente.",
+    "nombre_requerido": "El nombre del negocio es obligatorio.",
 }
 
 #: The code a refusal answers with. It is NOT part of the validation
