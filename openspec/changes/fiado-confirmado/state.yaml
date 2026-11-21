@@ -204,13 +204,14 @@ v2_redesign:
     merged. The N5 gate was then OPENED by the owner - a product
     decision under a declared hypothesis, not field evidence - and that
     is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
-    and the first one - the person's account - is delivered.
-    The next work unit is **10.2, the shop's login**: the shop gives its
-    `dependiente` a user, and the `dependiente` may hold a separate
-    personal account besides it. Then 10.3, the link with consent; 10.4,
-    the `Customer` without `shop_id`; and 10.5, the counter and the
-    fiado. The order is dictated by one dependency alone: the link needs
-    both faces, and the credit book hangs from the link.
+    and two of them are delivered - the person's account (10.1) and the
+    shop's login (10.2).
+    The next work unit is **10.3, the link with consent**: the shop
+    asks, the client accepts, and the link carries the `credit_limit`
+    and the ageing. Then 10.4, the `Customer` without `shop_id`; and
+    10.5, the counter and the fiado. The order is dictated by one
+    dependency alone: the link needs both faces, and the credit book
+    hangs from the link.
     Underneath all of it, what remains is still not a slice but a
     DECISION: the validation round with the shop owners, which design
     section 18.3 declares as the evidence gate. The gate is open under
@@ -218,6 +219,93 @@ v2_redesign:
     The project's `knowledge_basis` stays `design-hypothesis`, and the
     round itself is not planned work: it needs people who are not this
     agent.
+  phase10b_delivered:
+    completed: '2026-11-21'
+    pull_requests: [32]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/api/personal.py
+      - backend/tienda/api/permissions.py
+      - backend/tienda/api/gates.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/views.py
+      - backend/tienda/services.py
+      - backend/tienda/views_login.py
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tienda/migrations/0004_miembro_de_tienda.py
+      - backend/tests/conftest.py
+      - backend/tests/integration/test_login_tienda.py
+      - backend/tests/integration/test_migracion_miembro.py
+      - backend/tests/integration/test_cash_api.py
+      - backend/tests/integration/test_excepciones_api.py
+      - backend/tests/integration/test_ledger_api.py
+      - backend/tests/integration/test_login.py
+      - backend/tests/integration/test_n5_abierta.py
+      - backend/tests/integration/test_no_leak.py
+      - backend/tests/integration/test_pago_propuesto_api.py
+      - backend/tests/integration/test_propuesta_api.py
+      - backend/tests/integration/test_seed.py
+      - backend/tests/integration/test_serializers_api.py
+      - backend/tests/integration/test_surfaces.py
+      - backend/tests/integration/test_tablas_tablero.py
+      - frontend/src/api/personal.ts
+      - frontend/src/components/Personal.tsx
+      - frontend/src/components/index.ts
+      - frontend/src/surfaces/Posicion.tsx
+    lines: 1699
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration WITH its data, the permissions, the login and
+      the tests are ONE behaviour - the role moves from a global group
+      to the relation - and a PR with the model without the permission
+      reaches nothing. It also rewrites the fixtures of nine test
+      modules, because every fixture that granted a role with a group
+      now grants it with a membership.
+    the_role_lives_in_the_relation: >-
+      The role is the MEMBERSHIP's - the relation - and the relation names
+      the business, and the business names the shop. **The global group
+      could not say that**: a group said nothing about which shop it
+      belonged to, so one shop's `dependiente` was a `dependiente` in
+      every shop. The permission now filters by BOTH the person and the
+      shop, and a request whose session names no shop is refused
+      outright. The test that carries it: the user has **no group at
+      all** and is still a `dependiente` of that shop - and if the group
+      is given and the membership taken, the role goes with it.
+    the_login_is_three_questions: >-
+      Which shop - the owner's list of the shops he owns; a `dependiente`
+      has one, so his list has one entry and the step disappears. Which
+      role - the owner, or one of the staff the shop gave a user; the
+      owner may act AS a `dependiente`, and then he writes **that
+      member's own credentials**, so the row that records the act says
+      the member acted. Which credentials - username and password.
+    the_username_needs_no_shop_name: >-
+      Each shop gives its own users, and a username is **globally
+      unique** - it is Django's. A `dependiente` who works in two shops
+      has **two** users, one per shop, and each login resolves exactly
+      one shop. That is why the login asks for no shop name.
+    only_the_owner_gives_staff: >-
+      Administrating the staff is the shop's POLICY - the same policy as
+      the `credit_limit` and the catalogue - and the N5 gate did not
+      open it. The `dependiente` operates the counter.
+    the_data_migration: >-
+      Each `(shop, user)` of `Shop.usuarios` becomes a membership, with
+      the role the Django group carried. **And the business is CREATED
+      when it does not exist**: a shop that has staff has a business, and
+      the membership names it. A person in two shops gets one membership
+      per shop, and the role **may differ** between them - something the
+      global group could never express. The migration has its own test:
+      it runs against a database in the OLD state and asserts what it
+      produced.
+    evidence: >-
+      128 unit and 542 integration tests pass. The migration applies
+      with data, reverses to zero and applies again. The frontend
+      typecheck and the bundle build pass.
+    what_this_slice_does_not_touch: >-
+      The `Customer` and its `shop_id` - the Slice 10.4. The link between
+      the person and a shop - the Slice 10.3. The counter's flow - the
+      Slice 10.5.
   phase10a_delivered:
     completed: '2026-11-21'
     pull_requests: [30]
