@@ -162,6 +162,18 @@ The nine credential RED tests of §5.3. Seven of them — R1, R2, R3, R4, R5, R7
 - [x] 9.7 GREEN — `frontend/src/surfaces/Posicion.tsx`: the `dependiente`'s board carries the proposal form with the reduced customer list.
 - [x] 9.8 GREEN — the **inversion** of the six tests that asserted the `dependiente`'s 403, in `test_propuesta_api.py`, `test_ledger_api.py` and `test_no_leak.py`.
 
+## Phase 10: The Account Rewrite — the person owns her account
+
+**This phase is not part of the v2 plan's 69 tasks.** It is the delivery of a **product decision by the owner**, taken after the plan closed: the person creates her own account, she owns her credentials, and a person can hold debt in **several** shops. It is a decision under a **declared hypothesis** — the validation round with the shop owners has not been run, and the project's `knowledge_basis` stays `design-hypothesis`.
+
+The rewrite is **five slices**, one per pull request, and the order is dictated by one dependency alone: the link (slice C) needs both faces, and the credit book hangs from the link (slice D).
+
+- [x] 10.1 — **The person's account** (PR #30). `PerfilCliente` (1:1) and `PerfilTienda` (1:N); the registration, the login, the logout and the profiles; the session written **without** a `shop_id`, which is what keeps it away from the staff routes; the refusal is **byte-identical** for an unknown user and for a wrong password. **Additive**: it touches neither the book, nor the `Customer`, nor the staff login, nor the client's credential.
+- [ ] 10.2 — **The shop's login** (PR pending). The shop gives its `dependiente` a user; the `dependiente` may hold a separate personal account besides it.
+- [ ] 10.3 — **The link, with consent** (PR pending). The shop asks, the client accepts; the states are `pendiente`, `aceptado` and `eliminado`; `eliminado` is **terminal** and the way back is the shop asking again.
+- [ ] 10.4 — **The `Customer` without `shop_id`** (PR pending). The `credit_limit` and the ageing move to the link, and `estado_de` becomes `estado_de(vinculo)`.
+- [ ] 10.5 — **The counter and the fiado** (PR pending). Identify the client, prepare the fiado, decide it; the client's own account with the amounts and the reason for a rejection.
+
 ## Notes
 
 - **The v1 task list is superseded, not deleted.** The v1 plan had 71 tasks across 7 phases; this one has **69 across 7** - phases 2 to 8. The phase numbering follows the v1 numbering where the content survives (4, 5, 6, 7) and is renumbered where the content changed (2 and 3 are rewritten; the credential-boundary phase becomes 8).
@@ -171,7 +183,7 @@ The nine credential RED tests of §5.3. Seven of them — R1, R2, R3, R4, R5, R7
 - **Test command form.** `pytest` is not on PATH — the form is `python -m pytest`. `black`, `ruff`, `vitest` and `playwright` are not installed.
 - **Database.** The integration suite runs on **PostgreSQL 16**, never SQLite — landmine 7. The unit suite runs with no database by construction. The local environment is rebuilt by `scripts/setup-toolchain.ps1`.
 - **Ordering.** Tests are written RED first: domain unit tests → model constraints and partial indexes → API contract → leak walk → concurrency → e2e (§15.4).
-- **Conditional capability.** The facilitation is gated by **N5**, which on the current decision is **closed**: the four proposal routes answer 403 to the `dependiente` (task 5.6) and the capability is not built. If N5 opens, the `dependiente` gains exactly one proposal — the one it prepared — and tasks 5.5 and 5.6 are the only ones that change.
+- **Conditional capability.** The facilitation is gated by **N5**, and the owner has **opened** it: the four proposal routes answer the `dependiente`, and the boundary is the **OWNERSHIP** — it confirms only the proposals it prepared, and the refusal for somebody else's is a 404 (task 5.6, superseded by Phase 9). The `dependiente` also reads the credit book through a reduced schema and records the payments; the owner's policy — the `credit_limit`, the ageing, the suspension, the credential and the catalogue — stays the owner's.
 - **Regla cuts stay live.** If a validation round contradicts Regla 4, the client surface and the ten Regla-4 requirements are cut with it; if it contradicts Regla 5, `Producto` and `CargoLinea` leave the model and the `desglose` becomes a single amount; if it contradicts Regla 6, `StockMovement` and `existencias_registradas` leave with CP-07. No rule of the system changes (§19).
 - **The `comprobante` is a planned extension, not implemented.** A `PagoPropuesto` carries an `importe` and a text `referencia`; no file, no upload, no attachment model (ADR-25).
 - **Not touched.** `openspec/changes/tienda-barrio/` and `openspec/explorations/` are not modified; nothing is written under `openspec/specs/`.

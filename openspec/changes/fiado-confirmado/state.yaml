@@ -203,13 +203,100 @@ v2_redesign:
     The v2 plan is CLOSED: all sixty-nine of its tasks are complete and
     merged. The N5 gate was then OPENED by the owner - a product
     decision under a declared hypothesis, not field evidence - and that
-    is the Phase 9 slice. What remains is still not a slice but a
+    is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
+    and the first one - the person's account - is delivered.
+    The next work unit is **10.2, the shop's login**: the shop gives its
+    `dependiente` a user, and the `dependiente` may hold a separate
+    personal account besides it. Then 10.3, the link with consent; 10.4,
+    the `Customer` without `shop_id`; and 10.5, the counter and the
+    fiado. The order is dictated by one dependency alone: the link needs
+    both faces, and the credit book hangs from the link.
+    Underneath all of it, what remains is still not a slice but a
     DECISION: the validation round with the shop owners, which design
     section 18.3 declares as the evidence gate. The gate is open under
     the owner's decision, and the round would confirm or contradict it.
     The project's `knowledge_basis` stays `design-hypothesis`, and the
     round itself is not planned work: it needs people who are not this
     agent.
+  phase10a_delivered:
+    completed: '2026-11-21'
+    pull_requests: [30]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/api/cuenta.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/migrations/0003_perfiles_persona.py
+      - backend/config/urls.py
+      - backend/tests/integration/test_cuenta_persona.py
+      - backend/tests/integration/test_excepciones_api.py
+      - backend/tests/integration/test_serializers_api.py
+      - backend/tests/integration/test_surfaces.py
+      - frontend/src/api/cuenta.ts
+      - frontend/src/surfaces/Cuenta.tsx
+      - frontend/src/router.tsx
+    lines: 1252
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration, the routes, the schemas and the tests are
+      ONE behaviour - the person owns her account - and a PR with the
+      model without the routes reaches nothing. It is also the first
+      slice of a five-slice rewrite, and splitting it would leave a
+      model with no way to use it.
+    the_decision: >-
+      The person creates her own account, she chose the username and the
+      password, and she is the only one who changes them. The shop
+      neither issues them nor knows them. A person can hold debt in
+      SEVERAL shops. It is a **product decision under a declared
+      hypothesis**, not field evidence: the validation round with the
+      shop owners has not been run, and the project's `knowledge_basis`
+      stays `design-hypothesis`.
+    the_three_audiences: >-
+      The staff signs in at `/login/` with the credentials the shop gave
+      them, and their session carries the `shop_id` - the scope of the
+      shop. The client reads with a credential and has no session. The
+      person signs in here, with her own credentials, and **her session
+      carries no `shop_id`**: a person is not in a shop. That absence is
+      what keeps her session away from the staff routes, and the two
+      tests that carry the boundary assert it in BOTH directions.
+    why_the_authenticating_routes_have_no_authentication_class: >-
+      `SessionAuthentication` is what enforces the CSRF check, and it
+      only runs when the session is what authenticated the request. A
+      route whose whole job is to AUTHENTICATE has no session yet, so
+      the check has nothing to protect - and the default `IsAuthenticated`
+      cannot apply either. It is the one exception, and it is
+      documented as such.
+    why_those_routes_are_csrf_exempt: >-
+      The staff's login is **cookie-based** and carries `@csrf_protect`: a
+      third-party page must not be able to sign a member of staff in.
+      These routes send the password **in the body**, and a cookie says
+      nothing about who the person is - the body is the only thing that
+      authenticates, and a third-party page cannot read it. The two
+      logins are different mechanisms and they carry different contracts.
+    the_refusal_is_an_oracle_free_one: >-
+      `credenciales_invalidas` is byte-identical for an unknown user and
+      for a wrong password. "No such user" is an oracle, and an oracle is
+      a way to enumerate accounts.
+    evidence: >-
+      128 unit and 522 integration tests pass. The migration applies on a
+      FRESH database, reverses to zero and applies again, and the schema
+      read back from the PostgreSQL catalog shows `UNIQUE (user_id)` on
+      the client profile and the name `CHECK` on the shop profile. The
+      frontend typecheck and the bundle build pass.
+    the_defect_the_red_run_found: >-
+      The first run failed with **403** on every route of the account,
+      and the cause was not the CSRF: it was the API's default
+      `IsAuthenticated` permission, which cannot apply to a route whose
+      job is to authenticate. The refusal that looked like a security
+      check was the framework asking for a session the route had not
+      created yet.
+    what_this_slice_does_not_touch: >-
+      The credit book, the `Customer` and its `shop_id`, the staff
+      login, and the client's credential. It is **additive**, and that is
+      what makes it the safest of the five - a PR that only adds can be
+      reverted without leaving anything broken.
   phase9_delivered:
     completed: '2026-11-20'
     tasks: 0

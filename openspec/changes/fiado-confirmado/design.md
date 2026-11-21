@@ -260,33 +260,52 @@ The machine is now **one-way and has two branches**, and it starts on the **prop
 
 Three principals: the two shop **roles** (Django groups `dueno`, `dependiente`) and the **client** (a bearer credential scoped to one `Customer`). The client is not a role: no `User`, no group, no session.
 
-| Capability | Endpoints | `dueño` | `dependiente` | `cliente` |
-|---|---|:---:|:---:|:---:|
-| Cash movements and the day close | `POST /api/v1/caja/`, `/cierre/` | Yes | Yes | No |
-| The credit book: the customers, their debts and their balances | `GET /api/v1/clientes/…` | Yes | **Yes — through the REDUCED schema**: the alias and the debts, and none of the owner's policy | No |
-| The owner's credit POLICY: the `credit_limit`, the ageing, the suspension | `PATCH /api/v1/clientes/{id}/`, `…/suspension/anular/` | Yes | **No → 403** | No |
-| Create a customer, issue or rotate a `codigo` | `POST /api/v1/clientes/`, `…/codigo/` | Yes | **No → 403** | No |
-| Prepare a `FiadoPropuesto` | `POST /api/v1/propuestas/` | Yes | **Yes — its own** | No |
-| Record the confirmation of a proposal | `POST /api/v1/propuestas/{id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No |
-| Cancel a proposal | `POST /api/v1/propuestas/{id}/cancelar/` | Yes | **Yes — only the proposal IT prepared** | No |
-| Record a `pago` | `POST …/libreta/` | Yes | **Yes — on ANY debt of the shop** | No |
-| Validate a proposed payment and record the `pago` | `POST /api/v1/pagos-propuestos/{id}/validar/` | Yes | **No → 403** | No |
-| Reject a proposed payment | `POST /api/v1/pagos-propuestos/{id}/rechazar/` | Yes | **No → 403** | No |
-| Show the proposal's screen at the counter | `GET /api/v1/propuestas/{id}/pantalla/` | Yes | **Yes — only the proposal IT prepared** | No |
-| The risk ladder and the `posicion_real` | `GET /api/v1/posicion/` | Yes | **No** — the ladder, `posicion_real`, `fiado_pendiente` and `buckets` are 403 for the `dependiente`; the same route still answers it a **reduced** payload with `caja`, `clientes` and `cierre_hoy` only | No |
-| Users and roles | staff administration | Yes | **No → 403** | No |
-| The catalogue (`Producto`) | `GET /api/v1/catalogo/` | Yes | No | No |
-| A `StockMovement` | `POST /api/v1/existencias/` | Yes | No | No |
-| The client's statement | `GET /api/v1/cliente/estado/` | No | No | Yes — own confirmed charges |
-| The itemisation of an own confirmed charge | `GET /api/v1/cliente/cargos/{id}/` | No | No | Yes — own charges |
-| Propose a payment | `POST /api/v1/cliente/pagos/proponer/` | No | No | Yes — own charges; writes no ledger row |
-| Confirm or cancel a proposal | — | No | No | **No — the client never writes** |
+**The account rewrite adds a fourth column: the PERSON.** The person is the human behind the client — she creates her own account, she chose her username and her password, and she is the only one who may change them. The shop neither issues them nor knows them. Her session is a **person's session**: it carries no `shop_id`, because a person is not in a shop, and that absence is what keeps it away from the staff routes. The three audiences never share a mechanism and never share a route.
+
+| Capability | Endpoints | `dueño` | `dependiente` | `cliente` | the **person** |
+|---|---|:---:|:---:|:---:|:---:|
+| Cash movements and the day close | `POST /api/v1/caja/`, `/cierre/` | Yes | Yes | No | No |
+| The credit book: the customers, their debts and their balances | `GET /api/v1/clientes/…` | Yes | **Yes — through the REDUCED schema**: the alias and the debts, and none of the owner's policy | No | No |
+| The owner's credit POLICY: the `credit_limit`, the ageing, the suspension | `PATCH /api/v1/clientes/{id}/`, `…/suspension/anular/` | Yes | **No → 403** | No | No |
+| Create a customer, issue or rotate a `codigo` | `POST /api/v1/clientes/`, `…/codigo/` | Yes | **No → 403** | No | No |
+| Prepare a `FiadoPropuesto` | `POST /api/v1/propuestas/` | Yes | **Yes — its own** | No | No |
+| Record the confirmation of a proposal | `POST /api/v1/propuestas/{id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| Cancel a proposal | `POST /api/v1/propuestas/{id}/cancelar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| Record a `pago` | `POST …/libreta/` | Yes | **Yes — on ANY debt of the shop** | No | No |
+| Validate a proposed payment and record the `pago` | `POST /api/v1/pagos-propuestos/{id}/validar/` | Yes | **No → 403** | No | No |
+| Reject a proposed payment | `POST /api/v1/pagos-propuestos/{id}/rechazar/` | Yes | **No → 403** | No | No |
+| Show the proposal's screen at the counter | `GET /api/v1/propuestas/{id}/pantalla/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| The risk ladder and the `posicion_real` | `GET /api/v1/posicion/` | Yes | **No** — the ladder, `posicion_real`, `fiado_pendiente` and `buckets` are 403 for the `dependiente`; the same route still answers it a **reduced** payload with `caja`, `clientes` and `cierre_hoy` only | No | No |
+| Users and roles | staff administration | Yes | **No → 403** | No | No |
+| The catalogue (`Producto`) | `GET /api/v1/catalogo/` | Yes | No | No | No |
+| A `StockMovement` | `POST /api/v1/existencias/` | Yes | No | No | No |
+| The client's statement | `GET /api/v1/cliente/estado/` | No | No | Yes — own confirmed charges | Yes — own, through her account |
+| The itemisation of an own confirmed charge | `GET /api/v1/cliente/cargos/{id}/` | No | No | Yes — own charges | Yes — own, through her account |
+| Propose a payment | `POST /api/v1/cliente/pagos/proponer/` | No | No | Yes — own charges; writes no ledger row | Yes — own, through her account |
+| Confirm or cancel a proposal | — | No | No | **No — the client never writes** | **No — she identifies; the shop decides** |
+| Her own account: the registration, the login, the profiles | `POST /api/v1/cuenta/…`, `GET /api/v1/perfiles/` | No | No | No | **Yes — she owns them** |
 
 **The three rows that changed when the N5 gate opened.** The client lost `Confirmar` and `Disputar`: neither exists any more, on any route. The `dependiente` moved from "presents one charge and receives the confirmation" to "prepares one proposal and records its confirmation" — the same bounded erosion of the 403 boundary, now expressed over a proposal rather than over a charge (§2 D6, CF-01). And the **credit book** moved with it: the `dependiente` now READS the debts and RECORDS the payments, because collecting is a counter act and collecting needs to see the debt.
 
 **The two kinds of act.** A proposal is a **personal** act: who prepared it is who closes it, and `FiadoPropuesto.user_id` is the ownership that says so. A payment is a **shop** act: anybody at the counter collects, on any debt, whoever originated it. The two rules are different because the two acts are different.
 
 **What the gate did NOT open.** The owner's **policy** is untouched: the `credit_limit`, the ageing, the suspension, the credential and the catalogue stay the owner's. The `dependiente` reads the credit book through a **reduced schema** — `ClienteDependienteSerializer` declares the alias, the outstanding and the charges, and it does **not** declare `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo` or `prefix`. The reduced payload is not the owner's payload with fields removed: it is a different schema, so a field that is not declared cannot appear whatever the query returns.
+
+**The fourth audience: the PERSON.** The account rewrite gives the human behind the client her own account, and she is the only one who owns it. **The shop neither issues her credentials nor knows them** — she chose the username and the password, and she is the only one who may change them.
+
+Her session is a **person's session**, and it carries **no `shop_id`**: a person is not in a shop. That absence is the whole mechanism, and it is why the three audiences never meet:
+
+| | Staff | Client | Person |
+|---|---|---|---|
+| **The login** | the shop's credentials, at `/login/` | a bearer credential | her own, at `/api/v1/cuenta/login/` |
+| **The session** | carries the `shop_id` | none | **carries no `shop_id`** |
+| **The CSRF contract** | the cookie is the authority — `@csrf_protect` | nothing to protect | the body is the authority — `csrf_exempt` |
+
+The two logins differ in their CSRF contract **because their authorities differ**: the staff's login is cookie-based, so a third-party page must not be able to sign a member of staff in; the person's credentials travel in the body, and a cookie says nothing about who she is.
+
+The refusal is **byte-identical** for an unknown user and for a wrong password: *"no such user" is an oracle*, and an oracle is a way to enumerate accounts.
+
+**What the account rewrite changes in the model — and it is not small.** The `Customer` loses its `shop_id`: a person belongs to no shop, and the **link** between her and a shop carries the `credit_limit`, the ageing and the state. The `CustomerCodigo` goes with it — the shop no longer issues a credential, because there is nothing for it to issue. **The rewrite is five slices**, and the first one — the person's account — is **additive**: it touches neither the book, nor the `Customer`, nor the staff login.
 
 ### 7.1 The `dependiente`'s 403 boundary
 
@@ -751,6 +770,8 @@ None of these blocks the design; each names what would settle it.
 **The four Regla gates are decided, not pending.** The validation round with shop owners has not been run, so `proposal.md` takes the gates as **design decisions under a declared hypothesis**: the confirmation is built (Regla 4), the catalogue and `CargoLinea` are built (Regla 5), `existencias_registradas` is included as an optional ceiling (Regla 6), and the conditional facilitation is **not** added (N5). The cut mechanism stays live: a future validation round that contradicts any of these decisions applies exactly the stated reduction, and no rule of the system changes.
 
 **N5 was opened by the owner, and it stays under the hypothesis.** The owner has decided that the `dependiente` prepares, confirms and collects: the gate is open, the `dependiente` reaches the four proposal routes and reads the credit book through the reduced schema. **The validation round has still not been run**, and the project's `knowledge_basis` stays `design-hypothesis` — the decision is the owner's, and it does not pretend to be field evidence. What the decision changes is the capability, not the base: Regla 4, Regla 5 and Regla 6 keep the base they had, and the cut mechanism above stays live for all four.
+
+**The account rewrite was decided by the owner too, and it stays under the hypothesis.** The person creates her own account and owns her credentials; a person can hold debt in several shops; the shop asks and she accepts; and the `dependiente` gets a user from the shop, besides any personal account of his own. The validation round has still not been run, and `knowledge_basis` stays `design-hypothesis`. What the decision changes is the **shape of the model** — the `Customer` loses its `shop_id` and the `CustomerCodigo` goes — and the rewrite is delivered as **five slices** so that every one of them leaves the system green.
 
 | # | Question | What would settle it |
 |---|---|---|
