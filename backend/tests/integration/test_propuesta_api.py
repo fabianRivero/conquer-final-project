@@ -42,6 +42,8 @@ from decimal import Decimal
 from threading import Barrier, Thread
 
 import pytest
+
+from tests.conftest import membresia
 from django.contrib.auth.models import Group, User
 from django.db import connections, transaction
 from django.urls import reverse
@@ -52,8 +54,10 @@ from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
+    MiembroDeTienda,
     FiadoPropuesto,
     LedgerEntry,
+    PerfilTienda,
     PropuestaLinea,
     Producto,
     Shop,
@@ -68,32 +72,31 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def owner(db):
-    user = User.objects.create_user(username="dueno", password="x")
-    user.groups.add(Group.objects.create(name="dueno"))
+def owner(db, negocio):
+    user = negocio.user
+    membresia(negocio, user, "dueno")
     return user
 
 
 @pytest.fixture
-def helper(db):
+def helper(db, negocio):
     user = User.objects.create_user(username="dependiente", password="x")
-    user.groups.add(Group.objects.get_or_create(name="dependiente")[0])
+    membresia(negocio, user, "dependiente")
     return user
 
 
 @pytest.fixture
-def otro_helper(db):
+def otro_helper(db, negocio):
     """A second `dependiente` - the one whose proposals are not the first's."""
     user = User.objects.create_user(username="dependiente2", password="x")
-    user.groups.add(Group.objects.get_or_create(name="dependiente")[0])
+    membresia(negocio, user, "dependiente")
     return user
 
 
 @pytest.fixture
-def tienda(db):
-    return Shop.objects.create(
-        name="Tienda de prueba", opening_cash=Decimal("150.00")
-    )
+def tienda(db, negocio):
+    """The shop of the credit book - the business's own shop."""
+    return negocio.shop
 
 
 def _api_de(user, tienda):
@@ -543,9 +546,30 @@ def test_the_screen_of_another_shop_answers_404(api, customer, producto, otra_ti
 
     The shop comes from the session, so a proposal of another shop is
     simply not there - a 404, never a 403 that would leak its existence.
+
+    **And the user has no role in the other shop**, so the permission
+    refuses first: the role lives in the membership, and the membership
+    names the shop. The screen is never even reached.
     """
     _preparar(api, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
+
+    api_otra = _api_de(api.handler._force_user, otra_tienda)
+    respuesta = api_otra.get(
+        reverse("api:propuesta_pantalla", args=[propuesta.id])
+    )
+
+    # The role is the membership's, and the membership names the shop:
+    # the user has none in the other one, so the refusal comes first.
+    assert respuesta.status_code == 403
+
+    # And with a role IN that shop, the proposal is simply not there.
+    otra = PerfilTienda.objects.create(
+        user=api.handler._force_user, nombre="Otra tienda"
+    )
+    otra.shop = otra_tienda
+    otra.save()
+    membresia(otra, api.handler._force_user, "dueno")
 
     api_otra = _api_de(api.handler._force_user, otra_tienda)
     respuesta = api_otra.get(

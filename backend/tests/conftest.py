@@ -76,3 +76,55 @@ def pytest_collect_directory(path: Path, parent):
     if any(path.glob("test_*.py")):
         return None
     return _EmptyLayerCollector.from_parent(parent, path=path)
+
+
+# ---------------------------------------------------------------------------
+# The staff of a shop
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def negocio(db):
+    """The business of a shop, and the shop it owns.
+
+    **The role lives in the MEMBERSHIP and not in a global group.** A
+    `dependiente` of one shop is a `dependiente` of that shop and of no
+    other, and a group could not say that: a group says nothing about
+    which shop it belongs to.
+
+    The fixture creates the OWNER too, because the profile names her -
+    the business belongs to somebody. The test's own `owner` fixture
+    takes this one, and the membership is what gives it the role.
+    """
+    from decimal import Decimal
+
+    from django.contrib.auth.models import User
+
+    from tienda.models import PerfilTienda, Shop
+
+    dueno = User.objects.create_user(username="dueno", password="secreta123")
+    tienda = Shop.objects.create(
+        name="Tienda de prueba", opening_cash=Decimal("150.00")
+    )
+    perfil = PerfilTienda.objects.create(
+        user=dueno,
+        nombre=tienda.name,
+        direccion="",
+        nif="",
+        shop=tienda,
+    )
+    return perfil
+
+
+def membresia(perfil, user, rol):
+    """The membership that gives `user` the role `rol` in `perfil`'s shop.
+
+    **The role is the relation's.** The helper exists so that every test
+    that needs a `dueno` or a `dependiente` says the SAME thing - and so
+    that no test can accidentally fall back to the old global group.
+    """
+    from tienda.models import MiembroDeTienda
+
+    return MiembroDeTienda.objects.create(
+        perfil_tienda=perfil, user=user, rol=rol
+    )

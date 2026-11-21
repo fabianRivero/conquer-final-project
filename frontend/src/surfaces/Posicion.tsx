@@ -27,8 +27,10 @@ import {
   Ecuacion,
   Escalera,
   PagosPropuestos,
+  Personal,
   PropuestaForm,
 } from "../components";
+import { personal as personalApi, Miembro } from "../api/personal";
 import { staff } from "../api/staff";
 import { cuerpo } from "../api/http";
 
@@ -117,6 +119,7 @@ export function Posicion() {
   const [clientesDependiente, setClientesDependiente] = useState<ClienteDependiente[]>(
     [],
   );
+  const [miembros, setMiembros] = useState<Miembro[]>([]);
 
   const refrescar = useCallback(async () => {
     try {
@@ -174,6 +177,20 @@ export function Posicion() {
     setClientesDependiente(datos ?? []);
   }, []);
 
+  /**
+   * The shop's staff.
+   *
+   * **Only the owner reaches this.** The route is the owner's, and the
+   * `dependiente`'s board never asks for it.
+   */
+  const recargarPersonal = useCallback(async () => {
+    const respuesta = await personalApi.listar();
+    if (!respuesta.ok) {
+      return;
+    }
+    setMiembros(await cuerpo<Miembro[]>(respuesta) ?? []);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       // The three lists answer a BARE LIST, not a paginated object with
@@ -201,8 +218,10 @@ export function Posicion() {
       }
       // The `dependiente`'s customers: the reduced schema.
       await recargarClientesDependiente();
+      // The shop's staff: the owner's alone.
+      await recargarPersonal();
     })();
-  }, [recargarCredenciales, recargarClientesDependiente]);
+  }, [recargarCredenciales, recargarClientesDependiente, recargarPersonal]);
   if (!tablero) {
     return (
       <main>
@@ -277,6 +296,39 @@ export function Posicion() {
                 const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
                 setError(fallo?.codigo_error ?? "la propuesta no se pudo preparar");
               }
+            }}
+            error={error}
+          />
+          {/*
+            The shop's staff: the OWNER's alone. Administrating the staff
+            is the shop's policy, and the `dependiente` operates the
+            counter.
+          */}
+          <Personal
+            miembros={miembros}
+            onAlta={async (username, contrasena, rol) => {
+              const respuesta = await personalApi.alta(
+                username,
+                contrasena,
+                rol,
+              );
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
+                setError(fallo?.codigo_error ?? "no se pudo dar de alta");
+                return;
+              }
+              setError(null);
+              await recargarPersonal();
+            }}
+            onBaja={async (miembroId) => {
+              const respuesta = await personalApi.baja(miembroId);
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
+                setError(fallo?.codigo_error ?? "no se pudo quitar");
+                return;
+              }
+              setError(null);
+              await recargarPersonal();
             }}
             error={error}
           />

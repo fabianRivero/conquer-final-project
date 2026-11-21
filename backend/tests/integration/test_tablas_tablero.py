@@ -23,6 +23,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+
+from tests.conftest import membresia
 from django.contrib.auth.models import Group, User
 from django.contrib.sessions.backends.db import SessionStore
 from django.test import Client
@@ -41,17 +43,16 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def owner(db):
-    user = User.objects.create_user(username="dueno", password="x")
-    user.groups.add(Group.objects.create(name="dueno"))
+def owner(db, negocio):
+    user = negocio.user
+    membresia(negocio, user, "dueno")
     return user
 
 
 @pytest.fixture
-def tienda(db, owner):
-    shop = Shop.objects.create(name="Tienda de prueba", opening_cash=Decimal("150.00"))
-    shop.usuarios.add(owner)
-    return shop
+def tienda(db, owner, negocio):
+    """The shop of the credit book - the business's own shop."""
+    return negocio.shop
 
 
 @pytest.fixture
@@ -166,16 +167,13 @@ def test_la_lista_de_pagos_propuestos_solo_los_pendientes(api, tienda, owner):
     assert resuelto.id not in [pago["id"] for pago in cuerpo]
 
 
-def test_la_lista_de_pagos_propuestos_es_del_dueno(api, tienda):
+def test_la_lista_de_pagos_propuestos_es_del_dueno(api, tienda, negocio):
     """The `dependiente` does not reach the proposed payments.
 
     The credit book is the owner's alone.
     """
-    from django.contrib.auth.models import Group
-
     dependiente = User.objects.create_user(username="dependiente", password="x")
-    dependiente.groups.add(Group.objects.create(name="dependiente"))
-    tienda.usuarios.add(dependiente)
+    membresia(negocio, dependiente, "dependiente")
 
     sesion = SessionStore()
     sesion["shop_id"] = tienda.id

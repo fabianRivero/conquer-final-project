@@ -36,6 +36,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+
+from tests.conftest import membresia
 from django.contrib.auth.models import Group, User
 from django.test import Client
 from django.urls import reverse
@@ -51,27 +53,29 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def tienda(db):
-    return Shop.objects.create(name="Tienda de prueba", opening_cash=Decimal("150.00"))
+def tienda(db, negocio):
+    """The shop of the credit book - the business's own shop."""
+    return negocio.shop
 
 
 @pytest.fixture
-def otra_tienda(db):
+def otra_tienda(db, negocio):
     return Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
 
 
 @pytest.fixture
-def dueno(db, tienda):
-    user = User.objects.create_user(username="dueno", password="secreto-123")
-    user.groups.add(Group.objects.create(name="dueno"))
-    tienda.usuarios.add(user)
+def dueno(db, tienda, negocio):
+    user = negocio.user
+    user.set_password("secreto-123")
+    user.save()
+    membresia(negocio, user, "dueno")
     return user
 
 
 @pytest.fixture
-def dependiente(db, tienda):
+def dependiente(db, tienda, negocio):
     user = User.objects.create_user(username="dependiente", password="secreto-123")
-    user.groups.add(Group.objects.create(name="dependiente"))
+    membresia(negocio, user, "dependiente")
     tienda.usuarios.add(user)
     return user
 
@@ -181,7 +185,7 @@ def test_el_login_exige_el_token_csrf(dueno):
     assert respuesta.status_code == 403
 
 
-def test_el_login_rechaza_a_un_usuario_sin_tienda(dueno):
+def test_el_login_rechaza_a_un_usuario_sin_tienda(db, negocio):
     """A user who belongs to no shop has no staff scope.
 
     The shop is what the session carries, and a user with no shop has
@@ -190,7 +194,6 @@ def test_el_login_rechaza_a_un_usuario_sin_tienda(dueno):
     from django.contrib.sessions.backends.db import SessionStore
 
     sin_tienda = User.objects.create_user(username="nada", password="secreto-123")
-    sin_tienda.groups.add(Group.objects.get_or_create(name="dueno")[0])
 
     cliente = Client()
     cliente.post(
@@ -281,7 +284,7 @@ def test_la_pagina_de_login_lleva_el_csrf(dueno):
     assert b"csrfmiddlewaretoken" in _cuerpo(respuesta)
 
 
-def test_el_spa_sirve_las_tres_rutas(dueno):
+def test_el_spa_sirve_las_tres_rutas(dueno, negocio):
     """The three routes of design 11 are served by the SPA.
 
     `/app/posicion/`, `/app/propuesta/{id}/` and `/app/cliente/`.
@@ -290,7 +293,7 @@ def test_el_spa_sirve_las_tres_rutas(dueno):
 
     cliente = Client()
     sesion = SessionStore()
-    sesion["shop_id"] = dueno.shops.first().id
+    sesion["shop_id"] = negocio.shop.id
     sesion.save()
     cliente.cookies["sessionid"] = sesion.session_key
 

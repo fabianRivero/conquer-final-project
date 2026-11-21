@@ -23,6 +23,8 @@ import logging
 from decimal import Decimal
 
 import pytest
+
+from tests.conftest import membresia
 from django.contrib.auth.models import Group, User
 from django.urls import reverse
 from django.utils import timezone
@@ -47,22 +49,23 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def owner(db):
-    user = User.objects.create_user(username="dueno", password="x")
-    user.groups.add(Group.objects.create(name="dueno"))
+def owner(db, negocio):
+    user = negocio.user
+    membresia(negocio, user, "dueno")
     return user
 
 
 @pytest.fixture
-def helper(db):
+def helper(db, negocio):
     user = User.objects.create_user(username="dependiente", password="x")
-    user.groups.add(Group.objects.create(name="dependiente"))
+    membresia(negocio, user, "dependiente")
     return user
 
 
 @pytest.fixture
-def tienda(db):
-    return Shop.objects.create(name="Tienda de prueba", opening_cash=Decimal("150.00"))
+def tienda(db, negocio):
+    """The shop of the credit book - the business's own shop."""
+    return negocio.shop
 
 
 @pytest.fixture

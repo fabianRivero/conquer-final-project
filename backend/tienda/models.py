@@ -899,6 +899,74 @@ class CodigoIntento(models.Model):
         return f"{self.source_ip} @ {self.at}"
 
 
+#: The roles of a shop's staff. The role lives in the RELATION - the
+#: membership - and not in a global Django group: a `dependiente` of one
+#: shop is a `dependiente` of that shop and of no other.
+MIEMBRO_ROLES = ("dueno", "dependiente")
+
+
+class MiembroDeTienda(models.Model):
+    """The staff of a shop - the owner and the members the shop gave a user.
+
+    **The role lives HERE, and not in a global Django group.** A
+    `dependiente` of one shop is a `dependiente` of that shop and of no
+    other: the group was a convention that let one shop's staff act in
+    every shop, because the group said nothing about which shop it
+    belonged to. The relation says it.
+
+    **The shop gives the user, and the user may hold another account of
+    her own.** The staff of a shop are not people with accounts in the
+    application: the owner creates a `User` for them and hands them the
+    credentials. A `dependiente` who is also a person in her own right
+    holds a **separate** account - a different `User`, a different
+    password, a different session - and the shop knows nothing about it.
+
+    **The `User` is Django's**, so the username is **globally unique**
+    and not unique per shop. That is what makes the login unambiguous: a
+    `dependiente` who works in two shops has **two** users, one per shop,
+    and each login resolves exactly one shop. That is why the login asks
+    for no shop name.
+
+    The owner is a member of their own shop, with the role `dueno`. The
+    owner may also act as one of their staff members - and then the
+    session is **that member's**, with that member's credentials, so the
+    row that records the act says **the member acted** and not "the
+    owner was at the counter".
+    """
+
+    #: The roles of a shop's staff. The vocabulary is module-level, so
+    #: `Meta` can name it: a nested class does not see the enclosing
+    #: class's attributes.
+    MIEMBRO_ROLES = MIEMBRO_ROLES
+
+    perfil_tienda = models.ForeignKey(
+        "PerfilTienda", on_delete=models.CASCADE, related_name="miembros"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="miembros_de_tienda"
+    )
+    rol = models.CharField(max_length=20, choices=[(r, r) for r in MIEMBRO_ROLES])
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tienda_miembrodetienda"
+        constraints = [
+            # The role belongs to the vocabulary.
+            models.CheckConstraint(
+                condition=models.Q(rol__in=MIEMBRO_ROLES),
+                name="chk_miembrodetienda_rol_vocabulary",
+            ),
+            # A person is a member of a shop ONCE: one role, one row.
+            models.UniqueConstraint(
+                fields=["perfil_tienda", "user"],
+                name="uniq_miembrodetienda_one_per_user_per_shop",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.rol} {self.user.username} en {self.perfil_tienda.nombre}"
+
+
 class PerfilCliente(models.Model):
     """The person IN THE WORLD OF CREDIT - "I am a client".
 
@@ -942,13 +1010,20 @@ class PerfilTienda(models.Model):
 
     The profile is the person's **business identity**. It is NOT the
     `Shop` of the credit book: that one is the place where the debts
-    live, and it is what the staff session names. This row is what the
-    OWNER is - the thing she created from her own account, and the thing
-    that will carry her staff members.
+    live. This row is what the OWNER is - the thing she created from her
+    own account, and the thing that carries her staff members.
 
-    The two are connected by the next slice, and until then this row
-    stands alone: a person may own a business profile that has no shop
-    in the credit book yet.
+    **And it points at the `Shop`.** The two are the same business seen
+    from two angles: this one is who owns it, and the `Shop` is its
+    credit book. The pointer is what lets the owner walk from "my
+    business" into "the shop where I work", and it is what makes the
+    `MiembroDeTienda` - a membership **of a business**, not of a book -
+    the right relation.
+
+    The pointer is **nullable**, and the reason is the order of the
+    slices: a person may own a business profile that has no shop in the
+    credit book yet, and the profile must survive that. The next slice
+    makes the link the other way round.
     """
 
     user = models.ForeignKey(
@@ -957,6 +1032,15 @@ class PerfilTienda(models.Model):
     nombre = models.CharField(max_length=120)
     direccion = models.CharField(max_length=240, blank=True)
     nif = models.CharField(max_length=20, blank=True)
+    # The shop of the credit book this business owns. NULL while the
+    # business has no shop yet.
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.SET_NULL,
+        related_name="perfiles",
+        blank=True,
+        null=True,
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:

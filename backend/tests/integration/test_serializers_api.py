@@ -307,7 +307,15 @@ def test_no_route_exposes_a_mutating_method_for_a_ledger_row():
     # and policy - not a row of the book (design section 3.1). The
     # append-only guarantee is about the BOOK: LedgerEntry, CargoLinea,
     # Confirmacion, PropuestaLinea and ImputacionPago are never modified.
-    MUTACION_PERMITIDA = {"clientes/<int:cliente_id>/"}
+    #
+    # The `DELETE` of a staff member is the same kind of act: it takes the
+    # member OFF the shop - it does not delete the user, and the rows the
+    # member wrote in the book stay exactly where they are. The
+    # membership is the thing that is removed.
+    MUTACION_PERMITIDA = {
+        "clientes/<int:cliente_id>/",
+        "tienda/personal/<int:user_id>/",
+    }
 
     mutantes = []
     for patron in patrones(get_resolver()):
@@ -383,6 +391,9 @@ def test_the_client_routes_live_under_their_own_prefix():
     * the STAFF, at the root of the map - the shop's routes;
     * the CLIENT, under `cliente/` - the client's own reads;
     * the PERSON, under `cuenta/` and `perfiles/` - the account she owns.
+
+    And the SHOP's own routes - the login and the staff it gives a user -
+    live under `tienda/`, so they are a fourth prefix.
     """
     from tienda.api import urls as urls_api
 
@@ -394,21 +405,28 @@ def test_the_client_routes_live_under_their_own_prefix():
         for p, _, _ in _todas_las_rutas()
         if p.startswith("cuenta/") or p.startswith("perfiles/")
     ]
+    tienda_rutas = [
+        p for p, _, _ in _todas_las_rutas() if p.startswith("tienda/")
+    ]
     personal_rutas = [
         p
         for p, _, _ in _todas_las_rutas()
         if not p.startswith("cliente/")
         and not p.startswith("cuenta/")
         and not p.startswith("perfiles/")
+        and not p.startswith("tienda/")
     ]
 
     assert len(cliente_rutas) == 3
     assert len(persona_rutas) == 6
+    assert len(tienda_rutas) == 3
     assert len(personal_rutas) == 17
     # And no route serves two audiences.
     assert not set(cliente_rutas) & set(personal_rutas)
     assert not set(persona_rutas) & set(personal_rutas)
     assert not set(persona_rutas) & set(cliente_rutas)
+    assert not set(tienda_rutas) & set(cliente_rutas)
+    assert not set(tienda_rutas) & set(persona_rutas)
 
 
 def test_the_api_mount_is_live():

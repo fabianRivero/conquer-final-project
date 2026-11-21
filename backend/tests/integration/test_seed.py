@@ -154,23 +154,33 @@ def test_the_seed_creates_the_two_accounts(seeded):
     """CAC-08: one account per shop role is seeded.
 
     The accounts are `dueno@tienda.test` and `dependiente@tienda.test`,
-    each in its own Django group.
+    and **the role lives in the MEMBERSHIP** - the relation with the
+    business - and not in a global Django group. A `dependiente` of one
+    shop is a `dependiente` of that shop and of no other.
     """
-    from django.contrib.auth.models import Group
+    from tienda.models import MiembroDeTienda
 
     dueno = User.objects.get(username="dueno")
     assert dueno.email == "dueno@tienda.test"
-    assert dueno.groups.filter(name="dueno").exists()
 
     dependiente = User.objects.get(username="dependiente")
     assert dependiente.email == "dependiente@tienda.test"
-    assert dependiente.groups.filter(name="dependiente").exists()
+
+    # The roles, in the relation.
+    membresias = {
+        (m.user.username, m.rol)
+        for m in MiembroDeTienda.objects.select_related("user")
+    }
+    assert ("dueno", "dueno") in membresias
+    assert ("dependiente", "dependiente") in membresias
 
     # And neither of them is in the other role.
-    assert dueno.groups.filter(name="dependiente").count() == 0
-    assert dependiente.groups.filter(name="dueno").count() == 0
-
-    assert Group.objects.filter(name__in=["dueno", "dependiente"]).count() == 2
+    assert (
+        MiembroDeTienda.objects.filter(user=dueno, rol="dependiente").count() == 0
+    )
+    assert (
+        MiembroDeTienda.objects.filter(user=dependiente, rol="dueno").count() == 0
+    )
 
 
 def test_the_seed_creates_the_catalogue(seeded):

@@ -428,7 +428,7 @@ def _precio_de_linea(producto: Producto, precio_unitario) -> Decimal:
     return reglas_cargos.precio_unitario_de(producto.precio, precio_unitario)
 
 
-def _origen_de(user):
+def _origen_de(user, shop_id):
     """What KIND of act a confirmation is, inferred from the acting session.
 
     Rule 7b: the origin is **inferred by the server**, never read from the
@@ -443,7 +443,7 @@ def _origen_de(user):
     """
     from tienda.api.permissions import es_dependiente
 
-    return "dependiente" if es_dependiente(user) else "tienda"
+    return "dependiente" if es_dependiente(user, shop_id) else "tienda"
 
 
 def preparar_propuesta(
@@ -543,7 +543,7 @@ def _propuesta_bloqueada(shop_id, propuesta_id: int, *, user=None) -> FiadoPropu
     from tienda.api.permissions import es_dependiente
 
     filtros = {"shop_id": shop_id, "id": propuesta_id}
-    if user is not None and es_dependiente(user):
+    if user is not None and es_dependiente(user, shop_id):
         filtros["user_id"] = user.id
 
     propuesta = (
@@ -613,7 +613,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
 
         # Rule 7b: the origin, inferred from the acting session, and the
         # actor, who is always named.
-        origen = _origen_de(user)
+        origen = _origen_de(user, shop_id)
 
         cargo = LedgerEntry.objects.create(
             shop_id=shop_id,
