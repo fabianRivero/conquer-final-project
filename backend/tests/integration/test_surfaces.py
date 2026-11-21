@@ -252,6 +252,68 @@ def test_el_cliente_dice_que_el_dueno_registra_el_pago():
 
 
 # ---------------------------------------------------------------------------
+# The person's own account
+# ---------------------------------------------------------------------------
+
+
+def test_la_contrasena_de_la_persona_no_se_guarda():
+    """The password lives in React state and nowhere else.
+
+    It is not in `localStorage`, not in `sessionStorage`, not in the URL.
+    A password in the browser's storage is a password in every script
+    that runs on the page.
+    """
+    codigo = _codigo("src/surfaces/Cuenta.tsx")
+
+    for prohibido in ("localStorage", "sessionStorage"):
+        assert prohibido not in codigo, (
+            f"la persona guarda la contrasena en {prohibido}"
+        )
+
+
+def test_la_contrasena_se_limpia_tras_enviarla():
+    """The password is cleared as soon as the request is sent."""
+    codigo = _codigo("src/surfaces/Cuenta.tsx")
+
+    assert 'setContrasena("")' in codigo
+
+
+def test_el_campo_de_la_contrasena_es_de_tipo_password():
+    """The password field is masked.
+
+    It is a password, and it is the person's own: the shop does not know
+    it, and the screen in front of the shopkeeper does not show it.
+    """
+    codigo = _codigo("src/surfaces/Cuenta.tsx")
+
+    assert 'type="password"' in codigo
+
+
+def test_la_cuenta_vive_en_su_propia_ruta():
+    """The account has its own path and its own component.
+
+    The three audiences never share a surface: the staff's board, the
+    client's statement and the person's account.
+    """
+    router = _codigo("src/router.tsx")
+
+    assert "/app/cuenta" in router
+    assert 'from "./surfaces/Cuenta"' in router
+
+
+def test_la_cuenta_es_una_tercera_audiencia_en_el_servidor():
+    """The server serves the account's page, and it is public.
+
+    She signs in FROM it, so the bundle has to be served before she has
+    any session - exactly like the client's page.
+    """
+    urls = (REPO / "backend" / "config" / "urls.py").read_text(encoding="utf-8")
+
+    assert "app/cuenta/" in urls
+    assert "spa_publico" in urls
+
+
+# ---------------------------------------------------------------------------
 # The components exist
 # ---------------------------------------------------------------------------
 

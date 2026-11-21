@@ -31,6 +31,14 @@ from __future__ import annotations
 from django.http import JsonResponse
 from django.urls import path
 
+from tienda.api.cuenta import (
+    CuentaLoginView,
+    CuentaLogoutView,
+    CuentaRegistroView,
+    PerfilClienteView,
+    PerfilesView,
+    PerfilTiendaView,
+)
 from tienda.api.views import (
     CajaView,
     CatalogoView,
@@ -182,5 +190,27 @@ urlpatterns = [
         "cliente/pagos/proponer/",
         ClienteProponerPagoView.as_view(),
         name="cliente_proponer_pago",
+    ),
+    # The PERSON's routes. They live under their own prefix and they
+    # never share a route with a staff one: the person owns her account
+    # and her credentials, and the shop neither issues them nor changes
+    # them.
+    path(
+        "cuenta/registro/",
+        CuentaRegistroView.as_view(),
+        name="cuenta_registro",
+    ),
+    path("cuenta/login/", CuentaLoginView.as_view(), name="cuenta_login"),
+    path("cuenta/logout/", CuentaLogoutView.as_view(), name="cuenta_logout"),
+    path("perfiles/", PerfilesView.as_view(), name="perfiles"),
+    path(
+        "perfiles/cliente/",
+        PerfilClienteView.as_view(),
+        name="perfiles_cliente",
+    ),
+    path(
+        "perfiles/tienda/",
+        PerfilTiendaView.as_view(),
+        name="perfiles_tienda",
     ),
 ]

@@ -1,10 +1,11 @@
 /**
- * The three routes of design 11.
+ * The routes of design 11.
  *
  * * `/app/posicion` - the owner's board.
  * * `/app/propuesta/:id` - the shop's screen, the place the
  *   confirmation is given.
  * * `/app/cliente` - the client's statement.
+ * * `/app/cuenta` - the person's own account.
  *
  * **The routes are paths WITHOUT the trailing slash**, because Django
  * mounts them with one - `/app/posicion/` - and the two would not be
@@ -12,14 +13,16 @@
  * are the ones the application navigates to, and the server's slash is
  * added by the mount.
  *
- * The client is a separate audience with its own prefix, and the two
- * never share a component: the client's page holds a credential and the
- * staff's holds a session.
+ * Each audience keeps its own prefix and its own component: the client's
+ * page holds a credential, the staff's holds a shop session, and the
+ * person's holds a session of her own. **The three never share a
+ * component.**
  */
 
 import { createBrowserRouter } from "react-router-dom";
 
 import { Cliente } from "./surfaces/Cliente";
+import { Cuenta } from "./surfaces/Cuenta";
 import { Posicion } from "./surfaces/Posicion";
 import { Propuesta } from "./surfaces/Propuesta";
 
@@ -44,6 +47,10 @@ export function crearRouter() {
       path: "/app/cliente",
       element: <Cliente />,
     },
+    {
+      path: "/app/cuenta",
+      element: <Cuenta />,
+    },
   ]);
 }
 
@@ -52,4 +59,5 @@ export const RUTAS = {
   posicion: "/app/posicion",
   propuesta: (id: number | string) => `/app/propuesta/${id}`,
   cliente: "/app/cliente",
+  cuenta: "/app/cuenta",
 } as const;

@@ -899,6 +899,79 @@ class CodigoIntento(models.Model):
         return f"{self.source_ip} @ {self.at}"
 
 
+class PerfilCliente(models.Model):
+    """The person IN THE WORLD OF CREDIT - "I am a client".
+
+    **One per person, and the person owns it.** She creates her account,
+    she creates this profile, and nobody else may create one for her:
+    the shop neither issues her credentials nor changes them.
+
+    The profile is deliberately **empty of credit data**. The debts, the
+    limits and the ageing belong to the RELATION between her and a shop,
+    and that relation does not exist yet - the shop has to ask, and she
+    has to accept. This row says only that she is a client at all.
+
+    It is 1:1 with the person, and the uniqueness is a constraint rather
+    than a convention: two rows would be two clients, and she is one.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfil_cliente"
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tienda_perfilcliente"
+        constraints = [
+            # The profile is created ONCE and never duplicated.
+            models.UniqueConstraint(
+                fields=["user"], name="uniq_perfilcliente_one_per_user"
+            ),
+        ]
+
+    def __str__(self):
+        return f"cliente {self.user.username}"
+
+
+class PerfilTienda(models.Model):
+    """The business the person OWNS - "I have a shop".
+
+    **Several per person**: a person may own more than one business, and
+    each one carries its own data. The name is required - a shop without
+    a name is not a shop.
+
+    The profile is the person's **business identity**. It is NOT the
+    `Shop` of the credit book: that one is the place where the debts
+    live, and it is what the staff session names. This row is what the
+    OWNER is - the thing she created from her own account, and the thing
+    that will carry her staff members.
+
+    The two are connected by the next slice, and until then this row
+    stands alone: a person may own a business profile that has no shop
+    in the credit book yet.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfiles_tienda"
+    )
+    nombre = models.CharField(max_length=120)
+    direccion = models.CharField(max_length=240, blank=True)
+    nif = models.CharField(max_length=20, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tienda_perfiltienda"
+        constraints = [
+            # The name is the shop's own identity.
+            models.CheckConstraint(
+                condition=~models.Q(nombre=""), name="chk_perfiltienda_nombre_requerido"
+            ),
+        ]
+
+    def __str__(self):
+        return self.nombre
+
+
 #: The tables of the demo dataset.
 #:
 #: A table either carries the shop's id itself - `shop_id` - or hangs
@@ -1108,10 +1181,4 @@ def borrar_dataset_demo() -> int:
             cursor.execute(f"DELETE FROM {tabla} WHERE id = ANY(%s)", [filas])
 
         cursor.execute("DELETE FROM tienda_shop WHERE id = ANY(%s)", [ids])
-    return len(ids)
-    return len(ids)
-    return len(ids)
-    return len(ids)
-    return len(ids)
-    return len(ids)
     return len(ids)
