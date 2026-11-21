@@ -313,6 +313,49 @@ def test_la_cuenta_es_una_tercera_audiencia_en_el_servidor():
     assert "spa_publico" in urls
 
 
+def test_la_contrasena_del_personal_no_se_guarda():
+    """The staff's password lives in React state and nowhere else.
+
+    The owner sets it and hands it over. It is not in `localStorage`, not
+    in `sessionStorage`, not in the URL - a password in the browser's
+    storage is a password in every script that runs on the page.
+    """
+    codigo = _codigo("src/components/Personal.tsx")
+
+    for prohibido in ("localStorage", "sessionStorage"):
+        assert prohibido not in codigo, (
+            f"el personal guarda la contrasena en {prohibido}"
+        )
+
+
+def test_la_contrasena_del_personal_se_limpia_tras_enviarla():
+    """The password is cleared as soon as the request is sent."""
+    codigo = _codigo("src/components/Personal.tsx")
+
+    assert 'setPassword("")' in codigo
+
+
+def test_el_campo_de_la_contrasena_del_personal_es_de_tipo_password():
+    """The password field is masked."""
+    codigo = _codigo("src/components/Personal.tsx")
+
+    assert 'type="password"' in codigo
+
+
+def test_el_personal_solo_lo_ve_el_dueno():
+    """The staff's screen is in the OWNER's branch of the board.
+
+    The `dependiente` operates the counter: administrating the staff is
+    the shop's policy, and the N5 gate did not open it.
+    """
+    codigo = _codigo("src/surfaces/Posicion.tsx")
+
+    # El componente se renderiza dentro de la rama del dueno.
+    rama = codigo.split("esDelDueno(tablero) ? (", 1)
+    assert len(rama) == 2, "la rama del dueno no esta en la superficie"
+    assert "<Personal" in rama[1].split(") : (", 1)[0]
+
+
 # ---------------------------------------------------------------------------
 # The components exist
 # ---------------------------------------------------------------------------

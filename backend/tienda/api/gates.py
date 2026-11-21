@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from rest_framework.permissions import BasePermission
 
-from tienda.api.permissions import GRUPO_DEPENDIENTE, _en_grupo
+from tienda.api.permissions import GRUPO_DEPENDIENTE, rol_en_la_tienda
 
 #: Whether the N5 gate is open.
 #:
@@ -68,8 +68,14 @@ class PuertaN5(BasePermission):
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
             return False
+        # The role is the MEMBERSHIP's, and the membership names the shop.
+        from tienda.api.permissions import current_shop
+
+        shop_id = current_shop(request)
+        if shop_id is None:
+            return False
         # The owner is never gated: the credit book is the owner's alone.
-        if not _en_grupo(user, GRUPO_DEPENDIENTE):
+        if rol_en_la_tienda(user, shop_id) != GRUPO_DEPENDIENTE:
             return True
         # A `dependiente` passes only when the gate is open.
         return N5_ABIERTA

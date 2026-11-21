@@ -39,6 +39,11 @@ from tienda.api.cuenta import (
     PerfilesView,
     PerfilTiendaView,
 )
+from tienda.api.personal import (
+    LoginTiendaView,
+    PersonalMiembroView,
+    PersonalView,
+)
 from tienda.api.views import (
     CajaView,
     CatalogoView,
@@ -212,5 +217,15 @@ urlpatterns = [
         "perfiles/tienda/",
         PerfilTiendaView.as_view(),
         name="perfiles_tienda",
+    ),
+    # The SHOP's routes. The shop gives its staff a user, and the role
+    # lives in the membership - a `dependiente` of one shop is a
+    # `dependiente` of that shop and of no other.
+    path("tienda/login/", LoginTiendaView.as_view(), name="login_tienda"),
+    path("tienda/personal/", PersonalView.as_view(), name="personal"),
+    path(
+        "tienda/personal/<int:user_id>/",
+        PersonalMiembroView.as_view(),
+        name="personal_miembro",
     ),
 ]

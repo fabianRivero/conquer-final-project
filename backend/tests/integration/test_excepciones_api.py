@@ -25,6 +25,8 @@ database, and none of them may reach the ORM to decide an answer.
 from __future__ import annotations
 
 import pytest
+
+from tests.conftest import membresia
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from rest_framework import status
@@ -259,20 +261,24 @@ def test_an_anonymous_principal_is_neither_role():
     assert permissions.es_dependiente(AnonymousUser()) is False
 
 
-def test_role_required_refuses_a_user_outside_the_named_roles(db):
-    """`RoleRequired` admits only the named groups.
+def test_role_required_refuses_a_user_outside_the_named_roles(db, negocio):
+    """`RoleRequired` admits only the named roles, **in the session's shop**.
 
     The roles live in the class attribute, because DRF **instantiates** the
     classes in `permission_classes` — a constructor argument would have
     made the permission uncallable.
+
+    **And the role is the membership's.** A user with the role in one shop
+    holds no role in another, and a request whose session names no shop is
+    refused outright.
     """
-    from django.contrib.auth.models import Group
+    from django.contrib.sessions.backends.db import SessionStore
 
     class _Personal(permissions.RoleRequired):
         roles = ("dueno", "dependiente")
 
     user = User.objects.create_user(username="nadie", password="x")
-    user.groups.add(Group.objects.create(name="dueno"))
+    membresia(negocio, user, "dueno")
 
     factory = APIRequestFactory()
     request = factory.get("/api/v1/clientes/")
@@ -280,29 +286,43 @@ def test_role_required_refuses_a_user_outside_the_named_roles(db):
 
     permiso = _Personal()
 
+    # The session names the shop the membership belongs to.
+    sesion = SessionStore()
+    sesion["shop_id"] = negocio.shop.id
+    sesion.save()
+    request.session = sesion
+
     assert permiso.has_permission(request, None) is True
 
-    user.groups.clear()
+    # And without a shop in the session, there is no role at all.
+    sesion_sin_tienda = SessionStore()
+    sesion_sin_tienda.save()
+    request.session = sesion_sin_tienda
     assert permiso.has_permission(request, None) is False
 
 
-def test_the_two_shop_roles_are_the_classes_the_views_use(db):
+def test_the_two_shop_roles_are_the_classes_the_views_use(db, negocio):
     """The views use `SoloPersonal` and `SoloDueno`.
 
     `SoloPersonal` admits the two shop roles — the cash, the close and the
     position are the shop's business. `SoloDueno` admits only the owner:
     the credit book is his alone (CAC-02).
     """
-    from django.contrib.auth.models import Group
+    from django.contrib.sessions.backends.db import SessionStore
 
-    owner = User.objects.create_user(username="dueno", password="x")
-    owner.groups.add(Group.objects.create(name="dueno"))
+    owner = negocio.user
+    membresia(negocio, owner, "dueno")
     helper = User.objects.create_user(username="dependiente", password="x")
-    helper.groups.add(Group.objects.create(name="dependiente"))
+    membresia(negocio, helper, "dependiente")
+
+    sesion = SessionStore()
+    sesion["shop_id"] = negocio.shop.id
+    sesion.save()
 
     factory = APIRequestFactory()
     request = factory.get("/api/v1/clientes/")
     request.user = owner
+    request.session = sesion
 
     assert permissions.SoloDueno().has_permission(request, None) is True
     assert permissions.SoloPersonal().has_permission(request, None) is True
@@ -312,12 +332,12 @@ def test_the_two_shop_roles_are_the_classes_the_views_use(db):
     assert permissions.SoloPersonal().has_permission(request, None) is True
 
 
-def test_is_dueno_refuses_the_dependiente(db):
+def test_is_dueno_refuses_the_dependiente(db, negocio):
     """The credit book is the owner's alone (design §7)."""
     from django.contrib.auth.models import Group
 
     helper = User.objects.create_user(username="dependiente", password="x")
-    helper.groups.add(Group.objects.create(name="dependiente"))
+    membresia(negocio, helper, "dependiente")
 
     factory = APIRequestFactory()
     request = factory.get("/api/v1/clientes/")

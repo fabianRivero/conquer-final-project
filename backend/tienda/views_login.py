@@ -49,13 +49,17 @@ def _tienda_del_usuario(usuario):
     the one the owner registered the staff member in - and the session
     carries that one id.
 
-    The shop is looked up through `Shop.usuarios`, NOT through a field
-    of the user: the relation is many-to-many, and the shop of the
-    session is the one the staff member belongs to.
+    The shop is looked up through the MEMBERSHIP, NOT through a field
+    of the user: the role lives in the relation, and the relation names
+    the business, and the business names its shop.
     """
     if usuario is None:
         return None
-    return usuario.shops.order_by("id").first()
+    return (
+        usuario.miembros_de_tienda.order_by("perfil_tienda__id")
+        .values_list("perfil_tienda__shop_id", flat=True)
+        .first()
+    )
 
 
 @csrf_protect
@@ -87,7 +91,7 @@ def login_view(
             )
 
         django_login(request, usuario)
-        request.session["shop_id"] = tienda.id
+        request.session["shop_id"] = tienda
         return redirect(reverse("app_posicion"))
 
     return render(request, template_name)

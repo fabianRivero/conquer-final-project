@@ -36,30 +36,55 @@ from tienda.api.exceptions import (
     CUERPO_PERMISO_INSUFICIENTE,
 )
 
-#: The two shop roles, as the Django group names of design §7.
+#: The two shop roles. They live in the `MiembroDeTienda` - the
+#: MEMBERSHIP - and not in a global Django group: a `dependiente` of one
+#: shop is a `dependiente` of that shop and of no other, and a global
+#: group said nothing about which shop it belonged to.
 GRUPO_DUENO = "dueno"
 GRUPO_DEPENDIENTE = "dependiente"
 
 
-def _en_grupo(user, nombre: str) -> bool:
-    """Whether `user` belongs to the Django group `nombre`.
+def rol_en_la_tienda(user, shop_id) -> str | None:
+    """The role `user` holds in the shop `shop_id`, or `None`.
 
-    The check reads the group ids rather than the group objects, so it is
-    one query per group and never touches a row of another shop.
+    **The role is the relation's, and the relation names the shop.** A
+    `dependiente` of one shop is a `dependiente` of that shop and of no
+    other, and the query says so: it filters by BOTH the person and the
+    shop. The old check - a global group - answered "is this person a
+    `dependiente`?" and the answer was the same in every shop.
+
+    `None` means **no role in this shop**, and it is a refusal: there is
+    no default role and no fallback.
     """
     if user is None or not getattr(user, "is_authenticated", False):
-        return False
-    return user.groups.filter(name=nombre).exists()
+        return None
+    if shop_id is None:
+        return None
+
+    from tienda.models import MiembroDeTienda
+
+    return (
+        MiembroDeTienda.objects.filter(
+            user=user, perfil_tienda__shop_id=shop_id
+        )
+        .values_list("rol", flat=True)
+        .first()
+    )
 
 
-def es_dueno(user) -> bool:
-    """Whether the user is in the `dueno` group."""
-    return _en_grupo(user, GRUPO_DUENO)
+def es_dueno(user, shop_id=None) -> bool:
+    """Whether the user is the OWNER of the shop.
+
+    The shop is the session's: the role belongs to a membership, and a
+    membership belongs to a shop. When the caller has no shop - the
+    login, which is choosing one - the answer is `False`.
+    """
+    return rol_en_la_tienda(user, shop_id) == GRUPO_DUENO
 
 
-def es_dependiente(user) -> bool:
-    """Whether the user is in the `dependiente` group."""
-    return _en_grupo(user, GRUPO_DEPENDIENTE)
+def es_dependiente(user, shop_id=None) -> bool:
+    """Whether the user is a `dependiente` of the shop."""
+    return rol_en_la_tienda(user, shop_id) == GRUPO_DEPENDIENTE
 
 
 def current_shop(request):
@@ -97,7 +122,7 @@ def exigir_shop(request):
 
 
 class RoleRequired(BasePermission):
-    """The acting user must belong to one of the named shop roles.
+    """The acting user must hold one of the named roles **in the session's shop**.
 
     DRF instantiates the classes in `permission_classes`, so the roles
     cannot be constructor arguments: a view declares
@@ -108,18 +133,26 @@ class RoleRequired(BasePermission):
             permission_classes = [RoleRequired]
             roles = ("dueno", "dependiente")
 
+    **The role is checked against the session's shop.** The membership
+    names the shop, so a `dependiente` of one shop holds no role in
+    another - and a request whose session names no shop is refused
+    outright.
+
     The message carries no request data: it says which role was required and
     nothing about who the request is.
     """
 
-    #: The groups that are admitted. Overridden by the subclass.
+    #: The roles that are admitted. Overridden by the subclass.
     roles: tuple[str, ...] = ()
 
     def has_permission(self, request, view) -> bool:
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
             return False
-        return any(_en_grupo(user, rol) for rol in self.roles)
+        shop_id = current_shop(request)
+        if shop_id is None:
+            return False
+        return rol_en_la_tienda(user, shop_id) in self.roles
 
     def has_object_permission(self, request, view, obj) -> bool:
         # The object-level check is the shop filter, and it lives in the
@@ -156,18 +189,18 @@ class SoloDueno(RoleRequired):
 
 
 class IsDueno(BasePermission):
-    """The acting user must be in the `dueno` group.
+    """The acting user must be the OWNER of the session's shop.
 
-    The credit book is the owner's alone. The `dependiente` answers 403 on
-    every credit-book route, with no partial data in any field
-    (design §7.1).
+    The credit book's POLICY is the owner's alone. The `dependiente`
+    answers 403 on every credit-book route, with no partial data in any
+    field (design §7.1).
     """
 
     def has_permission(self, request, view) -> bool:
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):
             return False
-        return es_dueno(user)
+        return es_dueno(user, current_shop(request))
 
     def has_object_permission(self, request, view, obj) -> bool:
         return True

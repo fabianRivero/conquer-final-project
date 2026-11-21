@@ -68,8 +68,13 @@ def _scope(request):
 
 
 def _es_dueno(request) -> bool:
-    """Whether the acting user is in the `dueno` group."""
-    return permissions.es_dueno(getattr(request, "user", None))
+    """Whether the acting user is the OWNER of the session's shop.
+
+    The role is the membership's, and the membership names the shop.
+    """
+    return permissions.es_dueno(
+        getattr(request, "user", None), permissions.current_shop(request)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -526,7 +531,7 @@ class ClientesView(_ApiViewBase):
         ).order_by("id"):
             codigos.setdefault(codigo.customer_id, codigo)
 
-        if es_dependiente(request.user):
+        if es_dependiente(request.user, _scope(request)):
             # The reduced payload: the debts, and no policy.
             return Response(
                 [
@@ -556,7 +561,7 @@ class ClientesView(_ApiViewBase):
 
     def post(self, request):
         # Creating a customer is the owner's: it is the credit policy.
-        if not es_dueno(request.user):
+        if not es_dueno(request.user, _scope(request)):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         shop_id = _scope(request)
@@ -612,7 +617,7 @@ class ClienteDetalleView(_ApiViewBase):
         if cliente is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if es_dependiente(request.user):
+        if es_dependiente(request.user, _scope(request)):
             # The reduced payload: the debts, and no policy.
             return Response(
                 staff.ClienteDependienteSerializer(
@@ -632,7 +637,7 @@ class ClienteDetalleView(_ApiViewBase):
     def patch(self, request, cliente_id):
         # The `credit_limit` is the owner's policy: the `dependiente` reads
         # the credit book but does not set the limit.
-        if not es_dueno(request.user):
+        if not es_dueno(request.user, _scope(request)):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         cliente = self._cliente(request, cliente_id)
@@ -758,7 +763,7 @@ class PropuestaPantallaView(_ApiViewBase):
         from tienda.api.permissions import es_dependiente
 
         filtros = {"shop_id": shop_id, "id": propuesta_id}
-        if es_dependiente(request.user):
+        if es_dependiente(request.user, _scope(request)):
             filtros["user_id"] = request.user.id
 
         propuesta = (

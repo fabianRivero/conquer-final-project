@@ -182,9 +182,16 @@ class Command(BaseCommand):
 
         The users go through `get_or_create(username=...)`, so a
         re-run does not duplicate them.
+
+        **The role lives in the MEMBERSHIP, and not in a global group.**
+        A `dependiente` of one shop is a `dependiente` of that shop and
+        of no other - and the group could not say that, because a group
+        says nothing about which shop it belongs to.
         """
+        from tienda.models import MiembroDeTienda, PerfilTienda
+
         usuarios = {}
-        for nombre, email, grupo in CUENTAS:
+        for nombre, email, rol in CUENTAS:
             usuario, _ = User.objects.get_or_create(
                 username=nombre,
                 defaults={
@@ -196,11 +203,22 @@ class Command(BaseCommand):
             usuario.email = email
             usuario.set_password(PASSWORD_DEMO)
             usuario.save()
-            grupo_obj, _ = Group.objects.get_or_create(name=grupo)
-            usuario.groups.add(grupo_obj)
-            # A `User` may belong to several shops, but a session names
-            # exactly one. The demo shop is the only one.
-            tienda.usuarios.add(usuario)
+
+            # The business profile, and the shop of the credit book it
+            # owns. The two are the same business seen from two angles.
+            perfil, _ = PerfilTienda.objects.get_or_create(
+                user=usuario,
+                nombre=tienda.name,
+                defaults={"direccion": "", "nif": "", "shop": tienda},
+            )
+            perfil.shop = tienda
+            perfil.save()
+
+            MiembroDeTienda.objects.update_or_create(
+                perfil_tienda=perfil,
+                user=usuario,
+                defaults={"rol": rol},
+            )
             usuarios[nombre] = usuario
         return usuarios
 
