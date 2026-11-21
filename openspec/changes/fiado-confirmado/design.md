@@ -11,7 +11,7 @@ This supersedes the abandoned `tienda-barrio` design (its folder stays untouched
 | # | Idea | |
 |---|---|---|
 | 1 | **Nothing derived is stored.** | Balances, buckets, `antiguedad_max_dias`, the suspension status and its `suspended_reason`, the effective confirmation state and `existencias_registradas` are computed on every read. The one persisted exception is the `suspended_override_at` act: an override is an *event*, not a derived value. |
-| 2 | **Two scopes, two mechanisms, never mixed.** | Staff scope = the session (`session["shop_id"]` plus a Django group). Client scope = a per-request `codigo` resolved to one `Customer`. No client `User`, group or session, and no upgrade path either way. |
+| 2 | **Two scopes, two mechanisms, never mixed.** | Staff scope = the session (`session["shop_id"]` plus the **membership** — the role is the relation's, and the relation names the business, and the business names the shop). Client scope = a per-request `codigo` resolved to one `Customer`. No client `User`, group or session, and no upgrade path either way. |
 | 3 | **A `cargo` is debt from the instant the client confirms it; the proposal before it is nothing.** | The `FiadoPropuesto` is a prepared figure, not an obligation: while it is `pendiente` it moves no balance, ages nothing and triggers nothing. The confirmation is the **gate**, not the attestation — the `cargo` and its `CargoLinea` rows are written in the same transaction that records the `Confirmacion`, so a charge without a confirmation cannot exist. A client who never comes to the shop leaves **no debt at all**, and the owner cancels the proposal. |
 | 4 | **The client never writes to the book.** | The `codigo` grants **read** over the client's own statement and the right to **propose** a payment. It grants no write: no `LedgerEntry`, no `CargoLinea`, no `Confirmacion`, no `FiadoPropuesto`. The owner records every payment after validating the client's proposal. Less write surface is less attack surface (§8, §12). |
 | 5 | **The `desglose` is mandatory.** | A `cargo` carries one or more `CargoLinea` rows. A proposal with no lines cannot be confirmed. The client confirms a figure they can see broken down; a figure they cannot see broken down is not a figure they can confirm. |
@@ -86,6 +86,9 @@ All tables live in `backend/tienda/models.py`. Money `Decimal(12,2)`, quantities
 | `ImputacionPago` | → `LedgerEntry` PROTECT (`pago`, the payment that brought the money), `LedgerEntry` PROTECT (`cargo`, the charge it retires): `importe` (> 0). **One row per (payment, charge) pair that the payment touches.** A payment that retires three charges writes three rows |
 | `CustomerCodigo` | → `Customer` CASCADE, `User` PROTECT (`issued_by_id`, the user who issued the credential), `User`? PROTECT (`revoked_by_id?`, the user who revoked it): `prefix` (6, non-secret), `codigo_hash`, `issued_at`, `revoked_at?` |
 | `CodigoIntento` | → `Shop` CASCADE: `source_ip`, `presented_hash`, `at`; append-only |
+| `PerfilCliente` | → `User` CASCADE (`user`, the person — **one profile per person**, UNIQUE): `creado_en`; it says only that she is a client at all — the debts, the limits and the ageing belong to the LINK, not to the person |
+| `PerfilTienda` | → `User` CASCADE (`user`, the person who owns the business), `Shop`? SET_NULL (`shop`, the credit book the business owns — NULL while it has none): `nombre`, `direccion?`, `nif?`, `creado_en`; **several per person**, one per business |
+| `MiembroDeTienda` | → `PerfilTienda` CASCADE, `User` CASCADE (`user`, the staff member): `rol` ∈ {`dueno`,`dependiente`}, `creado_en`; UNIQUE `(perfil_tienda_id, user_id)`. **The role is the relation's** — the relation names the business, and the business names the shop |
 
 \* conditional (Regla 6). `StockMovement` → `Producto` is a PROTECT foreign key, so Regla 6 can only be cut together with Regla 5.
 
@@ -258,7 +261,7 @@ The machine is now **one-way and has two branches**, and it starts on the **prop
 
 ## 7. The Permission Matrix
 
-Three principals: the two shop **roles** (Django groups `dueno`, `dependiente`) and the **client** (a bearer credential scoped to one `Customer`). The client is not a role: no `User`, no group, no session.
+Three principals: the two shop **roles** — the `dueno` and the `dependiente`, which live in the **membership** with the business and not in a global group — and the **client** (a bearer credential scoped to one `Customer`). The client is not a role: no `User`, no group, no session.
 
 **The account rewrite adds a fourth column: the PERSON.** The person is the human behind the client — she creates her own account, she chose her username and her password, and she is the only one who may change them. The shop neither issues them nor knows them. Her session is a **person's session**: it carries no `shop_id`, because a person is not in a shop, and that absence is what keeps it away from the staff routes. The three audiences never share a mechanism and never share a route.
 
@@ -312,6 +315,8 @@ The refusal is **byte-identical** for an unknown user and for a wrong password: 
 Every denied capability answers **403 with no partial data in any field**: no alias, no customer identifier, no `codigo`, no prefix, no count. The refusal is total and server-side — hiding a control is not enforcement. Three structural properties: (1) **scope** — every queryset is filtered by `current_shop(request)`; (2) **allowlist** — `PosicionDependienteSerializer` declares exactly `caja`, `clientes` and `cierre_hoy`, and `clientes` returns `[]` **without executing the customer query**, while `ClienteDependienteSerializer` declares the debts and none of the owner's policy; (3) **route shape** — no `PUT`/`PATCH`/`DELETE` exists for a ledger row, and the owner's policy routes answer 403 to the `dependiente`.
 
 **The gate is open.** The `dependiente` reaches the four proposal routes, and each of them filters by **ownership**: it confirms and cancels only the proposals **it prepared**. The refusal for somebody else's is a **404**, not a 403, because a 403 would confirm that the proposal exists. The gate opens the **route**; the ownership filter guards the **object**. They are two different questions, and they are answered in two different places.
+
+**The role is the membership's.** The `MiembroDeTienda` names the business, and the business names the shop — and the permission filters by **both** the person and the shop. **A global Django group could not say that**: a group says nothing about which shop it belongs to, so one shop's `dependiente` was a `dependiente` in every shop. A request whose session names no shop is refused outright: there is no default shop and no fallback.
 
 ### 7.2 The client scope as a structural property
 
