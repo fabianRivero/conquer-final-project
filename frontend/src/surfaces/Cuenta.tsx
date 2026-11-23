@@ -153,6 +153,35 @@ export function Cuenta() {
             error={error}
           />
 
+          {/*
+            **The claim.** The shop registered her before she had an
+            account, and it calls her by an alias. Her account finds the
+            row she claims - and until she claims it, the account and the
+            row are two things, and the shop's question waits.
+
+            It appears only when there is nothing to answer: a shop that
+            asked her means the row is already hers, and there is
+            nothing left to claim.
+          */}
+          {susVinculos.length === 0 ? (
+            <FormularioReclamar
+              onReclamar={async (alias) => {
+                const respuesta = await cuenta.reclamar(alias);
+                if (!respuesta.ok) {
+                  const fallo = await cuerpo<{ codigo_error?: string }>(
+                    respuesta,
+                  );
+                  setError(fallo?.codigo_error ?? "no se pudo reclamar");
+                  return;
+                }
+                setError(null);
+                setAviso("Reclamaste tu ficha. Ya puedes ver tus tiendas.");
+                await refrescar();
+              }}
+              error={error}
+            />
+          ) : null}
+
           <FormularioTienda
             onCrear={async (nombre, direccion, nif) => {
               const respuesta = await cuenta.crearPerfilTienda(
@@ -261,6 +290,51 @@ function AccesoPersona({ onEntrar, onRegistrar, error }: AccesoPersonaProps) {
       </section>
       {error ? <p role="alert">{error}</p> : null}
     </>
+  );
+}
+
+interface FormularioReclamarProps {
+  onReclamar: (alias: string) => Promise<void>;
+  error?: string | null;
+}
+
+/**
+ * **The claim of the customer row.**
+ *
+ * The shop registered her before she had an account, and it calls her by
+ * an alias - "Ana". Her username is her own and it is not the alias.
+ * She names the alias the shop gave her, and the row is hers.
+ *
+ * The alias is not a secret: it is the name the shop calls her by, and
+ * the shop says it out loud.
+ */
+function FormularioReclamar({ onReclamar, error }: FormularioReclamarProps) {
+  const [alias, setAlias] = useState("");
+
+  async function enviar(evento: React.FormEvent) {
+    evento.preventDefault();
+    await onReclamar(alias.trim());
+    setAlias("");
+  }
+
+  return (
+    <form onSubmit={enviar}>
+      <h3>Reclamar tu ficha</h3>
+      <p>
+        Una tienda te llamo de otra manera antes de que tuvieras cuenta.
+        Escribe el nombre con el que te registraron y tu ficha sera tuya.
+      </p>
+      <label htmlFor="reclamar-alias">El nombre que te dio la tienda</label>
+      <input
+        id="reclamar-alias"
+        type="text"
+        value={alias}
+        onChange={(e) => setAlias(e.target.value)}
+        required
+      />
+      <button type="submit">Reclamar</button>
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
   );
 }
 

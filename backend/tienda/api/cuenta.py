@@ -270,6 +270,46 @@ class PerfilClienteView(_ApiViewBase):
         )
 
 
+class ClienteReclamarView(_ApiViewBase):
+    """`POST /api/v1/cuenta/reclamar/` - she claims the row the shop
+    created for her.
+
+    **The shop registers a person before she has an account.** She is a
+    customer of the shop and of nobody else, and the row carries the
+    ALIAS the shop calls her by. Then she registers herself, she chose
+    her username, and the username is not the alias - so the row and the
+    account have to be MEET.
+
+    **The alias is what the shop typed, and she confirms it.** The row
+    is not claimed because it looks like hers: it is claimed because she
+    named the alias the shop gave her, and the row is a row of a shop's
+    list of people that nobody has claimed yet.
+
+    The body is `{alias}`. The refusal does not say whether the row
+    does not exist or belongs to somebody else: the answer is the same
+    either way, so nothing can be learned from it.
+    """
+
+    permission_classes = [SesionDePersona]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        from tienda.services import reclamar_cliente
+
+        try:
+            cliente = reclamar_cliente(request.user, request.data.get("alias"))
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {"id": cliente.id, "alias": cliente.alias},
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class PerfilTiendaView(_ApiViewBase):
     """`POST /api/v1/perfiles/tienda/` - the person creates a business.
 

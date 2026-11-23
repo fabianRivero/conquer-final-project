@@ -188,6 +188,25 @@ class Customer(models.Model):
         blank=True,
         null=True,
     )
+    # **The person behind the customer.** The customer row and the account
+    # are the same human: she chose her username, and the shop calls her
+    # by an ALIAS - "Ana" - which is not a username at all.
+    #
+    # **NULLABLE**, and the reason is the two ways a person arrives:
+    # the shop registers her before she has an account - she is a
+    # customer of the shop and of nobody else - and she registers
+    # herself and claims the row that is already hers. The second case
+    # is the one that fills this field.
+    #
+    # It is a ONE-TO-ONE: a person is ONE customer row, wherever she
+    # buys on credit, and the row is hers in every shop at once.
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="customer",
+        blank=True,
+        null=True,
+    )
     alias = models.CharField(max_length=200)
     phone = models.CharField(max_length=50, blank=True, null=True)
     # The override records an act (the owner lifted the automatic
@@ -207,6 +226,9 @@ class Customer(models.Model):
             # UNIQUE (alias) — the alias identifies the PERSON, not a row
             # of a shop's list. She is one person in every shop.
             models.UniqueConstraint(fields=["alias"], name="uniq_customer_alias"),
+            # A person claims ONE customer row. Two rows would be two
+            # people, and she is one.
+            models.UniqueConstraint(fields=["user"], name="uniq_customer_one_per_user"),
         ]
 
     def __str__(self):

@@ -42,12 +42,16 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-def test_the_vocabulary_has_the_seventeen_codes_of_the_design():
+def test_the_vocabulary_has_the_codes_of_the_design():
     """The vocabulary is the one of design §9.3, exactly.
 
     A code that is not in the design is a code a client cannot have seen
     documented, and a code in the design that is missing is a refusal that
     would fall through to a 500.
+
+    The count grew with the account rewrite: the person's account added
+    its own codes, and the claim added two more. The set is the thing
+    that is pinned, not a number that was true once.
     """
     esperados = {
         "limite_superado",
@@ -77,6 +81,10 @@ def test_the_vocabulary_has_the_seventeen_codes_of_the_design():
         "vinculo_no_pendiente",
         "vinculo_requerido",
         "cliente_no_existe",
+        # The claim. The refusal does not say whether the row does not
+        # exist or belongs to somebody else.
+        "alias_requerido",
+        "alias_no_reclamable",
     }
 
     assert set(exceptions.CODIGOS_ERROR) == esperados

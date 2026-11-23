@@ -416,6 +416,45 @@ def vinculo_de(shop, customer) -> "Vinculo | None":
     return Vinculo.objects.filter(tienda=shop, cliente=customer).first()
 
 
+def reclamar_cliente(user, alias):
+    """The person claims the customer row the shop created for her.
+
+    **The shop registers a person before she has an account.** She is a
+    customer of the shop and of nobody else, and the row carries the
+    alias the shop calls her by. Then she registers herself - she chose
+    her username, and the username is not the alias - and the row is
+    still there, waiting for her.
+
+    This is the meeting: **the account and the row are the same human**,
+    and the `Customer.user` field is where the model says so.
+
+    **The alias is what the shop typed, and she confirms it.** The row is
+    not claimed because it LOOKS like hers: it is claimed because she
+    named the alias the shop gave her, and the row is a row of a shop's
+    list of people that nobody has claimed yet.
+
+    **A row that is already claimed is not taken.** The uniqueness is a
+    constraint, and a person is ONE row.
+    """
+    alias = (alias or "").strip()
+    if not alias:
+        raise DomainValidationError("alias_requerido")
+
+    cliente = Customer.objects.filter(alias=alias, user__isnull=True).first()
+    if cliente is None:
+        # Either there is no such row, or it is already somebody else's.
+        # **The refusal does not say which**: "that row is taken" tells
+        # the person that a row with that alias exists, and the alias
+        # is the shop's name for her - it is not a secret, but the
+        # answer is the same either way so that nothing can be learned
+        # from the refusal.
+        raise DomainValidationError("alias_no_reclamable")
+
+    cliente.user = user
+    cliente.save(update_fields=["user"])
+    return cliente
+
+
 def vinculos_del_cliente(cliente) -> list:
     """The links of a client, as **she** sees them.
 
@@ -1087,8 +1126,18 @@ def validar_pago(shop_id, user, *, pago_id: int, at=None):
         if propuesta.estado != PagoPropuestoEstado.PENDIENTE.value:
             raise DomainValidationError("pago_ya_resuelto")
 
-        # Rule 19: the bound is the customer's TOTAL outstanding.
-        pendiente = pendiente_de(propuesta.customer, momento)
+        # Rule 19: the bound is the outstanding of **THIS shop**.
+        #
+        # The person may owe in SEVERAL shops, and a payment at this
+        # counter enters THIS book only. The debt of the other shop is
+        # not here, and this payment will not go there either: the bound
+        # is the debt the payment actually retires.
+        #
+        # Before the 10.3 the customer belonged to one shop, so "the
+        # customer's total outstanding" and "the shop's outstanding"
+        # were the same number. They stopped being the same number the
+        # day the person became a person.
+        pendiente = pendiente_de(propuesta.customer, momento, tienda=shop_id)
         if Decimal(propuesta.importe) > pendiente:
             raise DomainValidationError("pago_excede_deuda")
 
@@ -1102,9 +1151,15 @@ def validar_pago(shop_id, user, *, pago_id: int, at=None):
         )
 
         # The repartition, recorded per charge (ADR-27).
+        #
+        # **The charges are THIS shop's.** The FIFO sorts by date, and
+        # over every shop the person's oldest charge came first - so the
+        # allocation could settle ANOTHER shop's charge with THIS
+        # shop's money, and the `ImputacionPago` row said so forever, in
+        # a book that is append-only.
         from tienda.domain import allocation as reglas_asignacion
 
-        cargos, pagos = pendientes_de(propuesta.customer, momento)
+        cargos, _ = pendientes_de(propuesta.customer, momento, tienda=shop_id)
         asignacion = reglas_asignacion.allocate_payments(
             cargos, [linea_ledger(pago)]
         )

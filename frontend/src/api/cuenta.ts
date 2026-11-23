@@ -79,6 +79,22 @@ export const cuenta = {
       credentials: "same-origin",
       cuerpo: { nombre, direccion, nif },
     }),
+
+  /**
+   * Claim the customer row the shop created for her.
+   *
+   * **The shop registers a person before she has an account**, and it
+   * calls her by an ALIAS. Then she registers herself - and she chose
+   * her username, which is not the alias - so the account and the row
+   * have to meet. This is the meeting: she names the alias the shop
+   * gave her, and the row is hers.
+   */
+  reclamar: (alias: string) =>
+    peticion("/cuenta/reclamar/", {
+      method: "POST",
+      credentials: "same-origin",
+      cuerpo: { alias },
+    }),
 };
 
 /** Read the body's JSON, or the refusal's body. */
