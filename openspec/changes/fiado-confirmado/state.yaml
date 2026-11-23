@@ -204,14 +204,17 @@ v2_redesign:
     merged. The N5 gate was then OPENED by the owner - a product
     decision under a declared hypothesis, not field evidence - and that
     is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
-    and two of them are delivered - the person's account (10.1) and the
-    shop's login (10.2).
-    The next work unit is **10.3, the link with consent**: the shop
-    asks, the client accepts, and the link carries the `credit_limit`
-    and the ageing. Then 10.4, the `Customer` without `shop_id`; and
-    10.5, the counter and the fiado. The order is dictated by one
-    dependency alone: the link needs both faces, and the credit book
-    hangs from the link.
+    and THREE of them are delivered - the person's account (10.1), the
+    shop's login (10.2) and the link with consent (10.3).
+    The next work unit is **10.4, the consolidation of the `Customer`
+    without `shop_id`**: most of it landed inside 10.3, and what
+    remains is the ageing that is PER SHOP - "in THIS shop she has not
+    paid for 90 days" says something, "Ana has not paid for 90 days"
+    says nothing - plus the derivations that still read the shop off
+    the client instead of off the link. Then 10.5, the counter and the
+    fiado: identify the client at the counter, prepare the fiado,
+    decide it, and the client's own account with the amounts and the
+    reason for a rejection.
     Underneath all of it, what remains is still not a slice but a
     DECISION: the validation round with the shop owners, which design
     section 18.3 declares as the evidence gate. The gate is open under
@@ -219,6 +222,102 @@ v2_redesign:
     The project's `knowledge_basis` stays `design-hypothesis`, and the
     round itself is not planned work: it needs people who are not this
     agent.
+  phase10c_delivered:
+    completed: '2026-11-23'
+    pull_requests: [34]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/api/vinculos.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/permissions.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/migrations/0005_vinculo_con_consentimiento.py
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tests/conftest.py
+      - backend/tests/integration/test_vinculo.py
+      - backend/tests/integration/test_vinculo_api.py
+      - backend/tests/integration/test_cash_api.py
+      - backend/tests/integration/test_cliente_api.py
+      - backend/tests/integration/test_constraints.py
+      - backend/tests/integration/test_credencial_api.py
+      - backend/tests/integration/test_excepciones_api.py
+      - backend/tests/integration/test_ledger_api.py
+      - backend/tests/integration/test_n5_abierta.py
+      - backend/tests/integration/test_no_leak.py
+      - backend/tests/integration/test_pago_propuesto_api.py
+      - backend/tests/integration/test_propuesta_api.py
+      - backend/tests/integration/test_seed.py
+      - backend/tests/integration/test_serializers_api.py
+      - backend/tests/integration/test_services.py
+      - backend/tests/integration/test_tablas_tablero.py
+      - frontend/src/api/vinculos.ts
+      - frontend/src/components/Vinculos.tsx
+      - frontend/src/components/index.ts
+      - frontend/src/surfaces/Cuenta.tsx
+    lines: 2193
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration WITH its data, the service layer, the routes,
+      the screen and the tests are ONE behaviour - the consent of the
+      client - and a PR with the model without the routes reaches
+      nothing. It also rewrites the fixtures of fourteen test modules,
+      because every fixture that built a client of a shop now builds a
+      LINK to a shop.
+    the_client_is_a_person: >-
+      The `Customer` loses `shop_id` and `credit_limit`: **she belongs
+      to no shop**, and the `Vinculo` says she is a trusted client of
+      one. That is what lets her hold debt in SEVERAL shops, which is
+      what the owner asked for. The limit moved to the link because the
+      trust is the OWNER'S and it is of THAT shop: Ana may have 100 in
+      one and 30 in another, and both numbers are true at the same time.
+      The uniqueness of the alias moved from `(tienda, alias)` to
+      `(alias)`: the alias identifies the PERSON, not a row of a shop's
+      list.
+    the_consent_is_hers: >-
+      **The shop asks; she accepts or rejects from her own account.** The
+      owner cannot answer for her: he does not have her credentials, and
+      he must not decide for her. A pending link shows **only the shop's
+      name and the two buttons** - if she saw the debt and the ageing
+      first, the consent would be a formality, because she would already
+      have seen everything the "yes" reveals.
+    the_owner_deletes_without_asking: >-
+      The removal is the OWNER's act and she does not consent to be
+      removed. Her debts and her history **stay** - the book is
+      append-only - but the trust goes, and there can be no new fiados.
+      And the re-integration goes through a pending again: **the consent
+      does not come back on its own**.
+    the_data_migration: >-
+      Every customer of a shop becomes an ACCEPTED link with the limit
+      they had: a customer of a shop is one the shop already trusted, and
+      the migration must not turn it into a question the owner would
+      have to answer again. And the people are MERGED by alias: two shops
+      could have two different "Ana"s, and now there is ONE Ana - her
+      rows move to the first - and the limit that survives is the
+      **STRICTEST** one, because the owner trusted her less in one of
+      the two, and that number is the honest one.
+    the_demo_deletion_changed: >-
+      The person no longer hangs off the shop by a direct FK, so the
+      demo deletion removes her when she is left **without a link** - and
+      if she has another link, **she stays**, because she is not the
+      demo's.
+    the_states: >-
+      `pendiente`, `aceptado`, `rechazado`, `eliminado`. The rejection
+      is free text and may be empty. `eliminado` is terminal.
+    evidence: >-
+      128 unit and 563 integration tests pass on main after the merge,
+      and `makemigrations --check` detects no change. The migration
+      applies **on a FRESH database**, and on a database WITH DATA: the
+      two "Ana"s merge into one person, the links are accepted with
+      their limits, the old columns are gone and the link's `tienda_id`
+      is NOT NULL. The frontend typecheck and the bundle build pass.
+    what_this_slice_does_not_touch: >-
+      The ageing that is PER SHOP, and the derivations that still read
+      the shop off the client - the Slice 10.4. The counter's flow and
+      the client's own account - the Slice 10.5.
   phase10b_delivered:
     completed: '2026-11-21'
     pull_requests: [32]
