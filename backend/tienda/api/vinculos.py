@@ -268,15 +268,28 @@ class VinculoEliminarView(APIView):
 def _cliente_de(user):
     """The customer row of a person.
 
-    **The person and the customer are the same human**, and the link
-    joins them: the link names the person, and the person is the one
-    who has the debts.
+    **The person and the customer row are the same human**, and the
+    `Customer.user` field says so. The person chose her username and
+    the shop calls her by an ALIAS - "Ana" - and the two are NOT the
+    same string: a person who registered as "ana.perez" is called "Ana"
+    by every shop she buys in.
+
+    So the lookup is **the link**, and never the alias:
+
+    * the row the account claims - `Customer.user` - is hers;
+    * and if the row is not claimed yet, the alias may name it, because
+      a shop registers a person before she has an account and she claims
+      the row later.
+
+    **The old lookup was the alias alone**, and it worked only because
+    the test forced the username to BE the alias. A real person - the
+    one who chose her username, which is the whole point of the 10.1 -
+    saw no links at all, and could never answer the shop's question.
     """
-    vinculo = (
-        Vinculo.objects.select_related("cliente")
-        .filter(cliente__alias=user.username)
-        .first()
-    )
-    if vinculo is not None:
-        return vinculo.cliente
+    from tienda.models import Customer
+
+    cliente = Customer.objects.filter(user=user).first()
+    if cliente is not None:
+        return cliente
+
     return Customer.objects.filter(alias=user.username).first()

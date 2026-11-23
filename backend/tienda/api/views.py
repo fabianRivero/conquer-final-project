@@ -678,16 +678,29 @@ class ClienteDetalleView(_ApiViewBase):
         if not es_dueno(request.user, _scope(request)):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
+        shop_id = _scope(request)
+
         cliente = self._cliente(request, cliente_id)
         if cliente is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         try:
             services.exigir_campos_no_admitidos(request.data, {"credit_limit"})
-            limite = request.data.get("credit_limit")
-            if limite is not None:
-                limite = Decimal(str(limite))
-                if limite < 0:
-                    raise DomainValidationError("importe_no_positivo")
+
+            # **An ABSENT field and an explicit `null` are two different
+            # things.** The first says "change nothing"; the second says
+            # "no limit" - and `NULL` is a limit the owner may set, the
+            # one that never refuses a charge for being too big.
+            #
+            # Before this, the code read the value and wrote it only when
+            # it was not `None`, so a `null` in the body did NOTHING: the
+            # owner asked for no limit and kept the old one, and the
+            # answer said the limit was unchanged without ever saying so.
+            if "credit_limit" in request.data:
+                limite = request.data.get("credit_limit")
+                if limite is not None:
+                    limite = Decimal(str(limite))
+                    if limite < 0:
+                        raise DomainValidationError("importe_no_positivo")
                 vinculo = _vinculo_de(cliente, shop_id)
                 vinculo.credit_limit = limite
                 vinculo.save(update_fields=["credit_limit"])

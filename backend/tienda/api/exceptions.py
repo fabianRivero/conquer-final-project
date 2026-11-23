@@ -70,6 +70,12 @@ CODIGOS_ERROR = {
     "vinculo_no_pendiente": "Ese vinculo no esta esperando tu respuesta.",
     "vinculo_requerido": "Falta la tienda.",
     "cliente_no_existe": "No hay ninguna persona con ese alias.",
+    # The claim: the person takes the customer row the shop created for
+    # her. The refusal does NOT say whether the row does not exist or
+    # belongs to somebody else - the answer is the same either way, so
+    # nothing can be learned from it.
+    "alias_requerido": "Falta el alias.",
+    "alias_no_reclamable": "Ese alias no se puede reclamar.",
 }
 
 #: The code a refusal answers with. It is NOT part of the validation

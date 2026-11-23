@@ -35,6 +35,7 @@ from tienda.api.cuenta import (
     CuentaLoginView,
     CuentaLogoutView,
     CuentaRegistroView,
+    ClienteReclamarView,
     PerfilClienteView,
     PerfilesView,
     PerfilTiendaView,
@@ -224,6 +225,13 @@ urlpatterns = [
         "perfiles/tienda/",
         PerfilTiendaView.as_view(),
         name="perfiles_tienda",
+    ),
+    # She claims the customer row the shop created for her: the account
+    # and the row are the same human, and they meet here.
+    path(
+        "cuenta/reclamar/",
+        ClienteReclamarView.as_view(),
+        name="cuenta_reclamar",
     ),
     # The SHOP's routes. The shop gives its staff a user, and the role
     # lives in the membership - a `dependiente` of one shop is a
