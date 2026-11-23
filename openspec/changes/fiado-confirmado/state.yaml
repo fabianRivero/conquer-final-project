@@ -204,17 +204,16 @@ v2_redesign:
     merged. The N5 gate was then OPENED by the owner - a product
     decision under a declared hypothesis, not field evidence - and that
     is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
-    and THREE of them are delivered - the person's account (10.1), the
-    shop's login (10.2) and the link with consent (10.3).
-    The next work unit is **10.4, the consolidation of the `Customer`
-    without `shop_id`**: most of it landed inside 10.3, and what
-    remains is the ageing that is PER SHOP - "in THIS shop she has not
-    paid for 90 days" says something, "Ana has not paid for 90 days"
-    says nothing - plus the derivations that still read the shop off
-    the client instead of off the link. Then 10.5, the counter and the
-    fiado: identify the client at the counter, prepare the fiado,
-    decide it, and the client's own account with the amounts and the
-    reason for a rejection.
+    and FOUR of them are delivered - the person's account (10.1), the
+    shop's login (10.2), the link with consent (10.3) and the
+    consolidation per shop (10.4).
+    The next work unit is **10.5, the counter and the fiado**: the
+    person is identified at the counter - the attendant asks her for her
+    USERNAME and types it, and the system finds her - the owner prepares
+    the fiado, the client accepts or refuses it **from her own account**
+    with the reason for a refusal, and her own account carries the
+    amounts, the ageing and the fiados with their state - including
+    `parcial`, the payment that retires part of a charge.
     Underneath all of it, what remains is still not a slice but a
     DECISION: the validation round with the shop owners, which design
     section 18.3 declares as the evidence gate. The gate is open under
@@ -222,6 +221,96 @@ v2_redesign:
     The project's `knowledge_basis` stays `design-hypothesis`, and the
     round itself is not planned work: it needs people who are not this
     agent.
+  phase10d_delivered:
+    completed: '2026-11-23'
+    pull_requests: [36]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/api/cuenta.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/vinculos.py
+      - backend/tienda/migrations/0006_customer_es_la_persona.py
+      - backend/tests/integration/test_10_4_limite_por_tienda.py
+      - backend/tests/integration/test_10_4_pago_por_tienda.py
+      - backend/tests/integration/test_10_4_persona_y_cliente.py
+      - backend/tests/integration/test_excepciones_api.py
+      - backend/tests/integration/test_serializers_api.py
+      - frontend/src/api/cuenta.ts
+      - frontend/src/surfaces/Cuenta.tsx
+    lines: 690
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration WITH its data, the service layer, the routes,
+      the screen and the tests are ONE behaviour - what belongs to a
+      shop and what belongs to the person - and a PR with the model
+      without the routes reaches nothing.
+    the_consolidation_found_three_defects: >-
+      The slice was not a cleanup: it found THREE real bugs, and each
+      one has its own test observed in RED first.
+    the_payment_of_one_shop_paid_the_debt_of_another: >-
+      `validar_pago` read rule 19's bound over EVERY shop - it called
+      `pendiente_de(customer)` with no shop - and the FIFO allocated
+      over every shop's charges too. A client owing 30,00 in one shop
+      and 20,00 in another could propose **50,00** at the first: the
+      bound was 50,00 of total debt, and the FIFO - which sorts by
+      date - settled part of it against the OTHER shop's charges. The
+      `ImputacionPago` row said so forever, in a book that is
+      append-only: one shop's money appeared to retire another shop's
+      debt. **The bound and the allocation are now the payment's own
+      shop.**
+    the_route_that_set_the_limit_was_broken: >-
+      `ClienteDetalleView.patch` read `shop_id` and never assigned it -
+      the variable lived in `get`, and `patch` is a different method - so
+      the ONLY route that sets the `credit_limit` answered **500**. No
+      one had seen it because **no test PATCHED the limit**: the GET was
+      walked by the leak tests and the PATCH by nobody. And an explicit
+      `null` did NOTHING: the code wrote only when the value was not
+      `None`, so the owner asked for "no limit" and kept the old one.
+      **An absent field and an explicit `null` are two different
+      things**, and `NULL` is a limit the owner may set.
+    the_person_and_her_row_only_met_when_the_alias_was_the_username: >-
+      The `Customer` had no `user` field, and the account and the row
+      were joined by **`alias == username`**. But the alias is the
+      SHOP's name for her - "Ana" - and the username is HERS: she chose
+      it, which is the whole point of the 10.1. A person registered as
+      "ana.perez" and called "Ana" by the shops **saw no links at all**,
+      and her acceptance was refused with `vinculo_no_pendiente`: the
+      shop asked and the question did not reach her. The test said
+      `username=cliente.alias`, and that is why it passed in a world
+      that does not exist.
+    the_person_and_her_row_are_the_same_human_now: >-
+      `Customer.user` is a **nullable OneToOne**, with its uniqueness
+      constraint: a person is ONE row, wherever she buys on credit, and
+      the row is hers in every shop at once. It is nullable because of
+      the other way of arriving: the shop registers a person before she
+      has an account, and she claims the row later - **she says the
+      alias the shop gave her, and the row is hers**. The refusal does
+      NOT say whether the row does not exist or belongs to somebody
+      else: the answer is the same either way, so nothing can be learned
+      from it.
+    the_migration_guesses_carefully: >-
+      The rows that can be linked are linked **by the alias**, and the
+      ones that cannot are left alone. A wrong link would tie a
+      person's account to somebody else's debt, so the doubt is left
+      standing: an unlinked row is safe, and the person claims it from
+      her own account.
+    evidence: >-
+      128 unit and 576 integration tests pass on main after the merge -
+      thirteen of them new - and `makemigrations --check` detects no
+      change while `manage.py check` sees nothing. The migration
+      applies **on a FRESH database**, on a database WITH DATA, and
+      **reverses**: "Ana" (alias = username) is linked, "Beto" (no
+      account) stays NULL, and the reverse works. The frontend
+      typecheck and the bundle build pass.
+    what_this_slice_does_not_touch: >-
+      The counter's flow, the identification of the client at the
+      counter, and the client's own account with the amounts and the
+      reason for a refusal - the Slice 10.5.
   phase10c_delivered:
     completed: '2026-11-23'
     pull_requests: [34]
