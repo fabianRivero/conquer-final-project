@@ -57,6 +57,7 @@ from tienda.models import (
     Producto,
     PropuestaLinea,
     Shop,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -94,8 +95,13 @@ def _estado():
             for s in Shop.objects.all()
         ),
         "clientes": sorted(
-            (c.alias, str(c.credit_limit) if c.credit_limit is not None else None)
-            for c in Customer.objects.all()
+            # The limit belongs to the LINK: the owner's confidence, and
+            # the owner has it in the shop.
+            (
+                v.cliente.alias,
+                str(v.credit_limit) if v.credit_limit is not None else None,
+            )
+            for v in Vinculo.objects.select_related("cliente")
         ),
         "productos": sorted(
             (p.nombre, str(p.precio), p.unidad, p.activo)
@@ -201,7 +207,7 @@ def test_the_seed_creates_a_customer_with_a_credential(seeded):
 
     The plaintext never touches a row: only the digest and the prefix.
     """
-    cliente = Customer.objects.get(shop=seeded)
+    cliente = Vinculo.objects.get(tienda=seeded).cliente
 
     codigos = CustomerCodigo.objects.filter(customer=cliente)
     assert codigos.count() == 1
@@ -276,7 +282,7 @@ def test_the_pending_proposal_moves_no_outstanding(seeded):
     """
     from tienda.services import estado_de
 
-    cliente = Customer.objects.get(shop=seeded)
+    cliente = Vinculo.objects.get(tienda=seeded).cliente
     cargo = LedgerEntry.objects.filter(shop=seeded, kind="cargo").get()
     pendiente = FiadoPropuesto.objects.get(shop=seeded, estado="pendiente")
 
@@ -294,11 +300,14 @@ def test_the_seeded_book_is_legal(seeded):
 
     Every seeded `pago` is smaller than the debt it retires, so the
     seeded dataset is a legal book and not an example of one.
-    """
-    for cliente in Customer.objects.filter(shop=seeded):
-        from tienda.services import estado_de
 
-        assert estado_de(cliente).total >= Decimal("0.00")
+    **The state is per shop**: the person belongs to no shop, and the
+    debt that holds her is the one of the shop she is trusted in.
+    """
+    from tienda.services import estado_de
+
+    for vinculo in Vinculo.objects.filter(tienda=seeded):
+        assert estado_de(vinculo.cliente, tienda=seeded).total >= Decimal("0.00")
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +358,12 @@ def test_the_seed_does_not_touch_a_real_shop(db):
     shop that is not the demo one.
     """
     real = Shop.objects.create(name="Tienda real", opening_cash=Decimal("10.00"))
-    cliente = Customer.objects.create(shop=real, alias="Real")
+    cliente = Customer.objects.create(alias="Real")
+    Vinculo.objects.create(
+        tienda=real,
+        cliente=cliente,
+        estado="aceptado",
+    )
 
     call_command("seed_demo", verbosity=0)
 

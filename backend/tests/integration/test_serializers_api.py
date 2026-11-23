@@ -315,6 +315,7 @@ def test_no_route_exposes_a_mutating_method_for_a_ledger_row():
     MUTACION_PERMITIDA = {
         "clientes/<int:cliente_id>/",
         "tienda/personal/<int:user_id>/",
+        "tienda/vinculos/<int:cliente_id>/",
     }
 
     mutantes = []
@@ -418,8 +419,8 @@ def test_the_client_routes_live_under_their_own_prefix():
     ]
 
     assert len(cliente_rutas) == 3
-    assert len(persona_rutas) == 6
-    assert len(tienda_rutas) == 3
+    assert len(persona_rutas) == 9
+    assert len(tienda_rutas) == 5
     assert len(personal_rutas) == 17
     # And no route serves two audiences.
     assert not set(cliente_rutas) & set(personal_rutas)

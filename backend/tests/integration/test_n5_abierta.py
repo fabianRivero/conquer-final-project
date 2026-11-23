@@ -49,6 +49,7 @@ from tienda.models import (
     LedgerEntry,
     Producto,
     Shop,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -117,9 +118,15 @@ def api_otro_dependiente(otro_helper, tienda):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop."""
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
@@ -393,7 +400,7 @@ def test_el_dependiente_no_ve_la_politica_del_dueno(
     query returns.
     """
     CustomerCodigo.objects.create(
-        shop=customer.shop,
+        shop=Vinculo.objects.get(cliente=customer).tienda,
         customer=customer,
         prefix="ABCDEF",
         codigo_hash="x" * 40,
@@ -507,7 +514,12 @@ def test_el_dependiente_no_crea_clientes(api_dependiente):
 
 
 def test_el_dependiente_no_ponde_el_credit_limit(api_dependiente, customer):
-    """The `credit_limit` is the owner's policy, and it stays his."""
+    """The `credit_limit` is the owner's policy, and it stays his.
+
+    **And the limit lives in the LINK** - the confidence is the owner's,
+    and the owner has it in this shop - so the refusal is about the
+    policy, not about where the number is kept.
+    """
     respuesta = api_dependiente.patch(
         reverse("api:cliente_detalle", args=[customer.id]),
         {"credit_limit": "500.00"},
@@ -515,8 +527,8 @@ def test_el_dependiente_no_ponde_el_credit_limit(api_dependiente, customer):
     )
 
     assert respuesta.status_code == 403
-    customer.refresh_from_db()
-    assert customer.credit_limit == Decimal("100.00")
+    vinculo = Vinculo.objects.get(cliente=customer)
+    assert vinculo.credit_limit == Decimal("100.00")
 
 
 def test_el_dependiente_no_emite_el_codigo(api_dependiente, customer):

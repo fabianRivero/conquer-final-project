@@ -44,6 +44,13 @@ from tienda.api.personal import (
     PersonalMiembroView,
     PersonalView,
 )
+from tienda.api.vinculos import (
+    VinculoAceptarView,
+    VinculoEliminarView,
+    VinculoRechazarView,
+    VinculosDelClienteView,
+    VinculosDelDuenoView,
+)
 from tienda.api.views import (
     CajaView,
     CatalogoView,
@@ -227,5 +234,32 @@ urlpatterns = [
         "tienda/personal/<int:user_id>/",
         PersonalMiembroView.as_view(),
         name="personal_miembro",
+    ),
+    # The LINK, and the client's consent. The shop asks; the client
+    # answers from her own account.
+    path(
+        "cuenta/vinculos/",
+        VinculosDelClienteView.as_view(),
+        name="cuenta_vinculos",
+    ),
+    path(
+        "cuenta/vinculos/aceptar/",
+        VinculoAceptarView.as_view(),
+        name="cuenta_vinculo_aceptar",
+    ),
+    path(
+        "cuenta/vinculos/rechazar/",
+        VinculoRechazarView.as_view(),
+        name="cuenta_vinculo_rechazar",
+    ),
+    path(
+        "tienda/vinculos/",
+        VinculosDelDuenoView.as_view(),
+        name="tienda_vinculos",
+    ),
+    path(
+        "tienda/vinculos/<int:cliente_id>/",
+        VinculoEliminarView.as_view(),
+        name="tienda_vinculo_eliminar",
     ),
 ]

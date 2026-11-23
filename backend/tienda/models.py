@@ -158,19 +158,27 @@ class Shop(models.Model):
 
 
 class Customer(models.Model):
-    """A customer of the shop — the owner's own record and policy.
+    """A **person** — she may be a client of SEVERAL shops.
+
+    **The customer belongs to no shop.** The shop's trust in her lives in
+    the `Vinculo`, and the confidence - the limit - is the LINK's: Ana
+    may have 100 in one shop and 30 in another, and the ageing is per shop
+    too, because "she has not paid here for 90 days" says nothing about
+    the other one.
+
+    A person is a person wherever she buys on credit, so the alias
+    identifies **her**, not a row of a shop's list.
 
     The derived state (`suspendido` or not, and the reason) is **never
     stored**: it is computed on read from the ledger rows and the ageing
-    (D1). Only the owner's own acts are recorded here — the alias, the phone,
-    the credit limit, the suspension override and who registered the customer.
+    (D1). Only the owner's own acts are recorded here — the alias, the
+    phone, the suspension override and who registered the customer.
 
     There is no field here that holds a balance in the customer's favour: a
     `pago` never exceeds the debt it retires, so no credit can exist
     (ADR-26, rule 19).
     """
 
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="customers")
     # The staff member who registered the customer. NULL when the customer
     # predates the register.
     created_by = models.ForeignKey(
@@ -182,10 +190,6 @@ class Customer(models.Model):
     )
     alias = models.CharField(max_length=200)
     phone = models.CharField(max_length=50, blank=True, null=True)
-    # NULL means "no limit" (sin limite). A value is always >= 0.
-    credit_limit = models.DecimalField(
-        max_digits=12, decimal_places=2, blank=True, null=True
-    )
     # The override records an act (the owner lifted the automatic
     # suspension), never a derived value.
     suspended_override_at = models.DateTimeField(blank=True, null=True)
@@ -200,20 +204,112 @@ class Customer(models.Model):
     class Meta:
         db_table = "tienda_customer"
         constraints = [
-            # UNIQUE (shop_id, alias) — the alias identifies a customer
-            # inside its shop, not across shops.
-            models.UniqueConstraint(
-                fields=["shop", "alias"], name="uniq_customer_shop_alias"
-            ),
-            # A credit limit is either absent (no limit) or non-negative.
+            # UNIQUE (alias) — the alias identifies the PERSON, not a row
+            # of a shop's list. She is one person in every shop.
+            models.UniqueConstraint(fields=["alias"], name="uniq_customer_alias"),
+        ]
+
+    def __str__(self):
+        return self.alias
+
+
+#: The vocabulary of `Vinculo.estado`. The link says whether the person
+#: is a trusted client of the shop, and the client herself says yes or
+#: no: `pendiente` is the shop's question, `aceptado` and `rechazado` are
+#: her answer, and `eliminado` is the owner's own act.
+VINCULO_ESTADOS = ("pendiente", "aceptado", "rechazado", "eliminado")
+
+
+class Vinculo(models.Model):
+    """The link between a person and a shop: **she is a trusted client
+    of it**.
+
+    **The link is what says she belongs to the shop** - the person
+    belongs to no shop, and she may be a trusted client of SEVERAL. The
+    `credit_limit` lives here and not on the person: the confidence is
+    the OWNER'S, and the owner has it **in this shop**. Ana may have 100
+    in one shop and 30 in another, and the ageing is per shop too.
+
+    **The consent is the CLIENT's.** The shop asks, and she answers from
+    her own account:
+
+    * `pendiente` - the shop asked; she has not answered;
+    * `aceptado` - she said yes. The link opens the owner's figures to
+      her and the fiados can be made;
+    * `rechazado` - she said no. **A refusal is not a removal**: the
+      shop may ask again, and she may answer differently;
+    * `eliminado` - **the owner took her off the trusted list**, and
+      **did not ask her**. Her debts and her history stay - the book is
+      append-only - but the confidence is gone, and no new fiado can be
+      made.
+
+    **The re-integration goes through `pendiente` again.** The owner may
+    ask; only she may answer. The consent does not come back by itself.
+
+    The limit may be **NULL - "sin límite"**: a trusted client the
+    owner trusts without a cap.
+    """
+
+    tienda = models.ForeignKey(
+        Shop, on_delete=models.CASCADE, related_name="vinculos"
+    )
+    cliente = models.ForeignKey(
+        Customer, on_delete=models.CASCADE, related_name="vinculos"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=[(e, e) for e in VINCULO_ESTADOS],
+        default="pendiente",
+    )
+    # NULL means "sin límite". A value is always >= 0.
+    credit_limit = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True
+    )
+    # The instants of the three acts. Each one is an ACT and it names
+    # when it happened - never a derived value.
+    pedido_at = models.DateTimeField(blank=True, null=True)
+    aceptado_at = models.DateTimeField(blank=True, null=True)
+    rechazado_at = models.DateTimeField(blank=True, null=True)
+    eliminado_at = models.DateTimeField(blank=True, null=True)
+    # The owner who asked, and the owner who removed.
+    pedido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="vinculos_pedidos",
+        blank=True,
+        null=True,
+    )
+    eliminado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="vinculos_eliminados",
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        db_table = "tienda_vinculo"
+        constraints = [
+            # The state belongs to the vocabulary.
             models.CheckConstraint(
-                condition=models.Q(credit_limit__isnull=True) | models.Q(credit_limit__gte=0),
-                name="chk_customer_credit_limit_non_negative",
+                condition=models.Q(estado__in=VINCULO_ESTADOS),
+                name="chk_vinculo_estado_vocabulary",
+            ),
+            # A limit is either absent (sin límite) or non-negative.
+            models.CheckConstraint(
+                condition=models.Q(credit_limit__isnull=True)
+                | models.Q(credit_limit__gte=0),
+                name="chk_vinculo_credit_limit_non_negative",
+            ),
+            # The person is a client of the shop ONCE: one link, one
+            # state, one limit.
+            models.UniqueConstraint(
+                fields=["tienda", "cliente"], name="uniq_vinculo_one_per_shop"
             ),
         ]
 
     def __str__(self):
-        return f"{self.alias} ({self.shop_id})"
+        return f"{self.estado} {self.cliente_id} en {self.tienda_id}"
 
 
 class Producto(models.Model):
@@ -1257,12 +1353,58 @@ def borrar_dataset_demo() -> int:
                 )
                 ids_por_tabla[tabla] = [fila[0] for fila in cursor.fetchall()]
 
+        # --- the PERSON: captured BEFORE the links go -------------------
+        #
+        # The person belongs to no shop: she hangs off it through the
+        # LINK, and she may be a client of SEVERAL shops. So the walk
+        # does not reach her, and she needs a capture of her own - and
+        # it needs it BEFORE the links are deleted, because after that
+        # there is nothing left to say which people were the demo's.
+        vinculos_demo = ids_por_tabla.get("tienda_vinculo") or []
+        personas_demo = []
+        if vinculos_demo:
+            cursor.execute(
+                "SELECT DISTINCT cliente_id FROM tienda_vinculo "
+                "WHERE id = ANY(%s)",
+                [vinculos_demo],
+            )
+            personas_demo = [fila[0] for fila in cursor.fetchall()]
+
         # --- the deletion: by the captured ids --------------------------
         for tabla in orden:
             filas = ids_por_tabla.get(tabla)
             if not filas:
                 continue
             cursor.execute(f"DELETE FROM {tabla} WHERE id = ANY(%s)", [filas])
+
+        # --- the people who are left with NO link ------------------------
+        #
+        # The links of the demo are gone. The people they named are
+        # still there, and they are **nobody's**: a person is a person in
+        # every shop. The ones that are left **with no link at all** go
+        # with the demo - and the ones that still have a link in another
+        # shop STAY, because the demo does not own them.
+        #
+        # They go BEFORE the shop, and before the accounts, because the
+        # owner's account is protected by the row that names him as the
+        # one who registered the customer.
+        if personas_demo:
+            cursor.execute(
+                """
+                SELECT c.id FROM tienda_customer c
+                 WHERE c.id = ANY(%s)
+                   AND NOT EXISTS (
+                        SELECT 1 FROM tienda_vinculo v
+                         WHERE v.cliente_id = c.id
+                   )
+                """,
+                [personas_demo],
+            )
+            personas = [fila[0] for fila in cursor.fetchall()]
+            if personas:
+                cursor.execute(
+                    "DELETE FROM tienda_customer WHERE id = ANY(%s)", [personas]
+                )
 
         cursor.execute("DELETE FROM tienda_shop WHERE id = ANY(%s)", [ids])
     return len(ids)

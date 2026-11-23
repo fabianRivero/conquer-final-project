@@ -37,6 +37,7 @@ from tienda.models import (
     PagoPropuesto,
     Producto,
     Shop,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -74,8 +75,12 @@ def test_la_lista_de_clientes_lleva_el_estado_de_la_credencial(api, tienda, owne
     credential's table. Both fields are the OWNER's own data, and the
     board reads them in one response instead of one per customer.
     """
-    cliente = Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
     valor = client_auth.generar_credencial()
     CustomerCodigo.objects.create(
@@ -130,8 +135,12 @@ def test_la_lista_de_pagos_propuestos_solo_los_pendientes(api, tienda, owner):
     The board's section is a work list: a proposal that was validated or
     rejected is history.
     """
-    cliente = Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
     pendiente = PagoPropuesto.objects.create(
         shop=tienda,

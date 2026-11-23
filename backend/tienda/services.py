@@ -76,7 +76,9 @@ from tienda.models import (
     PagoPropuesto,
     Producto,
     PropuestaLinea,
+    Shop,
     StockMovement,
+    Vinculo,
 )
 
 # ---------------------------------------------------------------------------
@@ -138,19 +140,24 @@ def linea_confirmacion(row: Confirmacion) -> ConfirmacionRow:
     )
 
 
-def pendientes_de(customer: Customer, at=None) -> tuple[list[LedgerLine], list[LedgerLine]]:
-    """The customer's charges and payments, as plain values.
+def pendientes_de(
+    customer: Customer, at=None, tienda=None
+) -> tuple[list[LedgerLine], list[LedgerLine]]:
+    """The customer's charges and payments **in a shop**, as plain values.
 
     `at` is the instant the question is asked; the caller passes it, so the
     service never reads a clock on its own. `None` means "now", and it is
     the service's own clock, not the rule's.
+
+    **The shop filters.** A person may owe in SEVERAL shops, and her
+    debt in one of them says nothing about the others.
     """
     if at is None:
         at = timezone.now()
-    rows = (
-        LedgerEntry.objects.filter(customer=customer)
-        .order_by("occurred_at", "id")
-    )
+    filas = LedgerEntry.objects.filter(customer=customer)
+    if tienda is not None:
+        filas = filas.filter(shop=tienda)
+    rows = filas.order_by("occurred_at", "id")
     cargos = [linea_ledger(r) for r in rows if r.kind == EntryKind.CARGO.value]
     pagos = [linea_ledger(r) for r in rows if r.kind == EntryKind.PAGO.value]
     return cargos, pagos
@@ -171,28 +178,40 @@ def pendientes_de_shop(shop, at=None) -> list[LedgerLine]:
     return [linea_ledger(r) for r in rows]
 
 
-def estado_de(customer: Customer, at=None, override: bool = False):
-    """The derived state of a customer — the suspension and its cause.
+def estado_de(customer: Customer, at=None, override: bool = False, tienda=None):
+    """The derived state of a customer **in a shop** — the suspension and
+    its cause.
 
     The rule reads plain values and knows nothing about the ORM.
+
+    **The limit is the LINK's**, so the state is per shop: a person may
+    be over her limit in one shop and under it in another, and the
+    ageing is per shop too.
     """
     if at is None:
         at = timezone.now()
-    cargos, pagos = pendientes_de(customer, at)
+    cargos, pagos = pendientes_de(customer, at, tienda=tienda)
+    limite = None
+    if tienda is not None:
+        vinculo = Vinculo.objects.filter(
+            tienda=tienda, cliente=customer, estado="aceptado"
+        ).first()
+        if vinculo is not None:
+            limite = vinculo.credit_limit
     estado = reglas_evaluacion.evaluate_customer(
         cargos + pagos,
-        credit_limit=customer.credit_limit,
+        credit_limit=limite,
         at=at,
         override=override or customer.suspended_override_at is not None,
     )
     return estado
 
 
-def pendiente_de(customer: Customer, at=None) -> Decimal:
-    """The outstanding of a customer, derived on read."""
+def pendiente_de(customer: Customer, at=None, tienda=None) -> Decimal:
+    """The outstanding of a customer **in a shop**, derived on read."""
     if at is None:
         at = timezone.now()
-    cargos, pagos = pendientes_de(customer, at)
+    cargos, pagos = pendientes_de(customer, at, tienda=tienda)
     return reglas_posicion.outstanding(cargos + pagos, at)
 
 
@@ -339,20 +358,33 @@ def exigir_producto_de_la_tienda(shop, producto) -> Producto:
 
 
 def crear_cliente(shop, user, *, alias, phone=None, credit_limit=None):
-    """Register a customer.
+    """Register a customer **of a shop**.
+
+    The person is created - she belongs to **no** shop - and the LINK is
+    created with her: **accepted**, because the owner is registering her
+    as a customer he trusts. The limit travels with the link, and a NULL
+    limit is "sin límite".
 
     The owner is the author: `created_by` is stamped from the acting
     session and never read from the request body.
     """
     if credit_limit is not None and Decimal(credit_limit) < 0:
         raise DomainValidationError("importe_no_positivo")
-    return Customer.objects.create(
-        shop=shop,
-        created_by=user,
+
+    cliente, _ = Customer.objects.get_or_create(
         alias=alias,
-        phone=phone,
-        credit_limit=credit_limit,
+        defaults={"created_by": user, "phone": phone},
     )
+    Vinculo.objects.create(
+        tienda=shop,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=credit_limit,
+        pedido_at=timezone.now(),
+        pedido_por=user,
+        aceptado_at=timezone.now(),
+    )
+    return cliente
 
 
 def cliente_de_la_tienda(shop, customer_id):
@@ -361,8 +393,162 @@ def cliente_de_la_tienda(shop, customer_id):
     A customer of another shop is **not found**, not refused: the answer is
     a scoped 404, so a request cannot learn that the customer exists
     elsewhere.
+
+    **And a customer who is not a TRUSTED client of the shop is not
+    found either**: the link is what says she belongs to it.
     """
-    return Customer.objects.filter(shop=shop, id=customer_id).first()
+    return (
+        Vinculo.objects.filter(
+            tienda=shop, cliente_id=customer_id, estado="aceptado"
+        )
+        .values_list("cliente_id", flat=True)
+        .first()
+        and Customer.objects.filter(id=customer_id).first()
+    )
+
+
+def vinculo_de(shop, customer) -> "Vinculo | None":
+    """The link of a customer to a shop, or `None`.
+
+    **The link is what says she belongs to the shop** - the person
+    belongs to no shop, and she may be a trusted client of SEVERAL.
+    """
+    return Vinculo.objects.filter(tienda=shop, cliente=customer).first()
+
+
+def vinculos_del_cliente(cliente) -> list:
+    """The links of a client, as **she** sees them.
+
+    **A pending link shows the shop's name and nothing else.** If she
+    could see the debt and the ageing first, the consent would be a
+    formality - she would already have seen everything the acceptance
+    reveals. The link she is asked about says which shop is asking, and
+    no more.
+    """
+    filas = []
+    for vinculo in Vinculo.objects.filter(cliente=cliente).select_related("tienda"):
+        fila = {
+            "id": vinculo.id,
+            "tienda": vinculo.tienda.name,
+            "estado": vinculo.estado,
+        }
+        if vinculo.estado == "aceptado":
+            # The acceptance is what opens the owner's figures to her.
+            fila["credit_limit"] = vinculo.credit_limit
+            fila["pendiente"] = pendiente_de(cliente, tienda=vinculo.tienda)
+        filas.append(fila)
+    return filas
+
+
+def pedir_vinculo(user, tienda, cliente, *, credit_limit=None):
+    """The owner asks a person to be a trusted client of the shop.
+
+    **The question is the owner's; the answer is the client's.** The
+    link is created `pendiente`, and only she may accept or refuse it.
+
+    **The re-integration goes through `pendiente` again**: the owner may
+    ask, but the consent does not come back by itself.
+    """
+    if credit_limit is not None and Decimal(credit_limit) < 0:
+        raise DomainValidationError("importe_no_positivo")
+
+    vinculo, _ = Vinculo.objects.get_or_create(
+        tienda=tienda,
+        cliente=cliente,
+        defaults={
+            "estado": "pendiente",
+            "credit_limit": credit_limit,
+            "pedido_at": timezone.now(),
+            "pedido_por": user,
+        },
+    )
+    if vinculo.estado != "pendiente":
+        # The owner asks again: the link goes back to the question, and
+        # the client's answer is asked for once more.
+        vinculo.estado = "pendiente"
+        vinculo.pedido_at = timezone.now()
+        vinculo.pedido_por = user
+        vinculo.aceptado_at = None
+        vinculo.rechazado_at = None
+        vinculo.eliminado_at = None
+        vinculo.eliminado_por = None
+        if credit_limit is not None:
+            vinculo.credit_limit = credit_limit
+        vinculo.save()
+    return vinculo
+
+
+
+def _tienda_de(tienda):
+    """The shop of an id, or the shop itself.
+
+    The client's route receives the id in the body; the owner's route
+    has it in the session. The service does not care where it came from.
+    """
+    if tienda is None:
+        return None
+    if hasattr(tienda, "id"):
+        return tienda
+    return Shop.objects.filter(id=tienda).first()
+
+
+def aceptar_vinculo(cliente, vinculo_id):
+    """The client accepts the link of a shop.
+
+    **Only she may do it**: the shop does not have her credentials, and
+    it must not decide for her.
+    """
+    vinculo = Vinculo.objects.filter(
+        id=vinculo_id, cliente=cliente, estado="pendiente"
+    ).first()
+    if vinculo is None:
+        raise DomainValidationError("vinculo_no_pendiente")
+
+    vinculo.estado = "aceptado"
+    vinculo.aceptado_at = timezone.now()
+    vinculo.rechazado_at = None
+    vinculo.save(update_fields=["estado", "aceptado_at", "rechazado_at"])
+    return vinculo
+
+
+def rechazar_vinculo(cliente, vinculo_id):
+    """The client refuses the link of a shop.
+
+    **A refusal is not a removal**: the shop may ask again, and she may
+    answer differently the next time.
+    """
+    vinculo = Vinculo.objects.filter(
+        id=vinculo_id, cliente=cliente, estado="pendiente"
+    ).first()
+    if vinculo is None:
+        raise DomainValidationError("vinculo_no_pendiente")
+
+    vinculo.estado = "rechazado"
+    vinculo.rechazado_at = timezone.now()
+    vinculo.aceptado_at = None
+    vinculo.save(update_fields=["estado", "rechazado_at", "aceptado_at"])
+    return vinculo
+
+
+def eliminar_vinculo(user, tienda, cliente):
+    """The owner takes the client off the trusted list - **and does not ask**.
+
+    **The removal is the owner's alone**: the client does not consent to
+    being removed, and the shop does not need her to. Her debts and her
+    history stay - the book is append-only - but the confidence is gone,
+    and no new fiado can be made.
+    """
+    vinculo = Vinculo.objects.filter(
+        tienda=_tienda_de(tienda), cliente=cliente
+    ).first()
+    if vinculo is None:
+        raise Http404
+
+    vinculo.estado = "eliminado"
+    vinculo.eliminado_at = timezone.now()
+    vinculo.eliminado_por = user
+    vinculo.save(update_fields=["estado", "eliminado_at", "eliminado_por"])
+    return vinculo
 
 
 def emitir_codigo(shop, customer, user, *, prefijo, hash_credencial, issued_at=None):
@@ -604,7 +790,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
             raise DomainValidationError("lineas_descuadradas")
 
         # Rule 8: the derived suspension, read inside the transaction.
-        estado_cliente = estado_de(propuesta.customer, at=momento)
+        estado_cliente = estado_de(propuesta.customer, at=momento, tienda=shop_id)
         if estado_cliente.suspendido:
             motivo = estado_cliente.motivo
             raise DomainValidationError(
@@ -682,7 +868,7 @@ def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
 # ---------------------------------------------------------------------------
 
 
-def cargos_de_la_tienda(customer: Customer, at=None) -> list:
+def cargos_de_la_tienda(customer: Customer, at=None, tienda=None) -> list:
     """The customer's CONFIRMED charges, as ORM rows.
 
     **Confirmed only.** A charge without its `Confirmacion` does not
@@ -697,6 +883,7 @@ def cargos_de_la_tienda(customer: Customer, at=None) -> list:
         at = timezone.now()
     return list(
         LedgerEntry.objects.filter(
+            shop=tienda,
             customer=customer,
             kind=EntryKind.CARGO.value,
             occurred_at__lte=at,
@@ -750,7 +937,9 @@ def saldo_de(cargo) -> Decimal:
     return Decimal(cargo.amount) - pagado_de(cargo)
 
 
-def cliente_para_el_dependiente(customer: Customer, at=None) -> dict:
+def cliente_para_el_dependiente(
+    customer: Customer, at=None, tienda=None, vinculo=None
+) -> dict:
     """One customer, as the `dependiente` sees it at the counter.
 
     The `dependiente` records the payments, and recording needs to see
@@ -766,11 +955,18 @@ def cliente_para_el_dependiente(customer: Customer, at=None) -> dict:
     The charges are the **confirmed** ones: a charge without its
     `Confirmacion` does not exist, and a pending proposal is not a debt
     yet (ADR-19).
+
+    **The debt is of ONE shop.** The book is the shop's, and the limit
+    that holds it is the LINK's - so both the charges and the limit say
+    which shop they are about.
     """
     if at is None:
         at = timezone.now()
 
-    cargos = cargos_de_la_tienda(customer, at)
+    if tienda is None and vinculo is not None:
+        tienda = vinculo.tienda
+
+    cargos = cargos_de_la_tienda(customer, at, tienda=tienda)
 
     filas = []
     pendiente = Decimal("0")
@@ -808,7 +1004,9 @@ def cliente_para_el_dependiente(customer: Customer, at=None) -> dict:
     }
 
 
-def proponer_pago(customer: Customer, *, importe, referencia="", at=None):
+def proponer_pago(
+    customer: Customer, *, importe, referencia="", at=None, shop_id=None
+):
     """The client proposes a payment. Nothing is written to the book.
 
     The proposal creates a `PagoPropuesto(pendiente)` and **no ledger
@@ -827,8 +1025,14 @@ def proponer_pago(customer: Customer, *, importe, referencia="", at=None):
     if valor <= 0:
         raise DomainValidationError("importe_no_positivo")
 
+    if shop_id is None:
+        vinculo = Vinculo.objects.filter(
+            cliente=customer, estado="aceptado"
+        ).first()
+        shop_id = vinculo.tienda_id if vinculo is not None else None
+
     return PagoPropuesto.objects.create(
-        shop=customer.shop,
+        shop_id=shop_id,
         customer=customer,
         importe=valor,
         referencia=referencia or "",

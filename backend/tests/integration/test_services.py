@@ -37,6 +37,7 @@ from tienda.models import (
     LedgerEntry,
     Producto,
     Shop,
+    Vinculo,
 )
 from tienda import services
 
@@ -60,7 +61,19 @@ def shop(db):
 
 @pytest.fixture
 def customer(db, shop):
-    return Customer.objects.create(shop=shop, alias="Ana", credit_limit=Decimal("100.00"))
+    """A person, and the LINK that says she is a trusted client of the shop.
+
+    **The person belongs to no shop**, and the limit belongs to the link:
+    the confidence is the owner's, and the owner has it **in this shop**.
+    """
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=shop,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
+    )
+    return cliente
 
 
 @pytest.fixture
@@ -365,9 +378,14 @@ def test_a_customer_of_another_shop_is_not_found(db, shop, customer, user):
     The answer must not learn that the customer exists elsewhere.
     """
     otra = Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
-    ajeno = Customer.objects.create(shop=otra, alias="Luis")
+    cliente = Customer.objects.create(alias="Luis")
+    Vinculo.objects.create(
+        tienda=otra,
+        cliente=cliente,
+        estado="aceptado",
+    )
 
-    assert services.cliente_de_la_tienda(shop, ajeno.id) is None
+    assert services.cliente_de_la_tienda(shop, cliente.id) is None
     assert services.cliente_de_la_tienda(shop, customer.id) == customer
 
 
@@ -388,10 +406,16 @@ def test_a_negative_credit_limit_is_refused(db, shop, user):
 
 
 def test_a_null_credit_limit_is_the_explicit_no_limit(db, shop, user):
-    """`None` is «sin límite», an explicit state and never a missing value."""
+    """`None` is «sin límite», an explicit state and never a missing value.
+
+    **The limit belongs to the LINK** - the confidence is the owner's, and
+    the owner has it in this shop. A trusted client without a cap is
+    `NULL` on the link, and it never fires `limite_superado`.
+    """
     cliente = services.crear_cliente(shop, user, alias="Luis", credit_limit=None)
 
-    assert cliente.credit_limit is None
+    vinculo = Vinculo.objects.get(cliente=cliente)
+    assert vinculo.credit_limit is None
 
 
 # ---------------------------------------------------------------------------

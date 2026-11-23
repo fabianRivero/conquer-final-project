@@ -25,7 +25,9 @@
 
 import { useCallback, useState } from "react";
 
+import { Vinculos } from "../components/Vinculos";
 import { cuenta, PerfilTienda, Perfiles } from "../api/cuenta";
+import { vinculos as vinculosApi, Vinculo } from "../api/vinculos";
 import { cuerpo } from "../api/http";
 
 /** What the surface is showing. */
@@ -34,6 +36,7 @@ type Pantalla = "acceso" | "perfiles";
 export function Cuenta() {
   const [pantalla, setPantalla] = useState<Pantalla>("acceso");
   const [perfiles, setPerfiles] = useState<Perfiles | null>(null);
+  const [susVinculos, setSusVinculos] = useState<Vinculo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -45,6 +48,12 @@ export function Cuenta() {
     }
     setPerfiles(await cuerpo<Perfiles>(respuesta));
     setPantalla("perfiles");
+
+    // The links: the shops that asked her, and the answer she gave.
+    const delVinculo = await vinculosApi.misVinculos();
+    if (delVinculo.ok) {
+      setSusVinculos(await cuerpo<Vinculo[]>(delVinculo) ?? []);
+    }
   }, []);
 
   return (
@@ -113,6 +122,36 @@ export function Cuenta() {
               </li>
             ))}
           </ul>
+
+          {/*
+            The links: the shops that asked her, and her answer. **A
+            pending link shows the shop's name and the buttons - and
+            nothing else.**
+          */}
+          <Vinculos
+            vinculos={susVinculos}
+            onAceptar={async (vinculoId) => {
+              const respuesta = await vinculosApi.aceptar(vinculoId);
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
+                setError(fallo?.codigo_error ?? "no se pudo aceptar");
+                return;
+              }
+              setError(null);
+              await refrescar();
+            }}
+            onRechazar={async (vinculoId) => {
+              const respuesta = await vinculosApi.rechazar(vinculoId);
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
+                setError(fallo?.codigo_error ?? "no se pudo rechazar");
+                return;
+              }
+              setError(null);
+              await refrescar();
+            }}
+            error={error}
+          />
 
           <FormularioTienda
             onCrear={async (nombre, direccion, nif) => {
