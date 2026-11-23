@@ -15,3 +15,4 @@ export { Escalera } from "./Escalera";
 export { PagosPropuestos } from "./PagosPropuestos";
 export { Personal } from "./Personal";
 export { PropuestaForm } from "./PropuestaForm";
+export { Vinculos } from "./Vinculos";

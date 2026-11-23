@@ -31,7 +31,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from tienda.api import client_auth, throttle
-from tienda.models import CodigoIntento, Customer, CustomerCodigo, LedgerEntry, Shop
+from tienda.models import (
+    CodigoIntento,
+    Customer,
+    CustomerCodigo,
+    LedgerEntry,
+    Shop,
+    Vinculo,
+)
 from tests.walk import (
     TOKENS_DE_AMBOS,
     TOKENS_DE_CLIENTE,
@@ -70,9 +77,15 @@ def tienda(db, negocio):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop."""
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
@@ -109,15 +122,21 @@ def _cargo_de_una_deuda(customer, user, importe="10.00"):
     Rule 19 refuses a payment larger than the outstanding, so a test
     that records a payment needs a debt first - otherwise the 422 says
     "there is nothing to pay" and not "the payment was refused".
+
+    **The shop is the LINK's**: the person belongs to no shop, and the
+    debt is of the shop she is a trusted client of.
     """
     from decimal import Decimal
 
     from django.utils import timezone
 
-    from tienda.models import CargoLinea, Confirmacion, Producto
+    from tienda.models import CargoLinea, Confirmacion, Producto, Vinculo
+
+    vinculo = Vinculo.objects.filter(cliente=customer).first()
+    tienda = vinculo.tienda
 
     cargo = LedgerEntry.objects.create(
-        shop=customer.shop,
+        shop=tienda,
         customer=customer,
         user=user,
         kind="cargo",
@@ -125,7 +144,7 @@ def _cargo_de_una_deuda(customer, user, importe="10.00"):
         occurred_at=timezone.now(),
     )
     producto = Producto.objects.create(
-        shop=customer.shop,
+        shop=tienda,
         nombre="Pan",
         precio=Decimal(importe),
         unidad="unidad",

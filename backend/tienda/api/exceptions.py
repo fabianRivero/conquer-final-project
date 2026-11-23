@@ -67,6 +67,9 @@ CODIGOS_ERROR = {
     "credenciales_invalidas": "Usuario o contrasena incorrectos.",
     "perfil_ya_existe": "Ya tienes un perfil de cliente.",
     "nombre_requerido": "El nombre del negocio es obligatorio.",
+    "vinculo_no_pendiente": "Ese vinculo no esta esperando tu respuesta.",
+    "vinculo_requerido": "Falta la tienda.",
+    "cliente_no_existe": "No hay ninguna persona con ese alias.",
 }
 
 #: The code a refusal answers with. It is NOT part of the validation

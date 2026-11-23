@@ -54,13 +54,14 @@ from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
-    MiembroDeTienda,
     FiadoPropuesto,
     LedgerEntry,
+    MiembroDeTienda,
     PerfilTienda,
-    PropuestaLinea,
     Producto,
+    PropuestaLinea,
     Shop,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -130,9 +131,15 @@ def api_otro_dependiente(otro_helper, tienda):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop."""
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
@@ -378,9 +385,14 @@ def test_confirming_a_suspended_customer_writes_no_charge(api, tienda, producto)
     already exceeds the limit.
     """
     from tienda.models import Customer as _Customer
+    from tienda.models import Vinculo as _Vinculo
 
-    cliente = _Customer.objects.create(
-        shop=tienda, alias="Beto", credit_limit=Decimal("10.00")
+    cliente = _Customer.objects.create(alias="Beto")
+    _Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("10.00"),
     )
     # A charge of 30,00 against a limit of 10,00: the derived state is
     # `suspendido` by `limite_superado`.

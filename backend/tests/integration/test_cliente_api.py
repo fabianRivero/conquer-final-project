@@ -52,6 +52,7 @@ from tienda.models import (
     LedgerEntry,
     Producto,
     Shop,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -79,16 +80,28 @@ def otra_tienda(db):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop."""
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
 def otro_customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Beto", credit_limit=Decimal("100.00")
+    """Another person, and the link that says she is trusted here too."""
+    cliente = Customer.objects.create(alias="Beto")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture

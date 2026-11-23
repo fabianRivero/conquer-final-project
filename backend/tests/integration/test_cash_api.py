@@ -82,12 +82,20 @@ def cliente_con_tienda(cliente, tienda):
 
 @pytest.fixture
 def customer(tienda):
-    """A customer of the shop."""
-    from tienda.models import Customer
+    """A person, and the LINK that says she is a trusted client of the shop.
 
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    **The person belongs to no shop**, and the limit belongs to the link.
+    """
+    from tienda.models import Customer, Vinculo
+
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture

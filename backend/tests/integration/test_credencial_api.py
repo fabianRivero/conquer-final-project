@@ -32,7 +32,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from tienda.api import client_auth, throttle
-from tienda.models import Customer, CustomerCodigo, Shop
+from tienda.models import Customer, CustomerCodigo, Shop, Vinculo
 
 pytestmark = pytest.mark.integration
 
@@ -54,9 +54,15 @@ def tienda(db):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop."""
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
@@ -317,7 +323,12 @@ def test_a_credential_of_another_shop_does_not_resolve(db, credencial, user):
     valor, _ = credencial
 
     otra = Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
-    ajeno = Customer.objects.create(shop=otra, alias="Luis")
+    ajeno = Customer.objects.create(alias="Luis")
+    Vinculo.objects.create(
+        tienda=otra,
+        cliente=ajeno,
+        estado="aceptado",
+    )
     CustomerCodigo.objects.create(
         shop=otra,
         customer=ajeno,

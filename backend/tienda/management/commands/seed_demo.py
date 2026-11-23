@@ -188,7 +188,7 @@ class Command(BaseCommand):
         of no other - and the group could not say that, because a group
         says nothing about which shop it belongs to.
         """
-        from tienda.models import MiembroDeTienda, PerfilTienda
+        from tienda.models import MiembroDeTienda, PerfilTienda, Vinculo
 
         usuarios = {}
         for nombre, email, rol in CUENTAS:
@@ -239,14 +239,29 @@ class Command(BaseCommand):
         return productos
 
     def _cliente(self, tienda, dueno):
-        """One customer of the demo shop."""
+        """One customer of the demo shop.
+
+        **The person belongs to no shop**, and the LINK says she is a
+        trusted client of this one - with the limit the owner gave her.
+        """
+        from tienda.models import Vinculo
+
         cliente, _ = Customer.objects.get_or_create(
-            shop=tienda,
             alias="Ana",
             defaults={
-                "credit_limit": Decimal("100.00"),
                 "created_by": dueno,
                 "phone": "600000000",
+            },
+        )
+        Vinculo.objects.update_or_create(
+            tienda=tienda,
+            cliente=cliente,
+            defaults={
+                "estado": "aceptado",
+                "credit_limit": Decimal("100.00"),
+                "pedido_at": timezone.now(),
+                "pedido_por": dueno,
+                "aceptado_at": timezone.now(),
             },
         )
         return cliente

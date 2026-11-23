@@ -33,7 +33,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from tienda.models import Customer, LedgerEntry, Producto, Shop
+from tienda.models import Customer, LedgerEntry, Producto, Shop, Vinculo
 
 pytestmark = pytest.mark.integration
 
@@ -83,9 +83,18 @@ def cliente(owner, tienda):
 
 @pytest.fixture
 def customer(tienda):
-    return Customer.objects.create(
-        shop=tienda, alias="Ana", credit_limit=Decimal("100.00")
+    """A person, and the LINK that says she is a trusted client of the shop.
+
+    **The person belongs to no shop**, and the limit belongs to the link.
+    """
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
     )
+    return cliente
 
 
 @pytest.fixture
@@ -245,7 +254,12 @@ def test_a_customer_of_another_shop_is_not_found(cliente, customer, tienda):
     A 403 would confirm that the customer exists; a 404 says nothing.
     """
     otra = Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
-    ajeno = Customer.objects.create(shop=otra, alias="Luis")
+    ajeno = Customer.objects.create(alias="Luis")
+    Vinculo.objects.create(
+        tienda=otra,
+        cliente=ajeno,
+        estado="aceptado",
+    )
 
     respuesta = cliente.post(
         reverse("api:cliente_libreta", args=[ajeno.id]),

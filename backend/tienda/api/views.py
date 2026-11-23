@@ -55,7 +55,25 @@ from tienda.models import (
     PagoPropuesto,
     Producto,
     StockMovement,
+    Vinculo,
 )
+
+
+
+def _vinculo_de(cliente, shop_id):
+    """The link of a customer to a shop, or a refusal.
+
+    **The limit lives in the LINK** - the confidence is the owner's, and
+    the owner has it in this shop - so the owner reads and writes the
+    limit through the link and never through the person.
+    """
+    from tienda.services import vinculo_de
+
+    vinculo = vinculo_de(shop_id, cliente)
+    if vinculo is None:
+        raise Http404
+    return vinculo
+
 
 
 def _scope(request):
@@ -200,14 +218,15 @@ def _escalera_de(shop, ahora):
     from tienda.domain import ageing as reglas_antiguedad
 
     escalera = []
-    for customer in Customer.objects.filter(shop=shop):
-        cargos, pagos = services.pendientes_de(customer, ahora)
+    for vinculo in Vinculo.objects.filter(tienda=shop, estado="aceptado"):
+        customer = vinculo.cliente
+        cargos, pagos = services.pendientes_de(customer, ahora, tienda=shop)
         from tienda.domain import position as reglas_posicion
 
         pendiente = reglas_posicion.outstanding(cargos + pagos, ahora)
         if pendiente <= 0:
             continue
-        estado = services.estado_de(customer, ahora)
+        estado = services.estado_de(customer, ahora, tienda=shop)
         escalera.append(
             {
                 "alias": customer.alias,
@@ -421,7 +440,7 @@ class ClienteLibretaView(_ApiViewBase):
             # Rule 19: the bound is the customer's TOTAL outstanding, not
             # one charge's. The FIFO decides which charges the payment
             # retires.
-            pendiente = services.pendiente_de(cliente)
+            pendiente = services.pendiente_de(cliente, tienda=shop_id)
             if importe > pendiente:
                 raise DomainValidationError("pago_excede_deuda")
 
@@ -440,7 +459,9 @@ class ClienteLibretaView(_ApiViewBase):
                 # payment touched (ADR-27).
                 from tienda.domain import allocation as reglas_asignacion
 
-                cargos, _ = services.pendientes_de(cliente, timezone.now())
+                cargos, _ = services.pendientes_de(
+                    cliente, timezone.now(), tienda=shop_id
+                )
                 asignacion = reglas_asignacion.allocate_payments(
                     cargos, [services.linea_ledger(pago)]
                 )
@@ -517,7 +538,12 @@ class ClientesView(_ApiViewBase):
 
     def get(self, request):
         shop_id = _scope(request)
-        clientes = Customer.objects.filter(shop_id=shop_id).order_by("alias")
+        vinculos = list(
+            Vinculo.objects.filter(
+                tienda_id=shop_id, estado="aceptado"
+            ).select_related("cliente").order_by("cliente__alias")
+        )
+        clientes = [vinculo.cliente for vinculo in vinculos]
 
         # The credential's state: the `prefix` - the NON-SECRET head of
         # it - and the issuing date. Both are the OWNER's own data: the
@@ -536,26 +562,34 @@ class ClientesView(_ApiViewBase):
             return Response(
                 [
                     staff.ClienteDependienteSerializer(
-                        services.cliente_para_el_dependiente(c)
+                        services.cliente_para_el_dependiente(
+                            vinculo.cliente, tienda=shop_id, vinculo=vinculo
+                        )
                     ).data
-                    for c in clientes
+                    for vinculo in vinculos
                 ]
             )
 
         return Response(
             [
                 {
-                    "id": c.id,
-                    "alias": c.alias,
-                    "credit_limit": c.credit_limit,
+                    "id": vinculo.cliente.id,
+                    "alias": vinculo.cliente.alias,
+                    # The limit is the LINK's: the owner's confidence, and
+                    # the owner has it in THIS shop.
+                    "credit_limit": vinculo.credit_limit,
                     "prefix": (
-                        codigos[c.id].prefix if c.id in codigos else None
+                        codigos[vinculo.cliente.id].prefix
+                        if vinculo.cliente.id in codigos
+                        else None
                     ),
                     "issued_at": (
-                        codigos[c.id].issued_at if c.id in codigos else None
+                        codigos[vinculo.cliente.id].issued_at
+                        if vinculo.cliente.id in codigos
+                        else None
                     ),
                 }
-                for c in clientes
+                for vinculo in vinculos
             ]
         )
 
@@ -617,11 +651,15 @@ class ClienteDetalleView(_ApiViewBase):
         if cliente is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if es_dependiente(request.user, _scope(request)):
+        shop_id = _scope(request)
+
+        if es_dependiente(request.user, shop_id):
             # The reduced payload: the debts, and no policy.
             return Response(
                 staff.ClienteDependienteSerializer(
-                    services.cliente_para_el_dependiente(cliente)
+                    services.cliente_para_el_dependiente(
+                        cliente, tienda=shop_id, vinculo=_vinculo_de(cliente, shop_id)
+                    )
                 ).data
             )
 
@@ -630,7 +668,7 @@ class ClienteDetalleView(_ApiViewBase):
                 "id": cliente.id,
                 "alias": cliente.alias,
                 "phone": cliente.phone,
-                "credit_limit": cliente.credit_limit,
+                "credit_limit": _vinculo_de(cliente, shop_id).credit_limit,
             }
         )
 
@@ -650,15 +688,21 @@ class ClienteDetalleView(_ApiViewBase):
                 limite = Decimal(str(limite))
                 if limite < 0:
                     raise DomainValidationError("importe_no_positivo")
-                cliente.credit_limit = limite
-                cliente.save(update_fields=["credit_limit"])
+                vinculo = _vinculo_de(cliente, shop_id)
+                vinculo.credit_limit = limite
+                vinculo.save(update_fields=["credit_limit"])
         except DomainValidationError as exc:
             return Response(
                 {"codigo_error": exc.codigo_error, "detail": exc.detail},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        return Response({"id": cliente.id, "credit_limit": cliente.credit_limit})
+        return Response(
+            {
+                "id": cliente.id,
+                "credit_limit": _vinculo_de(cliente, shop_id).credit_limit,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -941,7 +985,15 @@ class ClienteEstadoView(_ApiViewBase):
     def get(self, request):
         cliente = _cliente_de(request)
 
-        cargos = services.cargos_de_la_tienda(cliente)
+        # The shop is the CREDENTIAL's: the client reads the book of the
+        # shop that issued the credential, and a person may owe in
+        # several.
+        from tienda.api.client_auth import tienda_de_la_credencial
+
+        credencial = request.META.get("HTTP_X_CODIGO")
+        shop_id = tienda_de_la_credencial(credencial) if credencial else None
+
+        cargos = services.cargos_de_la_tienda(cliente, tienda=shop_id)
 
         filas = []
         total = Decimal("0")

@@ -47,6 +47,7 @@ from tienda.models import (
     PropuestaLinea,
     Shop,
     StockMovement,
+    Vinculo,
 )
 
 pytestmark = pytest.mark.integration
@@ -74,7 +75,18 @@ def shop(db):
 
 @pytest.fixture
 def customer(db, shop):
-    return Customer.objects.create(shop=shop, alias="Ana", credit_limit=Decimal("100.00"))
+    """A person, and the LINK that says she is a trusted client of the shop.
+
+    **The person belongs to no shop**, and the limit belongs to the link.
+    """
+    cliente = Customer.objects.create(alias="Ana")
+    Vinculo.objects.create(
+        tienda=shop,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
+    )
+    return cliente
 
 
 @pytest.fixture
@@ -303,12 +315,20 @@ def test_customer_credit_limit_is_non_negative(shop):
     """A negative credit limit is refused; NULL means "no limit"."""
     with pytest.raises(IntegrityError):
         with transaction.atomic():
-            Customer.objects.create(
-                shop=shop, alias="Luis", credit_limit=Decimal("-1.00")
+            Vinculo.objects.create(
+                tienda=shop,
+                cliente=Customer.objects.create(alias="Luis"),
+                estado="aceptado",
+                credit_limit=Decimal("-1.00"),
             )
     # NULL is the explicit "no limit" state and is accepted.
-    Customer.objects.create(shop=shop, alias="Luis", credit_limit=None)
-    assert Customer.objects.filter(alias="Luis").count() == 1
+    Vinculo.objects.create(
+        tienda=shop,
+        cliente=Customer.objects.create(alias="Luis"),
+        estado="aceptado",
+        credit_limit=None,
+    )
+    assert Vinculo.objects.filter(cliente__alias="Luis").count() == 1
 
 
 def test_producto_precio_is_non_negative(shop):
@@ -691,12 +711,16 @@ def test_codigo_revocation_always_names_its_author(shop, customer, user):
 # ---------------------------------------------------------------------------
 
 
-def test_customer_alias_is_unique_per_shop(shop):
-    """The alias identifies a customer inside its shop."""
-    Customer.objects.create(shop=shop, alias="Ana")
+def test_customer_alias_is_unique(shop):
+    """The alias identifies the PERSON, not a row of a shop's list.
+
+    **She is one person in every shop**, so the alias is unique in the
+    world and not inside a shop.
+    """
+    Customer.objects.create(alias="Ana")
     with pytest.raises(IntegrityError):
         with transaction.atomic():
-            Customer.objects.create(shop=shop, alias="Ana")
+            Customer.objects.create(alias="Ana")
     assert Customer.objects.filter(alias="Ana").count() == 1
 
 
@@ -1531,8 +1555,12 @@ def test_la_credencial_de_otro_cliente_no_resuelve(shop, customer, user):
     is compared - and the comparison is against the DIGEST, so the one
     that matches is the only one that resolves.
     """
-    otro = Customer.objects.create(
-        shop=shop, alias="Beto", credit_limit=Decimal("50.00")
+    otro = Customer.objects.create(alias="Beto")
+    Vinculo.objects.create(
+        tienda=shop,
+        cliente=otro,
+        estado="aceptado",
+        credit_limit=Decimal("50.00"),
     )
 
     valor = client_auth.generar_credencial()

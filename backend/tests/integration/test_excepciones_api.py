@@ -74,6 +74,9 @@ def test_the_vocabulary_has_the_seventeen_codes_of_the_design():
         "credenciales_invalidas",
         "perfil_ya_existe",
         "nombre_requerido",
+        "vinculo_no_pendiente",
+        "vinculo_requerido",
+        "cliente_no_existe",
     }
 
     assert set(exceptions.CODIGOS_ERROR) == esperados
