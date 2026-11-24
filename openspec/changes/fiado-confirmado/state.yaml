@@ -217,10 +217,9 @@ v2_redesign:
     the round would confirm or contradict it. The project's
     `knowledge_basis` stays `design-hypothesis`, and the round itself is
     not planned work: it needs people who are not this agent.
-    Two smaller things are also open, and neither is planned work: the
-    identification by QR in the shop, which was explicitly DEFERRED in
-    favour of the credentials, and the rotation of the Neon password,
-    which was left in the clear in a chat.
+    ONE thing is still open, and it is not planned work either: the
+    rotation of the Neon password, which was left in the clear in a
+    chat.
   deploy_fix_2026_11_24:
     completed: '2026-11-24'
     pull_requests: [38, 39]
@@ -281,6 +280,68 @@ v2_redesign:
       - backend/tienda/migrations/0006_customer_es_la_persona.py
       - backend/tests/integration/test_migracion_con_datos.py
       - backend/tests/e2e/test_public_url.py
+  counter_identification_decided:
+    decided: '2026-11-24'
+    decided_by: the owner
+    what_the_owner_said: >-
+      The QR identification in the shop and the identification by
+      username **as it was originally posed** are both NOT NEEDED. For a
+      client to get a fiado, it is enough that she tells the attendant
+      which client she is - with her username, for example - and the
+      attendant identifies her, IF she really is on the shop's list of
+      trusted clients. The attendant then makes the fiado and the
+      client confirms it from her own interface.
+    what_that_means_in_code: >-
+      **The flow the owner describes is the one that is implemented.**
+      The counter searches by the USERNAME ALONE
+      (`GET /api/v1/mostrador/buscar/?username=...`), and the search
+      only finds a person who is on THAT shop's list of trusted clients
+      - the filter is `estado="aceptado"` on the `Vinculo`, and it is
+      the same filter the owner's own customer list uses. The
+      attendant prepares the fiado (`POST /api/v1/propuestas/`, whose
+      `cliente_de_la_tienda` demands the same `aceptado` link), and the
+      client accepts or refuses it from her own account
+      (`POST /api/v1/cuenta/fiados/aceptar/`). **No QR is involved, and
+      the counter never asks for a password.**
+    the_qr_is_closed_not_deferred: >-
+      The QR was never implemented - it only ever appeared in the
+      decisions digest as an ALTERNATIVE that was rejected ("Native
+      mobile app, QR/barcode scanning | The credential is typed"). So
+      this decision does not remove anything: it records that the
+      alternative is CLOSED, and it stops the record from listing it as
+      an open question.
+    the_old_posing_is_closed_too: >-
+      The identification "as it was originally posed" is the version
+      where the person typed her PASSWORD at the counter. That version
+      was never in the design or the proposal: the design's own
+      decisions digest says "The credential is typed; the surface is a web
+      page", and the counter's search asks for a public name and
+      nothing else. **What the owner describes IS the old posing
+      corrected**: she says who she is, the shop identifies her, and
+      the answer to the fiado is hers.
+    what_is_left_of_the_old_mechanism: >-
+      The `codigo` credential - the `CustomerCodigo` with its six-symbol
+      prefix - is still alive, but it is NOT the counter's mechanism
+      any more: the route that would ISSUE it
+      (`/api/v1/clientes/{id}/codigo/`) is still a stub, and the only
+      reader of a credential is the CLIENT'S OWN STATEMENT
+      (`/app/cliente`), which is a THIRD audience and not the shop's
+      counter. So the counter and the credential do not meet, and
+      nothing has to be removed for this decision to hold.
+    the_password_is_never_asked_for: >-
+      The search asks for the username ALONE, and a body that carries a
+      password is REFUSED with `campo_no_admitido` - not ignored, because
+      an error that is ignored in silence happens again. **That the
+      owner does not see what she types is a SUPPOSITION OF THE
+      PROCESS, not a technical guarantee**: the attendant is behind the
+      counter and she is in front of it, and the code guarantees the
+      other half - the counter's search never authenticates anybody.
+    evidence: >-
+      The flow was verified against the deployed service: the search
+      answers 200 for a trusted client of the shop, a POST carrying a
+      password answers 422 `campo_no_admitido`, the person's routes
+      answer 403 without a person's session, and the eleven e2e tests
+      pass against the live deployment.
   phase10e_delivered:
     completed: '2026-11-24'
     pull_requests: [41]
@@ -388,11 +449,11 @@ v2_redesign:
       states. The whole deploy command (`migrate` + `seed_demo`) works
       **twice**. The frontend typecheck and the bundle build pass.
     what_this_slice_does_not_touch: >-
-      The client's CREDENTIAL - the `codigo` by prefix, which is the
-      counter's old mechanism and which the identification by username
-      replaces at the counter. The client's own statement, which still
-      reads through the credential. And the QR identification, which was
-      explicitly deferred.
+      The client's CREDENTIAL - the `codigo` by prefix. It is NOT the
+      counter's mechanism any more: the counter identifies by the
+      username, and the only reader of a credential is the client's own
+      statement, which is a THIRD audience and not the shop's counter.
+      The client's own statement still reads through the credential.
   phase10d_delivered:
     completed: '2026-11-23'
     pull_requests: [36]

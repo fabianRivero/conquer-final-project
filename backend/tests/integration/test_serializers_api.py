@@ -226,10 +226,18 @@ def _todas_las_rutas():
 
 
 def test_the_api_map_declares_every_route_of_the_design():
-    """Every route of §9.1 is declared.
+    """Every route of §9.1 is declared, **and the map declares nothing
+    else**.
 
     The map is the contract: a route that is missing here is a route the
     client cannot call, and the design says exactly which ones exist.
+
+    **And the other way round.** The test used to check only one
+    direction, and that is how the design's route table drifted: the
+    account rewrite added ten routes and the table never mentioned
+    them, and nothing failed. A document that lists routes it does not
+    have is a document that lies, and a test that only looks one way
+    cannot see it.
     """
     patrones = {p for p, _, _ in _todas_las_rutas()}
 
@@ -254,8 +262,89 @@ def test_the_api_map_declares_every_route_of_the_design():
         "cliente/estado/",
         "cliente/cargos/<int:cargo_id>/",
         "cliente/pagos/proponer/",
+        # The counter's search - the 10.5.
+        "mostrador/buscar/",
+        # The person's account - the 10.1, the 10.3 and the 10.5.
+        "cuenta/registro/",
+        "cuenta/login/",
+        "cuenta/logout/",
+        "perfiles/",
+        "perfiles/cliente/",
+        "perfiles/tienda/",
+        "cuenta/reclamar/",
+        "cuenta/vinculos/",
+        "cuenta/vinculos/aceptar/",
+        "cuenta/vinculos/rechazar/",
+        "cuenta/fiados/",
+        "cuenta/fiados/aceptar/",
+        "cuenta/fiados/rechazar/",
+        "cuenta/cargos/",
     ):
         assert esperado in patrones, f"the route {esperado} is not declared"
+
+    # **And nothing else.** The staff's own - the shop's login and the
+    # staff it gives a user.
+    for esperado in (
+        "tienda/login/",
+        "tienda/personal/",
+        "tienda/personal/<int:user_id>/",
+        "tienda/vinculos/",
+        "tienda/vinculos/<int:cliente_id>/",
+    ):
+        assert esperado in patrones, f"the route {esperado} is not declared"
+
+    # **Every route of the map is in the design.** The list above is the
+    # design's, and a route that is not in it is a route the design does
+    # not describe - which is exactly how a route appears that nobody
+    # decided on.
+    del_diseno = {
+        "posicion/",
+        "caja/",
+        "cierre/",
+        "catalogo/",
+        "existencias/",
+        "clientes/",
+        "clientes/<int:cliente_id>/",
+        "clientes/<int:cliente_id>/codigo/",
+        "clientes/<int:cliente_id>/libreta/",
+        "clientes/<int:cliente_id>/suspension/anular/",
+        "propuestas/",
+        "propuestas/<int:propuesta_id>/pantalla/",
+        "propuestas/<int:propuesta_id>/confirmar/",
+        "propuestas/<int:propuesta_id>/cancelar/",
+        "pagos-propuestos/",
+        "pagos-propuestos/<int:pago_id>/validar/",
+        "pagos-propuestos/<int:pago_id>/rechazar/",
+        "cliente/estado/",
+        "cliente/cargos/<int:cargo_id>/",
+        "cliente/pagos/proponer/",
+        "mostrador/buscar/",
+        "cuenta/registro/",
+        "cuenta/login/",
+        "cuenta/logout/",
+        "perfiles/",
+        "perfiles/cliente/",
+        "perfiles/tienda/",
+        "cuenta/reclamar/",
+        "cuenta/vinculos/",
+        "cuenta/vinculos/aceptar/",
+        "cuenta/vinculos/rechazar/",
+        "cuenta/fiados/",
+        "cuenta/fiados/aceptar/",
+        "cuenta/fiados/rechazar/",
+        "cuenta/cargos/",
+        "tienda/login/",
+        "tienda/personal/",
+        "tienda/personal/<int:user_id>/",
+        "tienda/vinculos/",
+        "tienda/vinculos/<int:cliente_id>/",
+    }
+
+    sin_documentar = patrones - del_diseno
+    assert sin_documentar == set(), (
+        "the design does not describe these routes: "
+        + ", ".join(sorted(sin_documentar))
+    )
 
 
 def _metodos_de(vista) -> set:
