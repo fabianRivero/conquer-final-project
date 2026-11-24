@@ -40,12 +40,17 @@ from tienda.api.cuenta import (
     PerfilesView,
     PerfilTiendaView,
 )
+from tienda.api.mostrador import MostradorBuscarView
 from tienda.api.personal import (
     LoginTiendaView,
     PersonalMiembroView,
     PersonalView,
 )
 from tienda.api.vinculos import (
+    CargosDelClienteView,
+    FiadoAceptarView,
+    FiadoRechazarView,
+    FiadosDelClienteView,
     VinculoAceptarView,
     VinculoEliminarView,
     VinculoRechazarView,
@@ -136,6 +141,14 @@ urlpatterns = [
     path("cierre/", CierreView.as_view(), name="cierre"),
     path("catalogo/", CatalogoView.as_view(), name="catalogo"),
     path("existencias/", vista_pendiente("existencias"), name="existencias"),
+    # The COUNTER. The attendant asks her for her username and types it,
+    # and the system finds her. It is a search and not an
+    # authentication: the answer to the fiado is hers.
+    path(
+        "mostrador/buscar/",
+        MostradorBuscarView.as_view(),
+        name="mostrador_buscar",
+    ),
     path("clientes/", ClientesView.as_view(), name="clientes"),
     path(
         "clientes/<int:cliente_id>/",
@@ -259,6 +272,28 @@ urlpatterns = [
         "cuenta/vinculos/rechazar/",
         VinculoRechazarView.as_view(),
         name="cuenta_vinculo_rechazar",
+    ),
+    # The FIADO, and the person's answer. The shop asks; she answers from
+    # her own account, and the shop may not answer for her.
+    path(
+        "cuenta/fiados/",
+        FiadosDelClienteView.as_view(),
+        name="cuenta_fiados",
+    ),
+    path(
+        "cuenta/fiados/aceptar/",
+        FiadoAceptarView.as_view(),
+        name="cuenta_fiado_aceptar",
+    ),
+    path(
+        "cuenta/fiados/rechazar/",
+        FiadoRechazarView.as_view(),
+        name="cuenta_fiado_rechazar",
+    ),
+    path(
+        "cuenta/cargos/",
+        CargosDelClienteView.as_view(),
+        name="cuenta_cargos",
     ),
     path(
         "tienda/vinculos/",

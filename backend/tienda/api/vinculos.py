@@ -27,6 +27,10 @@ from tienda.api.exceptions import DomainValidationError
 from tienda.api.personal import EsDuenoDelNegocio
 from tienda.models import Customer, PerfilCliente, Shop, Vinculo
 
+#: The service layer, for the rules that are the same in every route:
+#: the fields a body may carry.
+from tienda import services
+
 
 class EsClienteConVinculo(BasePermission):
     """The request carries a PERSON's session - the client's own.
@@ -129,6 +133,163 @@ class VinculoRechazarView(VinculoAceptarView):
             )
 
         return Response({"id": vinculo.id, "estado": vinculo.estado})
+
+
+class FiadosDelClienteView(APIView):
+    """`GET /api/v1/cuenta/fiados/` - **her own fiados**, with their
+    state.
+
+    Every fiado of every shop she is trusted in, and the state says
+    what happened: `pendiente` (the shop asked and she has not
+    answered), `aceptado` (she said yes) or `rechazado` (she said no,
+    with the reason she gave).
+
+    **A pending fiado carries its lines and its total.** A figure she
+    cannot see broken down is not a figure she confirmed - and the lines
+    are there BEFORE she answers, because the answer is about those
+    lines.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["get"]
+
+    def get(self, request):
+        from tienda.services import fiados_del_cliente
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response([])
+
+        return Response(fiados_del_cliente(cliente))
+
+
+class CargosDelClienteView(APIView):
+    """`GET /api/v1/cuenta/cargos/` - **her own charges**, with the
+    state each one is in.
+
+    The state is a WORD - `pendiente`, `parcial` or `pagado` - and it
+    is derived on read, never stored.
+
+    **The charges of EVERY shop she is trusted in.** A person may owe
+    in several, and her account is the one place where all of them are
+    hers together.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["get"]
+
+    def get(self, request):
+        from tienda.services import cargos_del_cliente
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response([])
+
+        return Response(cargos_del_cliente(cliente))
+
+
+class FiadoAceptarView(APIView):
+    """`POST /api/v1/cuenta/fiados/aceptar/` - **she accepts the fiado**.
+
+    **The shop asks; she answers.** The owner prepared the figure and it
+    waits for HER: the answer is given from her own account, and the
+    shop may not answer for her. A shop that could accept for her would
+    be a shop that could decide for her, and the consent of the 10.3
+    would be worth nothing.
+
+    **The body is `{fiado_id}` and nothing else.** The figure is the
+    shop's, and the shop's figure is what the proposal already holds: a
+    body that carries the charge's own fields is refused, because the
+    person says yes or no and she does not write the charge.
+
+    **Only she may do it**, and only her own fiados: the scope is the
+    PERSON, not the shop - a person may have fiados in several shops,
+    and each of them is hers. A fiado of another person is **NOT FOUND**,
+    not refused: a 403 would confirm that it exists.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        from tienda.services import aceptar_fiado
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response(
+                {"codigo_error": "fiado_requerido", "detail": "Falta el fiado."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            services.exigir_campos_no_admitidos(
+                request.data, {"fiado_id"}
+            )
+            cargo, propuesta = aceptar_fiado(cliente, request.data.get("fiado_id"))
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {
+                "id": propuesta.id,
+                "estado": propuesta.estado,
+                "total": propuesta.total,
+                "cargo_id": cargo.id,
+            }
+        )
+
+
+class FiadoRechazarView(APIView):
+    """`POST /api/v1/cuenta/fiados/rechazar/` - **she refuses the fiado**.
+
+    **The body is `{fiado_id, motivo?}`.** The reason is her text, and
+    it is **free text that may be empty**: a refusal without an
+    explanation is not an answer, and an empty explanation is still an
+    answer - she is not obliged to justify herself to the shop.
+
+    **Nothing is written but the instant and her reason.** No charge, no
+    lines, no confirmation: the outstanding never moved, because it never
+    moved in the first place.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        from tienda.services import rechazar_fiado
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response(
+                {"codigo_error": "fiado_requerido", "detail": "Falta el fiado."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            services.exigir_campos_no_admitidos(
+                request.data, {"fiado_id", "motivo"}
+            )
+            propuesta = rechazar_fiado(
+                cliente,
+                request.data.get("fiado_id"),
+                motivo=request.data.get("motivo") or "",
+            )
+        except DomainValidationError as exc:
+            return Response(
+                {"codigo_error": exc.codigo_error, "detail": exc.detail},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(
+            {
+                "id": propuesta.id,
+                "estado": propuesta.estado,
+                "motivo": propuesta.motivo_rechazo,
+            }
+        )
 
 
 class VinculosDelDuenoView(APIView):

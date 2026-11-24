@@ -455,6 +455,56 @@ def reclamar_cliente(user, alias):
     return cliente
 
 
+def buscar_en_el_mostrador(shop_id, username) -> list:
+    """The people of a shop that a username may name.
+
+    **The counter identifies the person by the account she owns.** The
+    attendant asks her for her username, types it, and the system finds
+    her - the person is identified with the account she owns, not with a
+    slip of paper the shop keeps.
+
+    **It is a SEARCH, and not an authentication.** It finds a person and
+    it does not sign her in: the answer to the fiado is hers, from her
+    own account, and the counter has no way to answer for her - so it
+    has no way to pretend she did.
+
+    **Only a person with an ACCOUNT is found.** The counter identifies
+    the person by the account she owns, and a customer row without one
+    is not identified that way. The shop still has her in its list - the
+    alias finds her - but that is the owner's own list, and the
+    counter's identification is the account.
+
+    **The scope is the shop.** A person may be a client of several, and
+    each of them asks her separately: the owner of one shop does not
+    look for the customers of another.
+
+    **The username is her PUBLIC NAME**, like an email address. That is
+    why the search needs nothing else: the password is typed by her, on
+    her own device, and it never travels to the counter.
+    """
+    username = (username or "").strip()
+    if not username:
+        return []
+
+    return [
+        {
+            "cliente_id": vinculo.cliente_id,
+            "alias": vinculo.cliente.alias,
+            "username": vinculo.cliente.user.username,
+            "credit_limit": vinculo.credit_limit,
+        }
+        for vinculo in (
+            Vinculo.objects.filter(
+                tienda_id=shop_id,
+                cliente__user__username=username,
+                estado="aceptado",
+            )
+            .select_related("cliente", "cliente__user")
+            .order_by("cliente__alias")
+        )
+    ]
+
+
 def vinculos_del_cliente(cliente) -> list:
     """The links of a client, as **she** sees them.
 
@@ -463,6 +513,15 @@ def vinculos_del_cliente(cliente) -> list:
     formality - she would already have seen everything the acceptance
     reveals. The link she is asked about says which shop is asking, and
     no more.
+
+    **An ACCEPTED link opens the figures**, and they are hers to read:
+    how much she owes **in that shop**, how old the oldest debt is
+    there, and the limit the owner gave her.
+
+    **The figures are PER SHOP.** "She owes 30 here" and "she owes 20
+    there" are two facts, and one account that mixed them would be
+    lying about both. The limit and the ageing belong to the link, and
+    the link names the shop.
     """
     filas = []
     for vinculo in Vinculo.objects.filter(cliente=cliente).select_related("tienda"):
@@ -475,7 +534,93 @@ def vinculos_del_cliente(cliente) -> list:
             # The acceptance is what opens the owner's figures to her.
             fila["credit_limit"] = vinculo.credit_limit
             fila["pendiente"] = pendiente_de(cliente, tienda=vinculo.tienda)
+            # The ageing of THIS shop. The age of the debt she has in
+            # this shop says something; her age as a person says
+            # nothing.
+            fila["antiguedad_max_dias"] = estado_de(
+                cliente, tienda=vinculo.tienda
+            ).antiguedad_max_dias
         filas.append(fila)
+    return filas
+
+
+def fiados_del_cliente(cliente) -> list:
+    """The person's own fiados, with their state.
+
+    **Every fiado of every shop she is trusted in**, and the state says
+    what happened: `pendiente` (the shop asked and she has not
+    answered), `aceptado` (she said yes, and the charge exists) or
+    `rechazado` (she said no).
+
+    **A pending fiado carries its lines and its total.** A figure she
+    cannot see broken down is not a figure she confirmed - and the
+    lines are there BEFORE she answers, because the answer is about
+    those lines.
+
+    **A rejection carries the reason she gave.** It is her text, and it
+    may be empty.
+    """
+    filas = []
+    for fiado in (
+        FiadoPropuesto.objects.filter(customer=cliente)
+        .select_related("shop")
+        .order_by("-created_at", "-id")
+    ):
+        fila = {
+            "id": fiado.id,
+            "tienda": fiado.shop.name,
+            "estado": fiado.estado,
+            "total": fiado.total,
+            "creado_en": fiado.created_at,
+        }
+        if fiado.estado == "rechazado":
+            fila["motivo"] = fiado.motivo_rechazo
+        if fiado.estado in ("pendiente", "aceptado"):
+            fila["lineas"] = [
+                {
+                    "producto": linea.producto.nombre,
+                    "cantidad": linea.cantidad,
+                    "precio_unitario": linea.precio_unitario,
+                    "total": linea.total,
+                }
+                for linea in fiado.lineas.select_related("producto").order_by("id")
+            ]
+        filas.append(fila)
+    return filas
+
+
+def cargos_del_cliente(cliente) -> list:
+    """The person's own charges, with the state each one is in.
+
+    **The state is a WORD**: `pendiente` (nobody paid it), `parcial` (a
+    payment retired part of it) or `pagado` (a payment retired all of
+    it). It is derived on read and never stored - a `pagado` column on
+    the charge would break the append-only guarantee of the book, and a
+    stored balance is a derived value (ADR-27).
+
+    **The charges of EVERY shop she is trusted in.** A person may owe
+    in several, and her account is the one place where all of them are
+    hers together.
+    """
+    filas = []
+    for cargo in (
+        LedgerEntry.objects.filter(customer=cliente, kind=EntryKind.CARGO.value)
+        .filter(confirmaciones__estado=ConfirmState.CONFIRMADO.value)
+        .select_related("shop")
+        .order_by("-occurred_at", "-id")
+        .distinct()
+    ):
+        filas.append(
+            {
+                "id": cargo.id,
+                "tienda": cargo.shop.name,
+                "fecha": cargo.occurred_at,
+                "amount": cargo.amount,
+                "pagado": pagado_de(cargo),
+                "saldo": saldo_de(cargo),
+                "estado": estado_cargo(cargo),
+            }
+        )
     return filas
 
 
@@ -779,6 +924,177 @@ def _propuesta_bloqueada(shop_id, propuesta_id: int, *, user=None) -> FiadoPropu
     return propuesta
 
 
+def _fiado_de_la_persona(cliente, fiado_id: int) -> FiadoPropuesto:
+    """The person's own fiado, with its row locked.
+
+    **The scope is the PERSON.** The filter is on the customer, not on
+    the shop: a person may have fiados in SEVERAL shops, and each of
+    them is hers.
+
+    A fiado of another person is **NOT FOUND**, not refused: a 403 would
+    confirm that it exists, and the person has no business learning that
+    somebody else is being asked.
+    """
+    propuesta = (
+        FiadoPropuesto.objects.select_for_update()
+        .filter(customer=cliente, id=fiado_id)
+        .first()
+    )
+    if propuesta is None:
+        raise Http404
+    return propuesta
+
+
+def _escribir_el_cargo(propuesta, momento):
+    """The four rows of an accepted fiado, written together.
+
+    The `LedgerEntry(cargo)`, the `CargoLinea[]` COPIED from the
+    proposal's own lines, and the `Confirmacion(confirmado)`. If any of
+    them fails, none of them survives: the transaction is the unit.
+
+    **The figure is the proposal's.** The person says yes or no; she does
+    not write the charge, and she cannot change what the shop asked
+    for. The lines are read from the proposal and copied - never
+    recomputed from a body field.
+    """
+    lineas = list(propuesta.lineas.order_by("id"))
+
+    cargo = LedgerEntry.objects.create(
+        shop_id=propuesta.shop_id,
+        customer=propuesta.customer,
+        user=propuesta.user,
+        kind=EntryKind.CARGO.value,
+        amount=propuesta.total,
+        occurred_at=momento,
+    )
+    CargoLinea.objects.bulk_create(
+        [
+            CargoLinea(
+                cargo=cargo,
+                producto=linea.producto,
+                cantidad=linea.cantidad,
+                precio_unitario=linea.precio_unitario,
+                total=linea.total,
+            )
+            for linea in lineas
+        ]
+    )
+    Confirmacion.objects.create(
+        cargo=cargo,
+        estado=ConfirmState.CONFIRMADO.value,
+        confirmado_en=momento,
+        # The origin is the SHOP's: the shop prepared the figure, and
+        # the person accepted it. `confirmado_por` names the shop's
+        # preparer, because that is who wrote the charge.
+        origen="tienda",
+        confirmado_por=propuesta.user,
+    )
+    return cargo
+
+
+def aceptar_fiado(cliente, fiado_id: int, at=None):
+    """**She accepts the fiado.** The shop asked; she answers.
+
+    The write is one transaction and it writes the same four things the
+    staff's confirmation writes: the `LedgerEntry(cargo)`, the
+    `CargoLinea[]` copied from the proposal's own lines, the
+    `Confirmacion(confirmado)` and the proposal's `confirmed_at`.
+
+    **Rule 7** - the move is one-way: a fiado that is not `pendiente` is
+    refused with `propuesta_ya_aceptada` or `propuesta_ya_rechazada`.
+
+    **Rule 8** - a fiado accepted while the customer is suspended writes
+    **no** charge. The suspension is derived, never stored, and it is
+    read INSIDE the transaction: a customer suspended a moment ago is
+    suspended now.
+
+    **The scope is the PERSON's**, not the shop's: she may have fiados
+    in several shops, and each of them is hers.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _fiado_de_la_persona(cliente, fiado_id)
+
+        destino = PropuestaEstado.ACEPTADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        # Rule 3: the declared total equals the sum of the proposal's
+        # own lines. The lines are the ones that will be copied, so this
+        # is the last point where a mismatch can be refused.
+        lineas = list(propuesta.lineas.order_by("id"))
+        if not reglas_cargos.propuesta_amount_matches(
+            [
+                CargoLine(
+                    id=linea.id,
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario,
+                    total=linea.total,
+                )
+                for linea in lineas
+            ],
+            propuesta.total,
+        ):
+            raise DomainValidationError("lineas_descuadradas")
+
+        # Rule 8: the derived suspension, read inside the transaction.
+        estado_cliente = estado_de(
+            propuesta.customer, at=momento, tienda=propuesta.shop_id
+        )
+        if estado_cliente.suspendido:
+            motivo = estado_cliente.motivo
+            raise DomainValidationError(
+                motivo.value if motivo is not None else "limite_superado"
+            )
+
+        cargo = _escribir_el_cargo(propuesta, momento)
+
+        propuesta.estado = destino
+        propuesta.confirmed_at = momento
+        propuesta.save(update_fields=["estado", "confirmed_at"])
+    return cargo, propuesta
+
+
+def rechazar_fiado(cliente, fiado_id: int, *, motivo="", at=None):
+    """**She refuses the fiado**, and she may say why.
+
+    **Nothing is written but the instant and her reason.** No charge, no
+    lines, no confirmation: the outstanding never moved, because it
+    never moved in the first place (CC-04, design 13.2).
+
+    **The reason is free text and it may be empty.** A refusal without
+    an explanation is not an answer, and an empty explanation is still
+    an answer: she is not obliged to justify herself to the shop.
+
+    **Rule 7** - the move is one-way.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _fiado_de_la_persona(cliente, fiado_id)
+
+        destino = PropuestaEstado.RECHAZADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        propuesta.estado = destino
+        propuesta.canceled_at = momento
+        # The reason is stored as it came: an empty reason is stored as
+        # an empty string, and the column says "no reason" with NULL.
+        propuesta.motivo_rechazo = (motivo or "").strip() or None
+        propuesta.save(
+            update_fields=["estado", "canceled_at", "motivo_rechazo"]
+        )
+    return propuesta
+
+
 def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     """Confirm a proposal - **the only path that creates a charge**.
 
@@ -788,7 +1104,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     If any of them fails, none of them survives.
 
     Rule 7 - the transition is one-way: a proposal that is not `pendiente`
-    is refused with `propuesta_ya_confirmada` or `propuesta_ya_cancelada`.
+    is refused with `propuesta_ya_aceptada` or `propuesta_ya_rechazada`.
 
     Rule 8 - a proposal confirmed while the customer is suspended writes
     **no** charge. The suspension is derived, never stored, and it is read
@@ -803,7 +1119,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
         propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
         # Rule 7: the transition, decided by the stored state.
-        destino = PropuestaEstado.CONFIRMADO.value
+        destino = PropuestaEstado.ACEPTADO.value
         error = reglas_confirmacion.propuesta_transicion_permitida(
             propuesta.estado, destino
         )
@@ -874,22 +1190,27 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
 
 
 def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
-    """Cancel a proposal - the client declined.
+    """Cancel a proposal - **the client declined, and the shop recorded
+    it**.
 
     **Nothing is written but the instant.** No charge, no lines, no
     confirmation: the outstanding never moved, because it never moved in
     the first place (CC-04, design 13.2).
 
     Rule 7: the transition is one-way, so a proposal that is not
-    `pendiente` is refused - `propuesta_ya_confirmada` when it was
-    confirmed, `propuesta_ya_cancelada` when it was already cancelled.
+    `pendiente` is refused - `propuesta_ya_aceptada` when it was
+    accepted, `propuesta_ya_rechazada` when it was already rejected.
+
+    **The person answers now, and this route is the shop's.** The
+    rejection with a reason - the one the person gives from her own
+    account - is a different act, and it lives in its own function.
     """
     momento = at or timezone.now()
 
     with transaction.atomic():
         propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
-        destino = PropuestaEstado.CANCELADO.value
+        destino = PropuestaEstado.RECHAZADO.value
         error = reglas_confirmacion.propuesta_transicion_permitida(
             propuesta.estado, destino
         )
@@ -974,6 +1295,27 @@ def pagado_de(cargo) -> Decimal:
 def saldo_de(cargo) -> Decimal:
     """What is still owed on a charge: its amount minus its `pagado`."""
     return Decimal(cargo.amount) - pagado_de(cargo)
+
+
+def estado_cargo(cargo) -> str:
+    """How much of a charge is still owed, as a **word**.
+
+    **It is derived on read and never stored.** A `pagado` column on the
+    charge would break the append-only guarantee of the book, and a
+    stored balance is a derived value (ADR-27, landmine 12).
+
+    The three words are the ones the PERSON reads it with:
+
+    * `pendiente` - nobody paid it;
+    * `parcial` - a payment retired part of it;
+    * `pagado` - a payment retired all of it.
+    """
+    saldo = saldo_de(cargo)
+    if saldo <= 0:
+        return "pagado"
+    if pagado_de(cargo) > 0:
+        return "parcial"
+    return "pendiente"
 
 
 def cliente_para_el_dependiente(

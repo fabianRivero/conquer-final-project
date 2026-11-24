@@ -91,14 +91,35 @@ class ConfirmState(str, Enum):
 class PropuestaEstado(str, Enum):
     """The state of a `FiadoPropuesto` — the vocabulary of §6.
 
-    A proposal moves from `pendiente` to exactly one of `confirmado` or
-    `cancelado`, **never back**. The move is one-way, and the guard for it is
+    A proposal moves from `pendiente` to exactly one of `aceptado` or
+    `rechazado`, **never back**. The move is one-way, and the guard for it is
     the **stored** proposal state, not a projection of the ledger.
+
+    **The words say what the PERSON did.** The shop asks; she answers.
+    The old vocabulary - `confirmado` and `cancelado` - said the SHOP
+    acted, and the client never wrote to the book.
     """
 
     PENDIENTE = "pendiente"
-    CONFIRMADO = "confirmado"
-    CANCELADO = "cancelado"
+    ACEPTADO = "aceptado"
+    RECHAZADO = "rechazado"
+
+
+class CargoEstado(str, Enum):
+    """How much of a charge is still owed — the vocabulary the PERSON
+    reads it with.
+
+    It is **derived on read** and never stored: a `pagado` column on the
+    charge would break the append-only guarantee of the book, and a
+    stored balance is a derived value (ADR-27).
+
+    `pendiente` - nobody paid it. `parcial` - a payment retired part of
+    it. `pagado` - a payment retired all of it.
+    """
+
+    PENDIENTE = "pendiente"
+    PARCIAL = "parcial"
+    PAGADO = "pagado"
 
 
 class PagoPropuestoEstado(str, Enum):

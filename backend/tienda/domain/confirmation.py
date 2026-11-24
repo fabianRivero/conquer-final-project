@@ -16,7 +16,7 @@ only** — it is never the guard for a write.
 **`propuesta_transicion_permitida(estado_actual, destino)`** — the guard for
 the one-way transition of §6. It reads the **stored** proposal state, not a
 projection of the ledger, because the proposal *is* the state: a proposal
-moves from `pendiente` to exactly one of `confirmado` or `cancelado`, and
+moves from `pendiente` to exactly one of `aceptado` or `rechazado`, and
 never back. The v1 `transicion_permitida` — a two-state transition table
 over the charge's confirmation history — has no object any more.
 
@@ -33,8 +33,8 @@ from .types import ChargeState, ConfirmacionRow, ConfirmState, PropuestaEstado
 
 # The refusal codes of the proposal transition guard. They are the
 # `codigo_error` values the API answers with (design §9.3).
-PROPUESTA_YA_CONFIRMADA = "propuesta_ya_confirmada"
-PROPUESTA_YA_CANCELADA = "propuesta_ya_cancelada"
+PROPUESTA_YA_ACEPTADA = "propuesta_ya_aceptada"
+PROPUESTA_YA_RECHAZADA = "propuesta_ya_rechazada"
 
 
 def confirmacion_efectiva(rows) -> ConfirmacionRow | None:
@@ -83,37 +83,36 @@ def propuesta_transicion_permitida(estado_actual, destino) -> str | None:
 
     The machine is **one-way and has two branches** (§6):
 
-    * `pendiente -> confirmado` — the owner (or the `dependiente`, if the N5
-      gate opens) confirms it. The charge and its lines are written in the
-      same transaction.
-    * `pendiente -> cancelado` — the client declined. Nothing is written
-      except the instant; no charge, no debt.
+    * `pendiente -> aceptado` - **she** accepted it, and the charge and
+      its lines are written in the same transaction.
+    * `pendiente -> rechazado` - **she** refused it. Nothing is written
+      except the instant and her reason; no charge, no debt.
 
-    Every other pair is refused. A confirmed proposal may not be confirmed
-    again (`propuesta_ya_confirmada`) and a cancelled one may not be
-    cancelled again (`propuesta_ya_cancelada`); neither can go back to
-    `pendiente`, because the transition is one-way.
+    Every other pair is refused. An accepted proposal may not be
+    accepted again (`propuesta_ya_aceptada`) and a rejected one may not
+    be rejected again (`propuesta_ya_rechazada`); neither can go back
+    to `pendiente`, because the transition is one-way.
 
     **The guard is the stored proposal state**, not a projection of the
-    ledger. The proposal *is* the state: there is no second source of truth
-    to reconcile.
+    ledger. The proposal *is* the state: there is no second source of
+    truth to reconcile.
     """
     if estado_actual == PropuestaEstado.PENDIENTE:
-        if destino == PropuestaEstado.CONFIRMADO:
+        if destino == PropuestaEstado.ACEPTADO:
             return None
-        if destino == PropuestaEstado.CANCELADO:
+        if destino == PropuestaEstado.RECHAZADO:
             return None
         # Moving to `pendiente` from `pendiente` is not a transition the
         # shop performs; the proposal is already pending.
-        return PROPUESTA_YA_CONFIRMADA
+        return PROPUESTA_YA_ACEPTADA
 
-    if estado_actual == PropuestaEstado.CONFIRMADO:
-        return PROPUESTA_YA_CONFIRMADA
+    if estado_actual == PropuestaEstado.ACEPTADO:
+        return PROPUESTA_YA_ACEPTADA
 
-    if estado_actual == PropuestaEstado.CANCELADO:
-        return PROPUESTA_YA_CANCELADA
+    if estado_actual == PropuestaEstado.RECHAZADO:
+        return PROPUESTA_YA_RECHAZADA
 
-    return PROPUESTA_YA_CONFIRMADA
+    return PROPUESTA_YA_ACEPTADA
 
 
 def confirmacion_requerida(charge_exists, confirmation_rows) -> bool:

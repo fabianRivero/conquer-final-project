@@ -11,7 +11,7 @@ with them (ADR-18), and the escalation flag had no object left: a charge
 without a confirmation cannot exist, so there is nothing to escalate.
 
 The **proposal** tests are about the *guard*: a `FiadoPropuesto` moves from
-`pendiente` to exactly one of `confirmado` or `cancelado`, never back. The
+`pendiente` to exactly one of `aceptado` or `rechazado`, never back. The
 guard reads the **stored** proposal state, because the proposal *is* the
 state (ADR-19, design §6).
 """
@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from tienda.domain.confirmation import (
-    PROPUESTA_YA_CANCELADA,
-    PROPUESTA_YA_CONFIRMADA,
+    PROPUESTA_YA_ACEPTADA,
+    PROPUESTA_YA_RECHAZADA,
     confirmacion_efectiva,
     confirmacion_requerida,
     estado_cargo,
@@ -120,46 +120,46 @@ def test_the_state_vocabulary_has_exactly_two_values():
 # ---------------------------------------------------------------------------
 
 
-def test_a_pending_proposal_may_be_confirmed():
-    """`pendiente -> confirmado` is allowed."""
+def test_a_pending_proposal_may_be_accepted():
+    """`pendiente -> aceptado` is allowed."""
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+            PropuestaEstado.PENDIENTE, PropuestaEstado.ACEPTADO
         )
         is None
     )
 
 
-def test_a_pending_proposal_may_be_cancelled():
-    """`pendiente -> cancelado` is allowed.
+def test_a_pending_proposal_may_be_rejected():
+    """`pendiente -> rechazado` is allowed.
 
-    A cancellation writes nothing but the instant: no charge, no debt.
+    A rejection writes nothing but the instant: no charge, no debt.
     """
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.PENDIENTE, PropuestaEstado.CANCELADO
+            PropuestaEstado.PENDIENTE, PropuestaEstado.RECHAZADO
         )
         is None
     )
 
 
-def test_a_confirmed_proposal_may_not_be_confirmed_again():
-    """A confirmed proposal is refused with `propuesta_ya_confirmada`."""
+def test_an_accepted_proposal_may_not_be_accepted_again():
+    """An accepted proposal is refused with `propuesta_ya_aceptada`."""
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
+            PropuestaEstado.ACEPTADO, PropuestaEstado.ACEPTADO
         )
-        == PROPUESTA_YA_CONFIRMADA
+        == PROPUESTA_YA_ACEPTADA
     )
 
 
-def test_a_cancelled_proposal_may_not_be_cancelled_again():
-    """A cancelled proposal is refused with `propuesta_ya_cancelada`."""
+def test_a_rejected_proposal_may_not_be_rejected_again():
+    """A rejected proposal is refused with `propuesta_ya_rechazada`."""
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.CANCELADO, PropuestaEstado.CANCELADO
+            PropuestaEstado.RECHAZADO, PropuestaEstado.RECHAZADO
         )
-        == PROPUESTA_YA_CANCELADA
+        == PROPUESTA_YA_RECHAZADA
     )
 
 
@@ -169,7 +169,7 @@ def test_the_transition_is_one_way():
     The machine has two branches and no way back: a confirmed proposal stays
     confirmed and a cancelled one stays cancelled.
     """
-    for estado in (PropuestaEstado.CONFIRMADO, PropuestaEstado.CANCELADO):
+    for estado in (PropuestaEstado.ACEPTADO, PropuestaEstado.RECHAZADO):
         refusals = {
             propuesta_transicion_permitida(estado, destino)
             for destino in PropuestaEstado
@@ -183,9 +183,9 @@ def test_a_confirmed_proposal_may_not_be_cancelled():
     """A confirmed proposal is already a charge; it cannot be withdrawn."""
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.CONFIRMADO, PropuestaEstado.CANCELADO
+            PropuestaEstado.ACEPTADO, PropuestaEstado.RECHAZADO
         )
-        == PROPUESTA_YA_CONFIRMADA
+        == PROPUESTA_YA_ACEPTADA
     )
 
 
@@ -193,9 +193,9 @@ def test_a_cancelled_proposal_may_not_be_confirmed():
     """A cancelled proposal never becomes a charge."""
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.CANCELADO, PropuestaEstado.CONFIRMADO
+            PropuestaEstado.RECHAZADO, PropuestaEstado.ACEPTADO
         )
-        == PROPUESTA_YA_CANCELADA
+        == PROPUESTA_YA_RECHAZADA
     )
 
 
@@ -211,15 +211,15 @@ def test_the_guard_reads_the_stored_state_not_a_projection():
     # alone.
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+            PropuestaEstado.PENDIENTE, PropuestaEstado.ACEPTADO
         )
         is None
     )
     assert (
         propuesta_transicion_permitida(
-            PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
+            PropuestaEstado.ACEPTADO, PropuestaEstado.ACEPTADO
         )
-        == PROPUESTA_YA_CONFIRMADA
+        == PROPUESTA_YA_ACEPTADA
     )
 
 

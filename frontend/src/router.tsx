@@ -23,6 +23,7 @@ import { createBrowserRouter } from "react-router-dom";
 
 import { Cliente } from "./surfaces/Cliente";
 import { Cuenta } from "./surfaces/Cuenta";
+import { Mostrador } from "./surfaces/Mostrador";
 import { Posicion } from "./surfaces/Posicion";
 import { Propuesta } from "./surfaces/Propuesta";
 
@@ -51,6 +52,10 @@ export function crearRouter() {
       path: "/app/cuenta",
       element: <Cuenta />,
     },
+    {
+      path: "/app/mostrador",
+      element: <Mostrador />,
+    },
   ]);
 }
 
@@ -60,4 +65,5 @@ export const RUTAS = {
   propuesta: (id: number | string) => `/app/propuesta/${id}`,
   cliente: "/app/cliente",
   cuenta: "/app/cuenta",
+  mostrador: "/app/mostrador",
 } as const;
