@@ -204,23 +204,23 @@ v2_redesign:
     merged. The N5 gate was then OPENED by the owner - a product
     decision under a declared hypothesis, not field evidence - and that
     is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
-    and FOUR of them are delivered - the person's account (10.1), the
-    shop's login (10.2), the link with consent (10.3) and the
-    consolidation per shop (10.4).
-    The next work unit is **10.5, the counter and the fiado**: the
-    person is identified at the counter - the attendant asks her for her
-    USERNAME and types it, and the system finds her - the owner prepares
-    the fiado, the client accepts or refuses it **from her own account**
-    with the reason for a refusal, and her own account carries the
-    amounts, the ageing and the fiados with their state - including
-    `parcial`, the payment that retires part of a charge.
-    Underneath all of it, what remains is still not a slice but a
-    DECISION: the validation round with the shop owners, which design
-    section 18.3 declares as the evidence gate. The gate is open under
-    the owner's decision, and the round would confirm or contradict it.
-    The project's `knowledge_basis` stays `design-hypothesis`, and the
-    round itself is not planned work: it needs people who are not this
-    agent.
+    and **ALL FIVE are delivered** - the person's account (10.1), the
+    shop's login (10.2), the link with consent (10.3), the consolidation
+    per shop (10.4) and the counter with the fiado (10.5).
+    **The rewrite is CLOSED.** The person owns her account and her
+    credentials, she is a client of SEVERAL shops, the shop asks and
+    she answers, and she accepts or refuses the fiado from her own
+    account.
+    What remains is still not a slice but a DECISION: the validation
+    round with the shop owners, which design section 18.3 declares as
+    the evidence gate. The gate is open under the owner's decision, and
+    the round would confirm or contradict it. The project's
+    `knowledge_basis` stays `design-hypothesis`, and the round itself is
+    not planned work: it needs people who are not this agent.
+    Two smaller things are also open, and neither is planned work: the
+    identification by QR in the shop, which was explicitly DEFERRED in
+    favour of the credentials, and the rotation of the Neon password,
+    which was left in the clear in a chat.
   deploy_fix_2026_11_24:
     completed: '2026-11-24'
     pull_requests: [38, 39]
@@ -281,6 +281,118 @@ v2_redesign:
       - backend/tienda/migrations/0006_customer_es_la_persona.py
       - backend/tests/integration/test_migracion_con_datos.py
       - backend/tests/e2e/test_public_url.py
+  phase10e_delivered:
+    completed: '2026-11-24'
+    pull_requests: [41]
+    tasks: 5
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/domain/confirmation.py
+      - backend/tienda/domain/types.py
+      - backend/tienda/api/vinculos.py
+      - backend/tienda/api/mostrador.py
+      - backend/tienda/api/cuenta.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tienda/migrations/0007_la_persona_decide.py
+      - backend/tests/integration/test_10_5_estados.py
+      - backend/tests/integration/test_10_5_la_persona_decide.py
+      - backend/tests/integration/test_10_5_cuenta_de_la_persona.py
+      - backend/tests/integration/test_10_5_el_mostrador.py
+      - backend/tests/integration/test_10_5_superficies.py
+      - backend/tests/integration/test_serializers_api.py
+      - backend/tests/unit/test_confirmation.py
+      - frontend/src/api/fiados.ts
+      - frontend/src/api/staff.ts
+      - frontend/src/components/Cargos.tsx
+      - frontend/src/components/Fiados.tsx
+      - frontend/src/components/index.ts
+      - frontend/src/surfaces/Cuenta.tsx
+      - frontend/src/surfaces/Mostrador.tsx
+      - frontend/src/router.tsx
+    lines: 1894
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      vocabulary, the migration WITH its data, the service layer, the
+      routes, the screens and the tests are ONE behaviour - the person
+      decides - and a PR with the model without the routes reaches
+      nothing. It also renames the vocabulary in five test modules,
+      because the states of the proposal are the contract.
+    the_states_are_the_persons_answer: >-
+      The `FiadoPropuesto` moves from `pendiente` to `aceptado` or
+      `rechazado`. **The old words said who acted** - `confirmado` and
+      `cancelado` were the SHOP's - and the shop is not who answers:
+      the shop ASKS. **The `Confirmacion.estado` does not move**: it is
+      the state of the CHARGE and it has one value only, `confirmado`.
+      The charge that exists because she accepted is `confirmado`, and
+      the proposal she accepted is `aceptado`. Two rows, two
+      vocabularies, two questions - and a test that says so.
+    the_reason_is_free_text_and_it_may_be_empty: >-
+      A refusal without an explanation is not an answer, and an empty
+      explanation is still an answer: she is not obliged to justify
+      herself to the shop. **And the constraint does NOT require a
+      reason on a rejection**, because there are TWO rejections and only
+      one of them has one: hers. The shop's cancellation is a different
+      act - the owner giving up on the sale - and it has no explanation
+      to give. So the constraint says WHERE a reason may live, not that
+      it MUST be there.
+    the_counter_asks_for_the_username_alone: >-
+      The attendant asks her for her username and types it, and the
+      system finds her. **There is no password field**, and the search
+      NEVER authenticates anybody - it finds a person and does not sign
+      her in, because the answer to the fiado is hers and the counter
+      has no way to answer for her, so it has no way to pretend she did.
+      The username is her PUBLIC NAME, like an email address; a search
+      that asked for the password would put a secret the owner does not
+      have into a request the owner can read. **That the owner does not
+      see what she types is a SUPPOSITION OF THE PROCESS, not a
+      technical guarantee**, and the code and the docs say so.
+    the_person_answers_from_her_own_account: >-
+      `POST /api/v1/cuenta/fiados/aceptar/` writes the same four rows
+      the staff's confirmation wrote, in one transaction: the
+      `LedgerEntry(cargo)`, the `CargoLinea[]` COPIED from the
+      proposal's own lines, the `Confirmacion(confirmado)` and the
+      proposal's `confirmed_at`. The rejection writes the instant and
+      her reason, and nothing else. **The body is `{fiado_id}` alone**:
+      the figure is the shop's, and the shop's figure is what the
+      proposal already holds. **The scope is the PERSON's**, not the
+      shop's - she may have fiados in several - and a fiado of another
+      person is NOT FOUND, not refused.
+    her_account_carries_the_figures: >-
+      The amounts, the ageing and the limit are PER SHOP - "she owes 30
+      here" and "she owes 20 there" are two facts, and one account that
+      mixed them would be lying about both. The fiados come with their
+      state and their lines, and the charges with their state -
+      `pendiente`, `parcial` or `pagado`, derived on read and never
+      stored (ADR-27). **And the rule of the 10.3 does not move**: a
+      pending link shows the shop's name and nothing else.
+    the_migration_order_matters: >-
+      The old vocabulary constraint holds the old words in its
+      CONDITION, so it has to go BEFORE the data is written, and the new
+      one has to come AFTER. Django undoes the list backwards, so the
+      inverse moves the rows back to the old words before the old
+      constraint comes back. **The order is written in the migration**,
+      because it is the thing that breaks.
+    evidence: >-
+      128 unit and 621 integration tests pass on main after the merge -
+      thirteen of them new - and `makemigrations --check` detects no
+      change while `manage.py check` sees nothing. **The migration was
+      verified against the REAL scenario**: a database already at the
+      `0006`, with data - it applies, **no row is lost**, the three
+      proposals migrate with their instants intact, and the flow of the
+      10.5 works against it: she accepts, the charge is written with
+      its line, and her account carries the amounts, the ageing and the
+      states. The whole deploy command (`migrate` + `seed_demo`) works
+      **twice**. The frontend typecheck and the bundle build pass.
+    what_this_slice_does_not_touch: >-
+      The client's CREDENTIAL - the `codigo` by prefix, which is the
+      counter's old mechanism and which the identification by username
+      replaces at the counter. The client's own statement, which still
+      reads through the credential. And the QR identification, which was
+      explicitly deferred.
   phase10d_delivered:
     completed: '2026-11-23'
     pull_requests: [36]
