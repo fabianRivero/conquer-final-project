@@ -62,6 +62,22 @@ def enlazar_personas(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # **NOT atomic**, and the reason is PostgreSQL.
+    #
+    # The `AddField('customer.user')` comes FIRST and leaves its index to
+    # the END of the migration - deferred, because the column does not
+    # exist yet. And the `RunPython` in the middle WRITES rows: it links
+    # the customer rows that carry a person's username.
+    #
+    # PostgreSQL refuses to `CREATE INDEX` while the transaction has
+    # pending trigger events, and the rows this migration writes ARE
+    # pending trigger events. The `0004` failed on the deploy for
+    # exactly this reason, and this migration has the same shape.
+    #
+    # Outside the transaction, each operation has its own: the writes
+    # commit, and the index is created with nothing pending.
+    atomic = False
+
     dependencies = [
         ("tienda", "0005_vinculo_con_consentimiento"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
