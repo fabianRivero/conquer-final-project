@@ -221,6 +221,66 @@ v2_redesign:
     The project's `knowledge_basis` stays `design-hypothesis`, and the
     round itself is not planned work: it needs people who are not this
     agent.
+  deploy_fix_2026_11_24:
+    completed: '2026-11-24'
+    pull_requests: [38, 39]
+    the_deploy_failed: >-
+      Render's build ran `migrate --noinput` and died with
+      `cannot CREATE INDEX "tienda_perfiltienda" because it has pending
+      trigger events`. **The cause was an ATOMIC migration that writes
+      rows.** The `0004` does three things in one transaction: the
+      `AddField('perfiltienda.shop')` - whose FK index is DEFERRED to
+      the end of the migration, because the column does not exist yet -
+      the `CreateModel`, and the `RunPython`, which **writes rows** into
+      `tienda_perfiltienda` by creating the business profile of every
+      shop that has staff. PostgreSQL refuses to `CREATE INDEX` while
+      the transaction has pending trigger events, and those rows ARE
+      pending trigger events.
+    it_only_failed_on_the_deploy: >-
+      **The local database had no shop with staff.** The `RunPython`
+      found nothing to write, there were no pending trigger events, and
+      the index was created without trouble. The deploy database had the
+      demo's data, so it wrote, and the index could not be created. **A
+      migration is not proved by a database that has nothing in it** -
+      the data is the part that can break it.
+    the_fix: >-
+      `atomic = False` on the `0004` - and on the `0006`, which had the
+      SAME latent bug: its `AddField('customer.user')` also defers the
+      index and its `RunPython` also writes rows. The `0005` already had
+      it, for the equivalent reason (`ALTER TABLE` with pending trigger
+      events). The `0006` had it on the `RunPython` but NOT on the
+      Migration class, which is why the test caught it.
+    the_stale_test: >-
+      The e2e asserted a **403** for the `dependiente` on
+      `/api/v1/clientes/`, but the **N5 gate is OPEN** - the owner's
+      Phase 9 decision: the `dependiente` READS the credit book, and
+      `ClientesView` carries `SoloPersonal`, which admits both roles.
+      The test was written when the `dependiente` was refused everywhere
+      and was never inverted when the gate opened - the Phase 9 tests
+      were, this one was not. It now asserts what the contract says: the
+      `dependiente` reads the book (200, reduced schema, no policy) and
+      is refused on the OWNER'S POLICY - the catalogue, the proposed
+      payments, the limit, the suspension, the credential.
+    the_verification_that_was_missing: >-
+      The WHOLE chain against a database **with the demo's data**: it
+      applies, **no row is lost** - the ledger rows stay attached to
+      their customer - the links come out `aceptado` with their limit,
+      the `0006` links the person whose alias is her username and leaves
+      the other alone, the chain reverses and applies again, and the
+      **whole deploy command** (`migrate` + `seed_demo`) works and works
+      **twice**.
+    evidence: >-
+      580 integration and unit tests plus the **11 e2e tests against the
+      live deployment** pass: 591 in total. The deployment answers with
+      TLSv1.3, the owner's login works, and the role matrix was checked
+      against the real service - the `dependiente` gets 200 on
+      `/api/v1/clientes/` and 403 `permiso_insuficiente` on
+      `/api/v1/catalogo/` and `/api/v1/pagos-propuestos/`.
+    files:
+      - backend/tienda/migrations/0004_miembro_de_tienda.py
+      - backend/tienda/migrations/0006_customer_es_la_persona.py
+      - backend/tests/integration/test_migracion_con_datos.py
+      - backend/tests/e2e/test_public_url.py
   phase10d_delivered:
     completed: '2026-11-23'
     pull_requests: [36]
