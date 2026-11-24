@@ -849,7 +849,7 @@ def test_one_confirmed_row_per_charge(cargo, user):
     """A charge holds at most one confirmation, for the whole life of the charge.
 
     The partial unique index `uniq_confirmacion_one_confirmado_per_cargo` is
-    the DB-level twin of `propuesta_ya_confirmada`: the API contract names
+    the DB-level twin of `propuesta_ya_aceptada`: the API contract names
     the proposal-level code (CC-01), and this index is the backstop under a
     race.
     """

@@ -347,7 +347,7 @@ def test_confirming_marks_the_proposal(api, customer, producto):
     )
 
     propuesta.refresh_from_db()
-    assert propuesta.estado == "confirmado"
+    assert propuesta.estado == "aceptado"
     assert propuesta.confirmed_at is not None
     assert propuesta.canceled_at is None
 
@@ -357,7 +357,7 @@ def test_a_second_confirmation_is_refused_and_appends_nothing(
 ):
     """Rule 7: a proposal is confirmed once.
 
-    The second confirmation is refused with `propuesta_ya_confirmada` and
+    The second confirmation is refused with `propuesta_ya_aceptada` and
     writes NOTHING - not a second charge, not a second confirmation.
     """
     _preparar(api, customer, producto)
@@ -371,7 +371,7 @@ def test_a_second_confirmation_is_refused_and_appends_nothing(
     )
 
     assert respuesta.status_code == 422
-    assert respuesta.json()["codigo_error"] == "propuesta_ya_confirmada"
+    assert respuesta.json()["codigo_error"] == "propuesta_ya_aceptada"
     assert LedgerEntry.objects.count() == 1
     assert CargoLinea.objects.count() == 1
     assert Confirmacion.objects.count() == 1
@@ -446,13 +446,13 @@ def test_cancelling_writes_nothing_but_the_instant(api, customer, producto):
     assert Confirmacion.objects.count() == 0
 
     propuesta.refresh_from_db()
-    assert propuesta.estado == "cancelado"
+    assert propuesta.estado == "rechazado"
     assert propuesta.canceled_at is not None
     assert propuesta.confirmed_at is None
 
 
 def test_a_second_cancellation_is_refused(api, customer, producto):
-    """Rule 7: a proposal is cancelled once."""
+    """Rule 7: a proposal is rejected once."""
     _preparar(api, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
 
@@ -464,13 +464,13 @@ def test_a_second_cancellation_is_refused(api, customer, producto):
     )
 
     assert respuesta.status_code == 422
-    assert respuesta.json()["codigo_error"] == "propuesta_ya_cancelada"
+    assert respuesta.json()["codigo_error"] == "propuesta_ya_rechazada"
 
 
-def test_a_cancelled_proposal_never_becomes_a_charge(api, customer, producto):
+def test_a_rejected_proposal_never_becomes_a_charge(api, customer, producto):
     """CC-04, CC-01: the transition is one-way.
 
-    A cancelled proposal cannot be confirmed afterwards, and the refusal
+    A rejected proposal cannot be accepted afterwards, and the refusal
     writes nothing.
     """
     _preparar(api, customer, producto)
@@ -484,7 +484,7 @@ def test_a_cancelled_proposal_never_becomes_a_charge(api, customer, producto):
     )
 
     assert respuesta.status_code == 422
-    assert respuesta.json()["codigo_error"] == "propuesta_ya_cancelada"
+    assert respuesta.json()["codigo_error"] == "propuesta_ya_rechazada"
     assert LedgerEntry.objects.count() == 0
     assert Confirmacion.objects.count() == 0
 
@@ -725,7 +725,7 @@ def test_the_dependiente_may_confirm(api_dependiente, customer, producto):
     assert Confirmacion.objects.count() == 1
 
 
-def test_the_dependiente_may_cancel(api_dependiente, customer, producto):
+def test_the_dependiente_may_reject(api_dependiente, customer, producto):
     """9.1: the `dependiente` cancels its own proposal."""
     _preparar(api_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
@@ -736,7 +736,7 @@ def test_the_dependiente_may_cancel(api_dependiente, customer, producto):
 
     assert respuesta.status_code == 200
     propuesta.refresh_from_db()
-    assert propuesta.estado == "cancelado"
+    assert propuesta.estado == "rechazado"
     assert LedgerEntry.objects.count() == 0
 
 
@@ -850,14 +850,14 @@ def test_two_concurrent_confirmations_append_one_charge(
     assert CargoLinea.objects.count() == 1
 
     propuesta = FiadoPropuesto.objects.get()
-    assert propuesta.estado == "confirmado"
+    assert propuesta.estado == "aceptado"
 
     # One of the two was refused, and it was refused with the code of the
     # one-way transition - never with a 500.
     codigos = sorted(r.status_code for r in respuestas)
     assert codigos == [201, 422]
     refute = [r for r in respuestas if r.status_code == 422][0]
-    assert refute.json()["codigo_error"] == "propuesta_ya_confirmada"
+    assert refute.json()["codigo_error"] == "propuesta_ya_aceptada"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -867,7 +867,7 @@ def test_a_confirmation_racing_a_cancellation_leaves_one_state(
     """5.7: the proposal ends in exactly one state.
 
     A confirmation racing a cancellation must never leave the proposal
-    both confirmed and cancelled, nor a charge without its confirmation.
+    both accepted and rejected, nor a charge without its confirmation.
     The `transaction=True` is for the same reason as the test above.
     """
     api, session_key = api_con_sesion
@@ -906,7 +906,7 @@ def test_a_confirmation_racing_a_cancellation_leaves_one_state(
         h.join()
 
     propuesta = FiadoPropuesto.objects.get()
-    assert propuesta.estado in ("confirmado", "cancelado")
+    assert propuesta.estado in ("aceptado", "rechazado")
     assert not (propuesta.confirmed_at and propuesta.canceled_at)
 
     # A charge and its confirmation always come together.

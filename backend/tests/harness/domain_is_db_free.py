@@ -258,21 +258,21 @@ comprobar(
 )
 comprobar(
     propuesta_transicion_permitida(
-        PropuestaEstado.PENDIENTE, PropuestaEstado.CONFIRMADO
+        PropuestaEstado.PENDIENTE, PropuestaEstado.ACEPTADO
     )
     is None,
     "a pending proposal may be confirmed",
 )
 comprobar(
     propuesta_transicion_permitida(
-        PropuestaEstado.CONFIRMADO, PropuestaEstado.CONFIRMADO
+        PropuestaEstado.ACEPTADO, PropuestaEstado.ACEPTADO
     )
     is not None,
     "a confirmed proposal may not be confirmed again",
 )
 comprobar(
     propuesta_transicion_permitida(
-        PropuestaEstado.CANCELADO, PropuestaEstado.CANCELADO
+        PropuestaEstado.RECHAZADO, PropuestaEstado.RECHAZADO
     )
     is not None,
     "a cancelled proposal may not be cancelled again",

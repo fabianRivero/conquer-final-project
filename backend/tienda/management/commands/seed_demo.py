@@ -348,14 +348,19 @@ class Command(BaseCommand):
         return propuesta
 
     def _propuesta_cancelada(self, tienda, cliente, dueno, productos):
-        """One CANCELLED proposal: the client declined."""
+        """One REJECTED proposal: the person refused it.
+
+        **The refusal carries a reason**, because a refusal without an
+        explanation is not an answer. The seeded one is short and honest.
+        """
         propuesta = FiadoPropuesto.objects.create(
             shop=tienda,
             customer=cliente,
             user=dueno,
-            estado=PropuestaEstado.CANCELADO.value,
+            estado=PropuestaEstado.RECHAZADO.value,
             total=Decimal("4.30"),
             canceled_at=timezone.now() - timezone.timedelta(days=1),
+            motivo_rechazo="Hoy no.",
         )
         producto = productos["Aceite"]
         cantidad = Decimal("1")

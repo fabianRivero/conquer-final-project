@@ -207,6 +207,10 @@ def test_el_dependiente_cancela_su_propia_propuesta(api_dependiente, customer, p
 
     The cancellation writes **nothing** but the instant: no charge, no
     lines, no confirmation.
+
+    **The word is `rechazado`, not `cancelado`**: the states are the
+    person's, and the person is who answers. The shop's act of giving up
+    on the sale is a different act, and it lands on the same state.
     """
     _preparar(api_dependiente, customer, producto)
     propuesta = FiadoPropuesto.objects.get()
@@ -217,7 +221,7 @@ def test_el_dependiente_cancela_su_propia_propuesta(api_dependiente, customer, p
 
     assert respuesta.status_code == 200
     propuesta.refresh_from_db()
-    assert propuesta.estado == "cancelado"
+    assert propuesta.estado == "rechazado"
     assert LedgerEntry.objects.count() == 0
 
 

@@ -65,8 +65,21 @@ CONFIRMATION_STATES = ("confirmado",)
 CONFIRMATION_ORIGINS = ("tienda", "dependiente")
 
 # The vocabulary of `FiadoPropuesto.estado`. The proposal moves from
-# `pendiente` to exactly one of `confirmado` or `cancelado`, never back.
-PROPUESTA_ESTADOS = ("pendiente", "confirmado", "cancelado")
+# `pendiente` to exactly one of `aceptado` or `rechazado`, never back.
+#
+# **The words say what the PERSON did.** The shop asks; she answers.
+# The old vocabulary - `confirmado` and `cancelado` - said the SHOP
+# acted, and the client never wrote to the book.
+PROPUESTA_ESTADOS = ("pendiente", "aceptado", "rechazado")
+
+# The vocabulary of the state of a CHARGE, as the person reads it: how
+# much of it is still owed. It is **derived on read** and never stored:
+# a `pagado` column on the charge would break the append-only guarantee
+# of the book, and a stored balance is a derived value (ADR-27).
+#
+# `pendiente` - nobody paid it. `parcial` - a payment retired part of it.
+# `pagado` - a payment retired all of it.
+CARGO_ESTADOS = ("pendiente", "parcial", "pagado")
 
 # The vocabulary of `PagoPropuesto.estado`. The proposal moves from
 # `pendiente` to exactly one of `validado` or `rechazado`, never back.
@@ -404,6 +417,13 @@ class FiadoPropuesto(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(blank=True, null=True)
     canceled_at = models.DateTimeField(blank=True, null=True)
+    # **The reason she gave for refusing.** It is HER text: the shop
+    # asked, she answered, and the answer may carry an explanation.
+    #
+    # **It may be EMPTY.** A refusal without an explanation is not an
+    # answer, and an empty explanation is still an answer: she is not
+    # obliged to justify herself to the shop.
+    motivo_rechazo = models.TextField(blank=True, null=True)
 
     class Meta:
         db_table = "tienda_fiadopropuesto"
@@ -413,28 +433,62 @@ class FiadoPropuesto(models.Model):
                 condition=models.Q(estado__in=PROPUESTA_ESTADOS),
                 name="chk_fiadopropuesto_estado_vocabulary",
             ),
-            # `confirmado` implies `confirmed_at IS NOT NULL` and
-            # `cancelado` implies `canceled_at IS NOT NULL`. The two are
+            # `aceptado` implies `confirmed_at IS NOT NULL` and
+            # `rechazado` implies `canceled_at IS NOT NULL`. The two are
             # mutually exclusive.
             models.CheckConstraint(
                 condition=(
-                    ~models.Q(estado="confirmado")
+                    ~models.Q(estado="aceptado")
                     | (
                         models.Q(confirmed_at__isnull=False)
                         & models.Q(canceled_at__isnull=True)
                     )
                 ),
-                name="chk_fiadopropuesto_confirmado_fields",
+                name="chk_fiadopropuesto_aceptado_fields",
             ),
             models.CheckConstraint(
                 condition=(
-                    ~models.Q(estado="cancelado")
+                    ~models.Q(estado="rechazado")
                     | (
                         models.Q(canceled_at__isnull=False)
                         & models.Q(confirmed_at__isnull=True)
                     )
                 ),
-                name="chk_fiadopropuesto_cancelado_fields",
+                name="chk_fiadopropuesto_rechazado_fields",
+            ),
+            # **A `pendiente` proposal has no answer yet**: no
+            # confirmation, no rejection, and no reason. The reason
+            # belongs to the refusal and to nothing else.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(estado="pendiente")
+                    | (
+                        models.Q(confirmed_at__isnull=True)
+                        & models.Q(canceled_at__isnull=True)
+                        & models.Q(motivo_rechazo__isnull=True)
+                    )
+                ),
+                name="chk_fiadopropuesto_pendiente_sin_respuesta",
+            ),
+            # **Only a rejection carries a reason.** An accepted
+            # proposal has nothing to explain: she said yes.
+            #
+            # The reason is **not required** on a rejection, because
+            # there are two rejections and only one of them has a
+            # reason: the PERSON's, which she writes from her own
+            # account. The shop's cancellation is a different act - the
+            # owner gave up on the sale - and it has no explanation to
+            # give.
+            #
+            # So the constraint says WHERE a reason may live and not
+            # that it MUST: the migrated rejections of the old rows
+            # have none either, because the shop never asked her why.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(motivo_rechazo__isnull=False)
+                    | models.Q(estado="rechazado")
+                ),
+                name="chk_fiadopropuesto_motivo_solo_en_el_rechazo",
             ),
             # The total is never negative.
             models.CheckConstraint(

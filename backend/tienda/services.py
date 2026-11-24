@@ -788,7 +788,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     If any of them fails, none of them survives.
 
     Rule 7 - the transition is one-way: a proposal that is not `pendiente`
-    is refused with `propuesta_ya_confirmada` or `propuesta_ya_cancelada`.
+    is refused with `propuesta_ya_aceptada` or `propuesta_ya_rechazada`.
 
     Rule 8 - a proposal confirmed while the customer is suspended writes
     **no** charge. The suspension is derived, never stored, and it is read
@@ -803,7 +803,7 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
         propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
         # Rule 7: the transition, decided by the stored state.
-        destino = PropuestaEstado.CONFIRMADO.value
+        destino = PropuestaEstado.ACEPTADO.value
         error = reglas_confirmacion.propuesta_transicion_permitida(
             propuesta.estado, destino
         )
@@ -874,22 +874,27 @@ def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
 
 
 def cancelar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
-    """Cancel a proposal - the client declined.
+    """Cancel a proposal - **the client declined, and the shop recorded
+    it**.
 
     **Nothing is written but the instant.** No charge, no lines, no
     confirmation: the outstanding never moved, because it never moved in
     the first place (CC-04, design 13.2).
 
     Rule 7: the transition is one-way, so a proposal that is not
-    `pendiente` is refused - `propuesta_ya_confirmada` when it was
-    confirmed, `propuesta_ya_cancelada` when it was already cancelled.
+    `pendiente` is refused - `propuesta_ya_aceptada` when it was
+    accepted, `propuesta_ya_rechazada` when it was already rejected.
+
+    **The person answers now, and this route is the shop's.** The
+    rejection with a reason - the one the person gives from her own
+    account - is a different act, and it lives in its own function.
     """
     momento = at or timezone.now()
 
     with transaction.atomic():
         propuesta = _propuesta_bloqueada(shop_id, propuesta_id, user=user)
 
-        destino = PropuestaEstado.CANCELADO.value
+        destino = PropuestaEstado.RECHAZADO.value
         error = reglas_confirmacion.propuesta_transicion_permitida(
             propuesta.estado, destino
         )
@@ -974,6 +979,27 @@ def pagado_de(cargo) -> Decimal:
 def saldo_de(cargo) -> Decimal:
     """What is still owed on a charge: its amount minus its `pagado`."""
     return Decimal(cargo.amount) - pagado_de(cargo)
+
+
+def estado_cargo(cargo) -> str:
+    """How much of a charge is still owed, as a **word**.
+
+    **It is derived on read and never stored.** A `pagado` column on the
+    charge would break the append-only guarantee of the book, and a
+    stored balance is a derived value (ADR-27, landmine 12).
+
+    The three words are the ones the PERSON reads it with:
+
+    * `pendiente` - nobody paid it;
+    * `parcial` - a payment retired part of it;
+    * `pagado` - a payment retired all of it.
+    """
+    saldo = saldo_de(cargo)
+    if saldo <= 0:
+        return "pagado"
+    if pagado_de(cargo) > 0:
+        return "parcial"
+    return "pendiente"
 
 
 def cliente_para_el_dependiente(

@@ -265,9 +265,12 @@ def test_the_seed_creates_one_pending_and_one_cancelled_proposal(seeded):
     assert pendiente.canceled_at is None
     assert PropuestaLinea.objects.filter(propuesta=pendiente).count() >= 1
 
-    cancelada = propuestas.get(estado="cancelado")
-    assert cancelada.canceled_at is not None
-    assert cancelada.confirmed_at is None
+    # **The rejection carries a reason**: a refusal without an
+    # explanation is not an answer.
+    rechazada = propuestas.get(estado="rechazado")
+    assert rechazada.canceled_at is not None
+    assert rechazada.confirmed_at is None
+    assert rechazada.motivo_rechazo
 
 
 def test_the_pending_proposal_moves_no_outstanding(seeded):
