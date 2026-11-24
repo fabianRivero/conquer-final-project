@@ -69,6 +69,31 @@ def Shop_usuarios_a_membresias(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
+    # **NOT atomic**, and the reason is PostgreSQL.
+    #
+    # This migration WRITES rows: the `RunPython` creates the business
+    # profile of every shop that has staff, and those rows go into
+    # `tienda_perfiltienda`. And the `AddField('perfiltienda.shop')`
+    # that comes FIRST leaves its FK index to the END of the migration -
+    # deferred, because the column it indexes does not exist yet.
+    #
+    # PostgreSQL refuses to `CREATE INDEX` while the transaction has
+    # pending trigger events, and the rows this migration writes ARE
+    # pending trigger events. So the index could not be created and the
+    # whole migration rolled back:
+    #
+    #     cannot CREATE INDEX "tienda_perfiltienda" because it has
+    #     pending trigger events
+    #
+    # **It only failed on the deploy.** The local database had no shop
+    # with staff, so the `RunPython` wrote NOTHING, there were no
+    # pending trigger events, and the index was created without
+    # trouble. The deploy database had the demo's data, so it wrote.
+    #
+    # Outside the transaction, each operation has its own: the writes
+    # commit, and the index is created with nothing pending.
+    atomic = False
+
     dependencies = [
         ('tienda', '0003_perfiles_persona'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
