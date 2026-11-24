@@ -25,8 +25,11 @@
 
 import { useCallback, useState } from "react";
 
+import { Cargos } from "../components/Cargos";
+import { Fiados } from "../components/Fiados";
 import { Vinculos } from "../components/Vinculos";
 import { cuenta, PerfilTienda, Perfiles } from "../api/cuenta";
+import { fiados as fiadosApi, Cargo, Fiado } from "../api/fiados";
 import { vinculos as vinculosApi, Vinculo } from "../api/vinculos";
 import { cuerpo } from "../api/http";
 
@@ -37,6 +40,8 @@ export function Cuenta() {
   const [pantalla, setPantalla] = useState<Pantalla>("acceso");
   const [perfiles, setPerfiles] = useState<Perfiles | null>(null);
   const [susVinculos, setSusVinculos] = useState<Vinculo[]>([]);
+  const [susFiados, setSusFiados] = useState<Fiado[]>([]);
+  const [susCargos, setSusCargos] = useState<Cargo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -53,6 +58,16 @@ export function Cuenta() {
     const delVinculo = await vinculosApi.misVinculos();
     if (delVinculo.ok) {
       setSusVinculos(await cuerpo<Vinculo[]>(delVinculo) ?? []);
+    }
+
+    // The fiados waiting for her answer, and her charges.
+    const delFiado = await fiadosApi.mios();
+    if (delFiado.ok) {
+      setSusFiados(await cuerpo<Fiado[]>(delFiado) ?? []);
+    }
+    const delCargo = await fiadosApi.misCargos();
+    if (delCargo.ok) {
+      setSusCargos(await cuerpo<Cargo[]>(delCargo) ?? []);
     }
   }, []);
 
@@ -152,6 +167,49 @@ export function Cuenta() {
             }}
             error={error}
           />
+
+          {/*
+            **The fiados, and her answer.** The shop asked and she
+            answers here - the figure, its lines, and the buttons. And
+            the reason of a refusal is HERS: she may write one and she
+            may leave it empty.
+          */}
+          <Fiados
+            fiados={susFiados}
+            onAceptar={async (fiadoId) => {
+              const respuesta = await fiadosApi.aceptar(fiadoId);
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(
+                  respuesta,
+                );
+                setError(fallo?.codigo_error ?? "no se pudo aceptar");
+                return;
+              }
+              setError(null);
+              setAviso("Aceptaste el fiado.");
+              await refrescar();
+            }}
+            onRechazar={async (fiadoId, motivo) => {
+              const respuesta = await fiadosApi.rechazar(fiadoId, motivo);
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(
+                  respuesta,
+                );
+                setError(fallo?.codigo_error ?? "no se pudo rechazar");
+                return;
+              }
+              setError(null);
+              setAviso("Rechazaste el fiado.");
+              await refrescar();
+            }}
+            error={error}
+          />
+
+          {/*
+            **Her charges, with the state each one is in** - including
+            `parcial`, the payment that retired part of a charge.
+          */}
+          <Cargos cargos={susCargos} />
 
           {/*
             **The claim.** The shop registered her before she had an

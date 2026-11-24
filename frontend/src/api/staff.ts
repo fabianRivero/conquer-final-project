@@ -30,6 +30,22 @@ export const staff = {
   cliente: (id: number) =>
     peticion(`/clientes/${id}/`, { credentials: "same-origin" }),
 
+  /**
+   * **The counter finds the person.**
+   *
+   * The attendant asks her for her username and types it, and the
+   * system finds her. **It is a search and not an authentication**: the
+   * answer to the fiado is hers, from her own account, and the counter
+   * has no way to answer for her - so it has no way to pretend she did.
+   *
+   * **The username ALONE.** The password is typed by her, on her own
+   * device, and it never travels to the counter.
+   */
+  buscarEnElMostrador: (username: string) =>
+    peticion(`/mostrador/buscar/?username=${encodeURIComponent(username)}`, {
+      credentials: "same-origin",
+    }),
+
   /** Issue or rotate a customer's credential. */
   emitirCodigo: (id: number) =>
     peticion(`/clientes/${id}/codigo/`, {
