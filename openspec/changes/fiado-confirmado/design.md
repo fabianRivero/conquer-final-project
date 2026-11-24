@@ -1,4 +1,4 @@
-# Design: `fiado confirmado` — the charge that exists only after the client confirms it
+# Design: `fiado confirmado` — the charge that exists only after the PERSON confirms it
 
 > **Language contract.** Prose in English; every domain identifier, entity, field, API field and diagram label stays in the project's Spanish vocabulary (`fiado`, `cargo`, `pago`, `propuesta`, `linea`, `desglose`, `caja`, `dependiente`, `dueño`, `libreta`, `posición real`, `confirmación`, `existencias_registradas`, `codigo`, `posicion_real`, `confirmado_en`, `precio_unitario`, `confirmado_por`, `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `vigente`/`envejecido`/`viejo`/`cronico`, `pendiente`/`confirmado`/`cancelado`, `techo_no_conteo`).
 
@@ -12,14 +12,14 @@ This supersedes the abandoned `tienda-barrio` design (its folder stays untouched
 |---|---|---|
 | 1 | **Nothing derived is stored.** | Balances, buckets, `antiguedad_max_dias`, the suspension status and its `suspended_reason`, the effective confirmation state and `existencias_registradas` are computed on every read. The one persisted exception is the `suspended_override_at` act: an override is an *event*, not a derived value. |
 | 2 | **Two scopes, two mechanisms, never mixed.** | Staff scope = the session (`session["shop_id"]` plus the **membership** — the role is the relation's, and the relation names the business, and the business names the shop). Client scope = a per-request `codigo` resolved to one `Customer`. No client `User`, group or session, and no upgrade path either way. |
-| 3 | **A `cargo` is debt from the instant the client confirms it; the proposal before it is nothing.** | The `FiadoPropuesto` is a prepared figure, not an obligation: while it is `pendiente` it moves no balance, ages nothing and triggers nothing. The confirmation is the **gate**, not the attestation — the `cargo` and its `CargoLinea` rows are written in the same transaction that records the `Confirmacion`, so a charge without a confirmation cannot exist. A client who never comes to the shop leaves **no debt at all**, and the owner cancels the proposal. |
+| 3 | **A `cargo` is debt from the instant the PERSON confirms it; the proposal before it is nothing.** | The `FiadoPropuesto` is a prepared figure, not an obligation: while it is `pendiente` it moves no balance, ages nothing and triggers nothing. The confirmation is the **gate**, not the attestation — the `cargo` and its `CargoLinea` rows are written in the same transaction that records the `Confirmacion`, so a charge without a confirmation cannot exist. A client who never comes to the shop leaves **no debt at all**, and the owner cancels the proposal. |
 | 4 | **The client never writes to the book.** | The `codigo` grants **read** over the client's own statement and the right to **propose** a payment. It grants no write: no `LedgerEntry`, no `CargoLinea`, no `Confirmacion`, no `FiadoPropuesto`. The owner records every payment after validating the client's proposal. Less write surface is less attack surface (§8, §12). |
-| 5 | **The `desglose` is mandatory.** | A `cargo` carries one or more `CargoLinea` rows. A proposal with no lines cannot be confirmed. The client confirms a figure they can see broken down; a figure they cannot see broken down is not a figure they can confirm. |
+| 5 | **The `desglose` is mandatory.** | A `cargo` carries one or more `CargoLinea` rows. A proposal with no lines cannot be confirmed. The person confirms a figure she can see broken down; a figure she cannot see broken down is not a figure she can confirm. |
 
 ### 1.1 The lifecycle
 
 ```
-dueño / dependiente                Tienda                        Libro
+dueño / dependiente           Tienda                        Libro
       | prepare FiadoPropuesto                              |   -- no row, no debt
       | (customer + lineas + total)                         |
       |----------------------------->|                      |
@@ -27,15 +27,24 @@ dueño / dependiente                Tienda                        Libro
       |                              |-------------------->|
       |                              |  lineas[] + total   |
       |<-----------------------------|                     |
-      |                              | the client confirms (or declines)
-      | record the confirmation      |                     |
-      |---------------------------------------------------->|
-      |                              |   atomic: FiadoPropuesto(confirmado)
-      |                              |        + LedgerEntry(cargo) + CargoLinea[]
-      |                              |        + Confirmacion(confirmado)   -- NOW it is debt
-      | cancel (the client declined) |                     |
-      |---------------------------------------------------->|
-      |                              |   atomic: FiadoPropuesto(cancelado)
+      |                              | the client answers  |
+      |                              |  -- FROM HER OWN ACCOUNT:
+      |                              |  POST /api/v1/cuenta/fiados/aceptar/ {fiado_id}
+      |                              |     or .../rechazar/ {fiado_id, motivo?}
+      |                              |----------------------------->|
+      |                              | atomic: the proposal is 'pendiente'
+      |                              |   else 422 propuesta_ya_aceptada;
+      |                              |  the customer is not suspendido;
+      |                              |  total == sum(lineas);
+      |                              |  the body may carry nothing but 'fiado_id'
+      |                              |  INSERT LedgerEntry(cargo) + CargoLinea[]
+      |                              |  INSERT Confirmacion(confirmado, confirmado_en=now,
+      |                              |     origen=<server-inferred>, confirmado_por_id=<acting user>)
+      |                              |  UPDATE FiadoPropuesto(aceptado)
+      |<-----------------------------|  -- NOW it is debt
+      |                              |
+      |                              | atomic: FiadoPropuesto(rechazado)
+      |                              |  UPDATE FiadoPropuesto(motivo_rechazo)  -- HER reason
       |                              |                       -- no cargo, no debt
 ```
 
@@ -104,10 +113,10 @@ All tables live in `backend/tienda/models.py`. Money `Decimal(12,2)`, quantities
 
 `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` and `ImputacionPago` are append-only: `update()`/`delete()` raise `LedgerImmutableError` and no `PUT`/`PATCH`/`DELETE` route exists for them. There are exactly **two** mutable rows in the credit book. Each mutates only its own lifecycle — its state, the instant that state changed, and the act that caused it — and never anything else:
 
-- `FiadoPropuesto` — `estado`, `confirmed_at` and `canceled_at`. It moves from `pendiente` to exactly one of `confirmado` or `cancelado`, never back. `user_id` is written **at INSERT** and never afterwards: it is the preparer, and with the N5 gate open it is also the **ownership** — a `dependiente` confirms and cancels only the proposals it prepared.
+- `FiadoPropuesto` — `estado`, `confirmed_at`, `canceled_at` and `motivo_rechazo`. It moves from `pendiente` to exactly one of `aceptado` or `rechazado`, never back - **the states are the PERSON's answer**, and the reason is her free text. `user_id` is written **at INSERT** and never afterwards: it is the preparer, and with the N5 gate open it is also the **ownership** — a `dependiente` confirms and cancels only the proposals it prepared.
 - `PagoPropuesto` — `estado`, `resolved_at` and `resolved_by_id`. It moves from `pendiente` to exactly one of `validado` or `rechazado`, never back. The owner's validation is an **act**, recorded on the row, exactly like the suspension override and the credential revocation.
 
-The other mutable columns are `Customer.alias`/`phone`/`credit_limit` and `Customer.created_by_id` (the owner's own records and policy, through `PATCH /api/v1/clientes/{id}/` and the create route), `Customer.suspended_override_at`/`_by` and `CustomerCodigo.revoked_at`/`_by` — the last two record an **act**, never a derived value. Both `*_by_id` columns are written by the server from the acting session, never from a request body: the suspension override is stamped when the owner lifts it (`POST /api/v1/clientes/{id}/suspension/anular/`), and the credential revocation when the owner revokes it (`POST /api/v1/clientes/{id}/codigo/` with a rotation).
+The other mutable columns are `Customer.alias`/`phone`/`credit_limit` and `Customer.created_by_id` (the owner's own records and policy, through `PATCH /api/v1/clientes/{cliente_id}/` and the create route), `Customer.suspended_override_at`/`_by` and `CustomerCodigo.revoked_at`/`_by` — the last two record an **act**, never a derived value. Both `*_by_id` columns are written by the server from the acting session, never from a request body: the suspension override is stamped when the owner lifts it (`POST /api/v1/clientes/{cliente_id}/suspension/anular/`), and the credential revocation when the owner revokes it (`POST /api/v1/clientes/{cliente_id}/codigo/` with a rotation).
 
 A `PagoPropuesto` that reaches `validado` is a record of the owner's decision, not a ledger row: the `pago` itself is a separate `LedgerEntry` appended by the owner, so the credit book stays append-only even though the request that preceded it is not.
 
@@ -131,7 +140,7 @@ Server-side, inside `transaction.atomic()`; a `CHECK` sees one row, never an agg
 | 4 | The request carries `occurred_at` | `campo_no_admitido` |
 | 5 | A `cargo` is written without a `Confirmacion` in the same transaction. Not reachable through the API; it exists so no other write path can create a charge without a confirmation | — |
 | 6 | A `Confirmacion` targets a charge that already carries one | `cargo_ya_confirmado` |
-| 7 | A `FiadoPropuesto` is confirmed or cancelled twice. The first is the code the API contract names (CC-01); the second guards the one-way transition | `propuesta_ya_confirmada` / `propuesta_ya_cancelada` |
+| 7 | A `FiadoPropuesto` is accepted or rejected twice. The first is the code the API contract names (CC-01); the second guards the one-way transition | `propuesta_ya_aceptada` / `propuesta_ya_rechazada` |
 | 7b | **The confirmation records who acted, and the kind of act it was.** `origen` is **inferred by the server** from the acting session, never taken from the request body: the acting user belongs to the `dependiente` group → `origen='dependiente'`; otherwise `origen='tienda'`. `confirmado_por_id` is that user, **always** — the row names its actor without a condition on the origin. The two are different questions: the origin says **what kind of act** it was (a counter act by the shop's staff, or the owner's own), and `confirmado_por_id` says **who** did it. `FiadoPropuesto.user_id` is written at INSERT and is the **ownership**: a `dependiente` confirms and cancels only the proposals it prepared | — |
 | 8 | A `FiadoPropuesto` is confirmed while its customer is `suspendido` — **no charge exists** afterwards (PA-07) | `limite_superado` / `antiguedad_superada` |
 | 9–11 | A `DayClose` repeats `(shop_id, date)` · a `CustomerCodigo` duplicates `(shop_id, prefix)` or gives a customer a second active credential · a line or movement names a `Producto` outside the shop | `cierre_duplicado` · `codigo_duplicado` · `producto_ajeno` |
@@ -172,7 +181,7 @@ Context → choice → trade-off → consequence. ADR-1…15 keep the shape of t
 | ADR-17 | The client is a third actor | A credential scoped to one `Customer` | Every auth check needs a split | The 403 boundary survives |
 | ADR-18 | **The confirmation state** | **One state only: `confirmado`.** The effective state of a `cargo` is computed on read from its `Confirmacion` rows; a charge with no row reads `sin_confirmar`, unreachable in normal operation. | No `en_disputa`, no second state, no transition table | The state machine of §6 collapses to one transition. The effective state is a read-time projection, never a write guard — the write guards use row presence |
 | ADR-19 | **The charge exists only at the confirmation** | The `LedgerEntry(cargo)`, its `CargoLinea` rows and the `Confirmacion(confirmado)` are written **in one transaction**, and the `FiadoPropuesto` becomes `confirmado` in the same transaction. A prepared proposal writes nothing. | The owner cannot record a `cargo` directly any more; the ledger has one entry point | The disagreement the old design arbitrated is prevented instead of resolved: the client has already seen the `desglose`. A proposal is not debt at all |
-| ADR-20 | **One charge per confirmed proposal** | A `FiadoPropuesto` carries its `lineas`; the confirmation copies them into `CargoLinea` rows. A proposal may be confirmed **once**: the one-way transition of §3.2, rule 7 — the transactional pre-check on the stored proposal `estado` returns `propuesta_ya_confirmada`, and the race test of §15.2 proves the transaction holds under concurrency. The charge therefore comes from that one proposal: the `CargoLinea` rows are copied from the proposal's own `lineas`, and the `Confirmacion` points at that `cargo`. A reverse link from the charge to its proposal is deliberately **not** stored — it would be a derived value, and nothing reads it. | The two write paths are coupled: the confirmation endpoint must create the lines too | The amount shown and the amount recorded cannot drift. The old double-confirmation machinery collapses to one index and one code |
+| ADR-20 | **One charge per confirmed proposal** | A `FiadoPropuesto` carries its `lineas`; the confirmation copies them into `CargoLinea` rows. A proposal may be confirmed **once**: the one-way transition of §3.2, rule 7 — the transactional pre-check on the stored proposal `estado` returns `propuesta_ya_aceptada`, and the race test of §15.2 proves the transaction holds under concurrency. The charge therefore comes from that one proposal: the `CargoLinea` rows are copied from the proposal's own `lineas`, and the `Confirmacion` points at that `cargo`. A reverse link from the charge to its proposal is deliberately **not** stored — it would be a derived value, and nothing reads it. | The two write paths are coupled: the confirmation endpoint must create the lines too | The amount shown and the amount recorded cannot drift. The old double-confirmation machinery collapses to one index and one code |
 | ADR-21 | Stock without a count | A separate `StockMovement` table | A second movement ledger | The ceiling drifts down and no rule depends on it |
 | ADR-22 | The catalogue's job | A vocabulary with a default price; `precio_unitario` is a snapshot | A snapshot that can differ forever | Later price changes rewrite nothing |
 | ADR-23 | **Adoption friction** | The confirmation **gates** the charge. A `fiado` that is not confirmed is not recorded; the owner cancels the proposal instead. | The shop must show the client the screen, and an unconfirmed proposal leaves no debt | The product delivers *confirmed* debt, not merely itemised debt. There is no fallback to plain `fiado` — that is the `fiado desglosado` cut |
@@ -191,7 +200,7 @@ Context → choice → trade-off → consequence. ADR-1…15 keep the shape of t
 | Length | 20 symbols = **100 bits** (`32^20 ≈ 1.27 × 10^30`), blocked in fours for legibility |
 | Presented as | The `X-Codigo` header, every client request, memory only |
 | Stored as | PBKDF2-SHA256 hash with a per-credential salt, plus a 6-symbol `prefix` |
-| Grants | `GET /api/v1/cliente/estado/`, `GET /api/v1/cliente/cargos/{id}/`, `POST /api/v1/cliente/pagos/proponer/` |
+| Grants | `GET /api/v1/cliente/estado/`, `GET /api/v1/cliente/cargos/{cargo_id}/`, `POST /api/v1/cliente/pagos/proponer/` |
 | Does **not** grant | confirming, cancelling, disputing, recording a payment, reading the credit book |
 
 The `prefix` is the first 6 symbols, not independent entropy: a stolen hash plus the prefix leaves 70 bits — still infeasible. It is shown only on the owner's screen, never to a `dependiente` or a client.
@@ -236,28 +245,33 @@ Rotation is the re-print path: the slip is a consumable, not a re-printable docu
 
 The machine is now **one-way and has two branches**, and it starts on the **proposal**, not on the charge. There is no dispute, no reconciliation and no path back to a previous state.
 
-    FiadoPropuesto.pendiente ──confirmar──► FiadoPropuesto.confirmado
+    FiadoPropuesto.pendiente ──accept──► FiadoPropuesto.aceptado
           │                                        │
           │                                        └──► LedgerEntry(cargo) + CargoLinea[]
           │                                             + Confirmacion(confirmado)   [same transaction]
           │
-          └──cancelar──► FiadoPropuesto.cancelado
+          └──reject──► FiadoPropuesto.rechazado
                            └──► nothing is written; no cargo, no debt
+                               (only the instant and HER reason)
 
 **The `Confirmacion` has one state.** `estado ∈ {confirmado}` — no `en_disputa`, no `importe_reclamado`, no second row per charge. A `cargo` with no `Confirmacion` row reads `sin_confirmar`, but that state is **unreachable in normal operation**: rule 5 of §3.2 forbids a charge without a confirmation in the same transaction.
 
 | From | To | Driver | Appended / written | Guard / refusal |
 |---|---|---|---|---|
-| `pendiente` | `confirmado` | `dueño`, or `dependiente` — **each one only its own proposal** | `Confirmacion(confirmado, confirmado_en=now, origen=<server-inferred>, confirmado_por_id=<acting user>)` + `LedgerEntry(cargo)` + `CargoLinea[]`; `FiadoPropuesto.confirmed_at` | The proposal must be `pendiente` (else `propuesta_ya_confirmada`); the `desglose` must balance (else `lineas_descuadradas`); the customer must not be `suspendido` (else `limite_superado` / `antiguedad_superada`); the actor must be the preparer (else **404**) |
-| `pendiente` | `cancelado` | `dueño`, or `dependiente` — **each one only its own proposal** | nothing but `FiadoPropuesto.canceled_at` | The proposal must be `pendiente` (else `propuesta_ya_cancelada`); the actor must be the preparer (else **404**) |
-| `confirmado` | — | — | — | **Refused** — `propuesta_ya_confirmada`; no second `Confirmacion`, no second `cargo` |
-| `cancelado` | — | — | — | **Refused** — `propuesta_ya_cancelada`; a cancelled proposal never becomes a charge |
+| `pendiente` | `aceptado` | **the PERSON**, from her own account — `POST /api/v1/cuenta/fiados/aceptar/` | `Confirmacion(confirmado, confirmado_en=now, origen=<server-inferred>, confirmado_por_id=<the preparer>)` + `LedgerEntry(cargo)` + `CargoLinea[]`; `FiadoPropuesto.confirmed_at` | The proposal must be `pendiente` (else `propuesta_ya_aceptada`); the `desglose` must balance (else `lineas_descuadradas`); the customer must not be `suspendido` (else `limite_superado` / `antiguedad_superada`); the body may carry **nothing but** `fiado_id` (else `campo_no_admitido`) |
+| `pendiente` | `rechazado` | **the PERSON**, from her own account — `POST /api/v1/cuenta/fiados/rechazar/` | nothing but `FiadoPropuesto.canceled_at` and **her reason** — free text, and it may be empty | The proposal must be `pendiente` (else `propuesta_ya_rechazada`); the fiado must be HERS (else **404**) |
+| `aceptado` | — | — | — | **Refused** — `propuesta_ya_aceptada`; no second `Confirmacion`, no second `cargo` |
+| `rechazado` | — | — | — | **Refused** — `propuesta_ya_rechazada`; a rejected proposal never becomes a charge |
 
-**Who drives what.** The `cliente` drives **no transition**: the client confirms on the shop's screen, and the staff session records it. The `dueño` prepares proposals, records confirmations, cancels them and records the payments. The `dependiente` prepares **one** proposal and records its confirmation, and nothing else (§7, CF-01) — and only when the N5 gate is open, which on the current decision it is not.
+**The words say what the PERSON did.** The shop ASKS; she ANSWERS. The old vocabulary - `confirmado` and `cancelado` - was the SHOP's, and the client never wrote to the book. The `Confirmacion.estado` does **not** move: it is the state of the CHARGE and it has one value only, `confirmado`. The charge that exists because she accepted is `confirmado`; the proposal she accepted is `aceptado`. Two rows, two vocabularies, two questions.
 
-**Where the confirmation is given.** In the shop, on the shop's device, in front of the owner. The client's portal has no confirmation action — `POST /api/v1/cliente/confirmar/` does not exist. The screen is served by the **staff** session, so the client never authenticates to see the proposal and the `codigo` is not involved in the confirmation at all (CF-02).
+**The shop may not answer for her.** The owner still has `POST /api/v1/propuestas/{propuesta_id}/confirmar/` - the owner may record a confirmation on the shop's device - but **her** answer is the one that carries the consent, and a shop that could accept for her would be a shop that could decide for her.
 
-**The client may decline.** A decline is not a client-side action: the client says no in the shop, and the owner records the cancellation. The proposal is then `cancelado` and the outstanding never moved, because it never moved in the first place (CC-04).
+**Who drives what.** The `cliente` — the bearer credential — still drives **no transition**. But **the PERSON does now**: she accepts or refuses the fiado from her own account, and the answer is hers. The `dueño` prepares proposals and records the payments. The `dependiente` prepares **one** proposal and records its confirmation, and nothing else (§7, CF-01) — and only when the N5 gate is open, which on the current decision it is.
+
+**Where the confirmation is given.** In her **own account**, and that is the whole point: the client identifies at the counter by her username, the shop prepares the figure, and **she accepts it from her account** (§7.1). The client's bearer credential has no confirmation action — `POST /api/v1/cliente/confirmar/` does not exist - and the `codigo` is not involved in the confirmation at all (CF-02).
+
+**The client may decline**, and **she does it herself**: `POST /api/v1/cuenta/fiados/rechazar/` writes the instant and **her reason** - free text, and it may be empty. The proposal is then `rechazado` and the outstanding never moved, because it never moved in the first place (CC-04). A refusal without an explanation is not an answer, and an empty explanation is still an answer: she is not obliged to justify herself to the shop.
 
 ## 7. The Permission Matrix
 
@@ -269,28 +283,32 @@ Three principals: the two shop **roles** — the `dueno` and the `dependiente`, 
 |---|---|:---:|:---:|:---:|:---:|
 | Cash movements and the day close | `POST /api/v1/caja/`, `/cierre/` | Yes | Yes | No | No |
 | The credit book: the customers, their debts and their balances | `GET /api/v1/clientes/…` | Yes | **Yes — through the REDUCED schema**: the alias and the debts, and none of the owner's policy | No | No |
-| The owner's credit POLICY: the `credit_limit`, the ageing, the suspension | `PATCH /api/v1/clientes/{id}/`, `…/suspension/anular/` | Yes | **No → 403** | No | No |
+| The owner's credit POLICY: the `credit_limit`, the ageing, the suspension | `PATCH /api/v1/clientes/{cliente_id}/`, `…/suspension/anular/` | Yes | **No → 403** | No | No |
 | Create a customer, issue or rotate a `codigo` | `POST /api/v1/clientes/`, `…/codigo/` | Yes | **No → 403** | No | No |
 | Prepare a `FiadoPropuesto` | `POST /api/v1/propuestas/` | Yes | **Yes — its own** | No | No |
-| Record the confirmation of a proposal | `POST /api/v1/propuestas/{id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
-| Cancel a proposal | `POST /api/v1/propuestas/{id}/cancelar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| Record the confirmation of a proposal | `POST /api/v1/propuestas/{propuesta_id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| Cancel a proposal | `POST /api/v1/propuestas/{propuesta_id}/cancelar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
 | Record a `pago` | `POST …/libreta/` | Yes | **Yes — on ANY debt of the shop** | No | No |
-| Validate a proposed payment and record the `pago` | `POST /api/v1/pagos-propuestos/{id}/validar/` | Yes | **No → 403** | No | No |
-| Reject a proposed payment | `POST /api/v1/pagos-propuestos/{id}/rechazar/` | Yes | **No → 403** | No | No |
-| Show the proposal's screen at the counter | `GET /api/v1/propuestas/{id}/pantalla/` | Yes | **Yes — only the proposal IT prepared** | No | No |
+| Validate a proposed payment and record the `pago` | `POST /api/v1/pagos-propuestos/{pago_id}/validar/` | Yes | **No → 403** | No | No |
+| Reject a proposed payment | `POST /api/v1/pagos-propuestos/{pago_id}/rechazar/` | Yes | **No → 403** | No | No |
+| Show the proposal's screen at the counter | `GET /api/v1/propuestas/{propuesta_id}/pantalla/` | Yes | **Yes — only the proposal IT prepared** | No | No |
 | The risk ladder and the `posicion_real` | `GET /api/v1/posicion/` | Yes | **No** — the ladder, `posicion_real`, `fiado_pendiente` and `buckets` are 403 for the `dependiente`; the same route still answers it a **reduced** payload with `caja`, `clientes` and `cierre_hoy` only | No | No |
 | Users and roles | staff administration | Yes | **No → 403** | No | No |
 | The catalogue (`Producto`) | `GET /api/v1/catalogo/` | Yes | No | No | No |
 | A `StockMovement` | `POST /api/v1/existencias/` | Yes | No | No | No |
 | The client's statement | `GET /api/v1/cliente/estado/` | No | No | Yes — own confirmed charges | Yes — own, through her account |
-| The itemisation of an own confirmed charge | `GET /api/v1/cliente/cargos/{id}/` | No | No | Yes — own charges | Yes — own, through her account |
+| The itemisation of an own confirmed charge | `GET /api/v1/cliente/cargos/{cargo_id}/` | No | No | Yes — own charges | Yes — own, through her account |
 | Propose a payment | `POST /api/v1/cliente/pagos/proponer/` | No | No | Yes — own charges; writes no ledger row | Yes — own, through her account |
-| Confirm or cancel a proposal | — | No | No | **No — the client never writes** | **No — she identifies; the shop decides** |
+| Identify the client at the counter | `GET /api/v1/mostrador/buscar/` | Yes | **Yes** | No | No |
+| Accept or refuse a fiado | `POST /api/v1/cuenta/fiados/aceptar/`, `…/rechazar/` | No | No | **No — the client never writes** | **Yes — it is HER answer, from her own account** |
+| Confirm a proposal on the shop's device | `POST /api/v1/propuestas/{propuesta_id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
 | Her own account: the registration, the login, the profiles | `POST /api/v1/cuenta/…`, `GET /api/v1/perfiles/` | No | No | No | **Yes — she owns them** |
 
 **The three rows that changed when the N5 gate opened.** The client lost `Confirmar` and `Disputar`: neither exists any more, on any route. The `dependiente` moved from "presents one charge and receives the confirmation" to "prepares one proposal and records its confirmation" — the same bounded erosion of the 403 boundary, now expressed over a proposal rather than over a charge (§2 D6, CF-01). And the **credit book** moved with it: the `dependiente` now READS the debts and RECORDS the payments, because collecting is a counter act and collecting needs to see the debt.
 
 **The two kinds of act.** A proposal is a **personal** act: who prepared it is who closes it, and `FiadoPropuesto.user_id` is the ownership that says so. A payment is a **shop** act: anybody at the counter collects, on any debt, whoever originated it. The two rules are different because the two acts are different.
+
+**And the third kind: the ANSWER.** The account rewrite added one: **the person answers**, and the answer is hers. The proposal's `estado` is her answer — `aceptado` or `rechazado` — and the reason of a rejection is her text. The shop's act is the QUESTION; hers is the ANSWER; and the two never mix: the shop may not answer for her, and she may not write the figure.
 
 **What the gate did NOT open.** The owner's **policy** is untouched: the `credit_limit`, the ageing, the suspension, the credential and the catalogue stay the owner's. The `dependiente` reads the credit book through a **reduced schema** — `ClienteDependienteSerializer` declares the alias, the outstanding and the charges, and it does **not** declare `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo` or `prefix`. The reduced payload is not the owner's payload with fields removed: it is a different schema, so a field that is not declared cannot appear whatever the query returns.
 
@@ -308,9 +326,25 @@ The two logins differ in their CSRF contract **because their authorities differ*
 
 The refusal is **byte-identical** for an unknown user and for a wrong password: *"no such user" is an oracle*, and an oracle is a way to enumerate accounts.
 
+### 7.1 The counter's identification
+
+**The attendant asks her who she is, and types her USERNAME.** The system finds her, *if* she really is on that shop's list of trusted clients, the attendant makes the fiado, and **she confirms it from her own account**. That is the whole flow, and it has three steps:
+
+1. **Identify** — `GET /api/v1/mostrador/buscar/?username=…`. The search finds a person **on that shop's list of trusted clients**: the filter is `estado="aceptado"` on the `Vinculo`, the same filter the owner's own customer list uses. A person who is not trusted there is not found, and neither is a customer row with no account.
+2. **Prepare** — `POST /api/v1/propuestas/`, whose `cliente_de_la_tienda` demands the same `aceptado` link.
+3. **Answer** — `POST /api/v1/cuenta/fiados/aceptar/` or `…/rechazar/`, **from her own account**. The answer is hers, and the shop may not answer for her.
+
+**It is a SEARCH and not an authentication.** It finds a person and it does not sign her in: the answer to the fiado is hers, and the counter has no way to answer for her — so it has no way to pretend she did. **The username is her PUBLIC NAME**, like an email address, and the search asks for nothing else: the password is typed by her, on her own device, and it never travels to the counter. A body that carries one is **refused** with `campo_no_admitido`, not ignored.
+
+**That the owner does not see what she types is a SUPPOSITION OF THE PROCESS, not a technical guarantee.** The attendant is behind the counter and she is in front of it; what the code guarantees is the other half — the counter's search never asks for a password and never authenticates anybody.
+
+**The QR identification is CLOSED.** It was never implemented: it only ever appeared in the decisions digest as an alternative that was rejected (*"Native mobile app, QR/barcode scanning | The credential is typed"*). The owner confirmed the closing: **neither the QR nor the identification by username as it was originally posed are needed** — the latter was the version where she typed her PASSWORD at the counter, and the flow above is that version corrected.
+
+**The `codigo` credential is not the counter's mechanism any more.** The route that would issue it (`/api/v1/clientes/{cliente_id}/codigo/`) is still a stub, and the only reader of a credential is the **client's own statement** — a third audience, and not the shop's counter. The counter and the credential do not meet.
+
 **What the account rewrite changes in the model — and it is not small.** The `Customer` loses its `shop_id`: a person belongs to no shop, and the **link** between her and a shop carries the `credit_limit`, the ageing and the state. The `CustomerCodigo` goes with it — the shop no longer issues a credential, because there is nothing for it to issue. **The rewrite is five slices**, and the first one — the person's account — is **additive**: it touches neither the book, nor the `Customer`, nor the staff login.
 
-### 7.1 The `dependiente`'s 403 boundary
+### 7.2 The `dependiente`'s 403 boundary
 
 Every denied capability answers **403 with no partial data in any field**: no alias, no customer identifier, no `codigo`, no prefix, no count. The refusal is total and server-side — hiding a control is not enforcement. Three structural properties: (1) **scope** — every queryset is filtered by `current_shop(request)`; (2) **allowlist** — `PosicionDependienteSerializer` declares exactly `caja`, `clientes` and `cierre_hoy`, and `clientes` returns `[]` **without executing the customer query**, while `ClienteDependienteSerializer` declares the debts and none of the owner's policy; (3) **route shape** — no `PUT`/`PATCH`/`DELETE` exists for a ledger row, and the owner's policy routes answer 403 to the `dependiente`.
 
@@ -318,7 +352,7 @@ Every denied capability answers **403 with no partial data in any field**: no al
 
 **The role is the membership's.** The `MiembroDeTienda` names the business, and the business names the shop — and the permission filters by **both** the person and the shop. **A global Django group could not say that**: a group says nothing about which shop it belongs to, so one shop's `dependiente` was a `dependiente` in every shop. A request whose session names no shop is refused outright: there is no default shop and no fallback.
 
-### 7.2 The client scope as a structural property
+### 7.3 The client scope as a structural property
 
 The scope comes **only** from the presented `codigo`, resolved to exactly one `Customer` — never from a URL segment, a body field or a session key. A missing or invalid `codigo` yields **422 `codigo_invalido`** with no customer data and no hint. Every client queryset is built from the resolved customer, so a charge outside the scope is refused with `cargo_ajeno` and appends nothing. The client serializer is a schema class of its own, and it declares **none** of the nine staff-only fields — `caja`, `fiado_pendiente`, `posicion_real`, `buckets`, `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo`, `prefix` — and never another customer's data. A test asserts exactly that: the client field set contains none of those nine (CAC-10). The staff schemas are **not** pairwise disjoint among themselves, and the client schema shares harmless names with them (`total`, `lineas[]`, `producto`, `cantidad`, `precio_unitario`): what must never cross is *data*, not a *name*. The proposal-screen schema is a staff schema, so it legitimately carries the same shape the client sees for its own charges.
 
@@ -366,24 +400,48 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET | `/api/v1/catalogo/` | `dueño` | — | 200 `Producto[]`, `activo` only; 403 |
 | POST | `/api/v1/existencias/` | `dueño` \* | `{producto_id, kind, cantidad, concept}` | 201; 422; 403 |
 | GET / POST | `/api/v1/clientes/` | `dueño` | `{alias, phone?, credit_limit?}` — the server stamps `created_by_id` with the acting user | 200/201; 422; 403 |
-| GET / PATCH | `/api/v1/clientes/{id}/` | `dueño` | `{credit_limit}` | 200; 422; 403; 404 |
-| POST | `/api/v1/clientes/{id}/codigo/` | `dueño` | — | 201 `{codigo, prefix, issued_at}` — the only time the plaintext exists; 422; 403; 404 |
-| POST | `/api/v1/clientes/{id}/libreta/` | `dueño` | `{kind, amount}` - `kind` ∈ {`pago`} **only**: a `cargo` is written by the confirmation of a proposal, never directly. `amount` MUST NOT exceed the outstanding it retires — the excess is returned as change and never enters the book. A `pago` also writes its `ImputacionPago` rows, one per charge it retires | 201; 422 `pago_excede_deuda`; 403; 404 |
-| POST | `/api/v1/clientes/{id}/suspension/anular/` | `dueño` | `{}` | 200; 403; 404 |
+| GET / PATCH | `/api/v1/clientes/{cliente_id}/` | `dueño` | `{credit_limit}` | 200; 422; 403; 404 |
+| POST | `/api/v1/clientes/{cliente_id}/codigo/` | `dueño` | — | 201 `{codigo, prefix, issued_at}` — the only time the plaintext exists; 422; 403; 404 |
+| POST | `/api/v1/clientes/{cliente_id}/libreta/` | `dueño` | `{kind, amount}` - `kind` ∈ {`pago`} **only**: a `cargo` is written by the confirmation of a proposal, never directly. `amount` MUST NOT exceed the outstanding it retires — the excess is returned as change and never enters the book. A `pago` also writes its `ImputacionPago` rows, one per charge it retires | 201; 422 `pago_excede_deuda`; 403; 404 |
+| POST | `/api/v1/clientes/{cliente_id}/suspension/anular/` | `dueño` | `{}` | 200; 403; 404 |
 | POST | `/api/v1/propuestas/` | staff \* | `{cliente_id, lineas[{producto_id, cantidad, precio_unitario?}], total?}` | 201 `FiadoPropuesto` + `lineas`; 422 `lineas_descuadradas`, `producto_ajeno`; 403; 404 |
-| GET | `/api/v1/propuestas/{id}/pantalla/` | staff \* | — | 200 the screen: `lineas[]` with `producto`, `cantidad`, `precio_unitario`, `total`, plus `total`; 403; 404 |
-| POST | `/api/v1/propuestas/{id}/confirmar/` | staff \* | `{}` | 201 `Confirmacion(confirmado)` + the `cargo`; 422 `propuesta_ya_confirmada`, `lineas_descuadradas`, `limite_superado`, `antiguedad_superada`; 403; 404 |
-| POST | `/api/v1/propuestas/{id}/cancelar/` | staff \* | `{}` | 200; 422 `propuesta_ya_cancelada`; 403; 404 |
+| GET | `/api/v1/propuestas/{propuesta_id}/pantalla/` | staff \* | — | 200 the screen: `lineas[]` with `producto`, `cantidad`, `precio_unitario`, `total`, plus `total`; 403; 404 |
+| POST | `/api/v1/propuestas/{propuesta_id}/confirmar/` | staff \* | `{}` | 201 `Confirmacion(confirmado)` + the `cargo`; 422 `propuesta_ya_aceptada`, `lineas_descuadradas`, `limite_superado`, `antiguedad_superada`; 403; 404 — **the owner may record a confirmation on the shop's device, but the PERSON's answer is the one that carries the consent** |
+| POST | `/api/v1/propuestas/{propuesta_id}/cancelar/` | staff \* | `{}` | 200; 422 `propuesta_ya_rechazada`; 403; 404 |
 | GET | `/api/v1/pagos-propuestos/` | `dueño` | — | 200 `PagoPropuesto[]` pending; 403 |
-| POST | `/api/v1/pagos-propuestos/{id}/validar/` | `dueño` | `{}` | 201 the `pago`, whose `amount` is **exactly** the `PagoPropuesto.importe`, plus its `ImputacionPago` rows; 422 `pago_ya_resuelto`; 422 `pago_excede_deuda` — a proposed amount larger than the customer's outstanding is refused at validation; 403; 404 |
-| POST | `/api/v1/pagos-propuestos/{id}/rechazar/` | `dueño` | `{}` | 200; 422 `pago_ya_resuelto`; 403; 404 |
+| POST | `/api/v1/pagos-propuestos/{pago_id}/validar/` | `dueño` | `{}` | 201 the `pago`, whose `amount` is **exactly** the `PagoPropuesto.importe`, plus its `ImputacionPago` rows; 422 `pago_ya_resuelto`; 422 `pago_excede_deuda` — a proposed amount larger than the customer's outstanding is refused at validation; 403; 404 |
+| POST | `/api/v1/pagos-propuestos/{pago_id}/rechazar/` | `dueño` | `{}` | 200; 422 `pago_ya_resuelto`; 403; 404 |
 | GET | `/api/v1/cliente/estado/` | `cliente` \* | `X-Codigo` | 200 statement: own **confirmed** charges with their `desglose` + `total`; 422; 403 |
-| GET | `/api/v1/cliente/cargos/{id}/` | `cliente` \* | `X-Codigo` | 200 the charge with its full itemisation; 422; 403 |
+| GET | `/api/v1/cliente/cargos/{cargo_id}/` | `cliente` \* | `X-Codigo` | 200 the charge with its full itemisation; 422; 403 |
 | POST | `/api/v1/cliente/pagos/proponer/` | `cliente` \* | `X-Codigo` + `{importe, referencia}` | 201 `PagoPropuesto(pendiente)` — **writes no ledger row**; 422 `importe_no_positivo`, `pago_excede_deuda`; 403 |
+| GET / POST | `/api/v1/mostrador/buscar/` | staff | `{username}` — **the username alone**: a body carrying a password is refused with `campo_no_admitido` | 200 the trusted clients of THIS shop whose username matches — `[]` when there are none; 422 `campo_no_admitido`; 403 |
+| POST | `/api/v1/cuenta/registro/` | public | `{username, password}` | 201; 422 `usuario_duplicado`, `usuario_requerido`, `contrasena_corta` |
+| POST | `/api/v1/cuenta/login/` | public | `{username, password}` | 200 — the refusal is **byte-identical** for an unknown user and a wrong password; 422 `credenciales_invalidas` |
+| POST | `/api/v1/cuenta/logout/` | person | `{}` | 200 |
+| GET | `/api/v1/perfiles/` | person | — | 200 the client profile (one) and the business profiles (several) |
+| POST | `/api/v1/perfiles/cliente/` | person | `{}` | 201; 422 `perfil_ya_existe` |
+| POST | `/api/v1/perfiles/tienda/` | person | `{nombre, direccion?, nif?}` | 201; 422 `nombre_requerido` |
+| POST | `/api/v1/cuenta/reclamar/` | person | `{alias}` | 201 — the person claims the customer row the shop created for her; 422 `alias_requerido`, `alias_no_reclamable` |
+| GET | `/api/v1/cuenta/vinculos/` | person | — | 200 the links — **a pending link shows the shop's name and nothing else** |
+| POST | `/api/v1/cuenta/vinculos/aceptar/` | person | `{vinculo_id}` | 200; 422 `vinculo_no_pendiente`, `vinculo_requerido` |
+| POST | `/api/v1/cuenta/vinculos/rechazar/` | person | `{vinculo_id}` | 200; 422 `vinculo_no_pendiente`, `vinculo_requerido` |
+| GET | `/api/v1/cuenta/fiados/` | person | — | 200 the fiados with their state, and their lines while they wait |
+| POST | `/api/v1/cuenta/fiados/aceptar/` | person | `{fiado_id}` — **nothing else**: the figure is the shop's | 200 the `cargo`; 422 `campo_no_admitido`, `propuesta_ya_aceptada`, `lineas_descuadradas`, `limite_superado`, `antiguedad_superada` |
+| POST | `/api/v1/cuenta/fiados/rechazar/` | person | `{fiado_id, motivo?}` — the reason is free text and **may be empty** | 200; 422 `campo_no_admitido`, `propuesta_ya_rechazada` |
+| GET | `/api/v1/cuenta/cargos/` | person | — | 200 the charges with their state — `pendiente`, `parcial` or `pagado` |
+| POST | `/api/v1/tienda/login/` | public | `{username, password}` | 200 — **three questions**: which shop, which role, which credentials; 422 `credenciales_invalidas` |
+| GET / POST | `/api/v1/tienda/personal/` | `dueño` | `{username, email?, rol}` | 200/201 the staff; 422; 403 |
+| DELETE | `/api/v1/tienda/personal/{user_id}/` | `dueño` | — | 200 — the membership is removed, the user and the rows it wrote stay; 403; 404 |
+| GET / POST | `/api/v1/tienda/vinculos/` | `dueño` | `{alias, credit_limit?}` | 200 the shop's links; 201 — the `POST` is the shop ASKING; 422 `cliente_no_existe`; 403 |
+| DELETE | `/api/v1/tienda/vinculos/{cliente_id}/` | `dueño` | — | 200 — the owner removes WITHOUT asking; 404 |
 
-\* conditional. The three client routes are gated by **Regla 4**; `POST /api/v1/existencias/` by **Regla 6**; the four proposal routes by **N5** — which on the current decision is closed, so those four answer 403 to the `dependiente`. No `PUT`, `PATCH` or `DELETE` route exists for `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` or `PagoPropuesto`: the ledger is append-only at the URL surface too.
+\* conditional. The three client routes are gated by **Regla 4**; `POST /api/v1/existencias/` by **Regla 6**; the four proposal routes by **N5** — which on the current decision is open, so those four answer to the `dependiente` for its OWN proposals. No `PUT`, `PATCH` or `DELETE` route exists for `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` or `PagoPropuesto`: the ledger is append-only at the URL surface too.
 
 **The routes that are gone.** `POST /api/v1/cliente/confirmar/`, `POST /api/v1/cliente/disputar/` and `POST /api/v1/facilitar/{cargo_id}/` no longer exist. The client cannot reach a write, so the confirmation is a **staff** route over a proposal and the payment a staff route over a proposed payment.
+
+**And the three the account rewrite added.** The person's account (`cuenta/…`), her links (`cuenta/vinculos/…`) and the counter's search (`mostrador/buscar/`) are the audience rewrite's own surface, and **the person's answer to a fiado** is one of them: `cuenta/fiados/aceptar/` writes the charge, and it is the ONLY route that does. The staff's `propuestas/{id}/confirmar/` still exists — the owner may record a confirmation on the shop's device — but the person's answer is the one that carries the consent.
+
+**The client's statement still reads through the credential.** The `codigo` is not the counter's mechanism any more: the counter identifies by the username (§7.1), and the `codigo`'s only reader is the client's own statement, which is a third audience.
 
 ### 9.2 The serializer allowlist per audience
 
@@ -406,11 +464,11 @@ The **staff-only fields** — the nine the client must never see — are `caja`,
 
 ### 9.3 Error codes
 
-Every validation failure is **HTTP 422** with the fixed shape `{"codigo_error": "<code>", "detail": "<Spanish message>"}`. The vocabulary: `limite_superado` · `antiguedad_superada` · `importe_no_positivo` · `campo_no_admitido` · `tipo_desconocido` · `cierre_duplicado` · `lineas_descuadradas` · `cargo_ya_confirmado` · `propuesta_ya_confirmada` · `propuesta_ya_cancelada` · `pago_ya_resuelto` · `pago_excede_deuda` · `codigo_invalido` · `codigo_duplicado` · `cargo_ajeno` · `producto_ajeno`.
+Every validation failure is **HTTP 422** with the fixed shape `{"codigo_error": "<code>", "detail": "<Spanish message>"}`. The vocabulary: `limite_superado` · `antiguedad_superada` · `importe_no_positivo` · `campo_no_admitido` · `tipo_desconocido` · `cierre_duplicado` · `lineas_descuadradas` · `cargo_ya_confirmado` · `propuesta_ya_aceptada` · `propuesta_ya_rechazada` · `pago_ya_resuelto` · `pago_excede_deuda` · `codigo_invalido` · `codigo_duplicado` · `cargo_ajeno` · `producto_ajeno`.
 
-**The codes that are gone:** `disputa_abierta` and `importe_reclamado`. `cargo_ya_confirmado` survives as the DB-level twin of `propuesta_ya_confirmada` — the API contract names the proposal-level code (CC-01). `cargo_no_indicado` is gone with the client's ability to name a charge (ADR-27); `cargo_ajeno` survives, because the client still reads its own charges one at a time and must be refused on another's.
+**The codes that are gone:** `disputa_abierta` and `importe_reclamado`. `cargo_ya_confirmado` survives as the DB-level twin of `propuesta_ya_aceptada` — the API contract names the proposal-level code (CC-01). `cargo_no_indicado` is gone with the client's ability to name a charge (ADR-27); `cargo_ajeno` survives, because the client still reads its own charges one at a time and must be refused on another's.
 
-Every code is produced by a named rule of §3.2: `limite_superado` → rules 1–2 · `importe_no_positivo` → rules 15, 17 · `campo_no_admitido` → rules 4, 14 · `tipo_desconocido` → rules 16, 20 · `cierre_duplicado` → rule 9 · `lineas_descuadradas` → rules 3, 21 · `cargo_ya_confirmado` → rule 6 · `propuesta_ya_confirmada`/`propuesta_ya_cancelada` → rule 7 · `pago_ya_resuelto` → rule 18 · `pago_excede_deuda` → rule 19 · `codigo_duplicado` → rule 10 · `producto_ajeno` → rule 11 · `antiguedad_superada` → rule 1 · `cargo_ajeno` → §7.2's client scope · `codigo_invalido` → §5's credential resolution.
+Every code is produced by a named rule of §3.2: `limite_superado` → rules 1–2 · `importe_no_positivo` → rules 15, 17 · `campo_no_admitido` → rules 4, 14 · `tipo_desconocido` → rules 16, 20 · `cierre_duplicado` → rule 9 · `lineas_descuadradas` → rules 3, 21 · `cargo_ya_confirmado` → rule 6 · `propuesta_ya_aceptada`/`propuesta_ya_rechazada` → rule 7 · `pago_ya_resuelto` → rule 18 · `pago_excede_deuda` → rule 19 · `codigo_duplicado` → rule 10 · `producto_ajeno` → rule 11 · `antiguedad_superada` → rule 1 · `cargo_ajeno` → §7.2's client scope · `codigo_invalido` → §5's credential resolution.
 
 **The N5 decision removed one code.** `facilitador_invalido` guarded a `facilitado_por` that named a user outside the shop or outside the `dependiente` group. With `confirmado_por` the actor is the acting session itself — the server stamps it — so there is no value to validate and no code to refuse with.
 
@@ -442,7 +500,7 @@ Every code is produced by a named rule of §3.2: `limite_superado` → rules 1�
 | `charges.py` | `propuesta_amount_matches(lines, declared_total) -> bool` | The same rule for a `FiadoPropuesto`: the `total` must equal the sum of its `lineas`; no lines never matches |
 | `confirmation.py` | `confirmacion_efectiva(rows) -> ConfirmacionRow \| None` | The latest row, or `None` |
 | `confirmation.py` | `estado_cargo(rows) -> ChargeState` | `confirmado` when a confirmation row exists, otherwise `sin_confirmar`. **Two values only** — `en_disputa` is gone. A read-time projection only; never the guard for a write |
-| `confirmation.py` | `propuesta_transicion_permitida(estado_actual, destino) -> str \| None` | `None` when allowed, otherwise the refusal `codigo_error`: `propuesta_ya_confirmada`, `propuesta_ya_cancelada`. The guard is the **stored proposal state**, not a projection of the ledger |
+| `confirmation.py` | `propuesta_transicion_permitida(estado_actual, destino) -> str \| None` | `None` when allowed, otherwise the refusal `codigo_error`: `propuesta_ya_aceptada`, `propuesta_ya_rechazada`. The guard is the **stored proposal state**, not a projection of the ledger |
 | `confirmation.py` | `confirmacion_requerida(charge_exists, confirmation_rows) -> bool` | Whether a charge may be written at all: a `cargo` requires its `Confirmacion` in the same transaction (rule 5) |
 | `stock.py` | `existencias_registradas(movements) -> tuple[Decimal, StockQualifier]` | `Σ entradas − Σ salidas` and the qualifier `techo_no_conteo`; no rule is attached to it |
 | `cash.py` | `desviacion_cierre(esperado, contado) -> Decimal` | `esperado − contado`, the value stored in the `DayClose` |
@@ -474,7 +532,7 @@ frontend/src/
 
 **`/app/posicion` — the owner board.** `Ecuacion`: `caja + fiado_pendiente = posicion_real` with the bucket breakdown. `Escalera`: the risk ladder, customers with `pendiente > 0`, sorted by `antiguedad_max_dias` **descending**, each row with `alias`, `pendiente`, `antiguedad_max_dias`, the derived state and the `suspended_reason`. `Cinta`: the four ageing ribbons. `Cierre`: `esperado`, `contado`, `desviacion` and the close form. `Credenciales`: issue or rotate a `codigo`, show the `prefix` and the rotation date, the plaintext only in the issuing response. Two more **board sections** (not components): *Propuestas* — prepare a proposal and watch the pending ones, served by `PropuestaForm` and the proposal routes — and *PagosPropuestos* — the client's proposed payments, to validate or reject, served by the payment-proposal routes. `Serie`: the 30-day `serie_caja` chart — **declared cut-line 1**, droppable without touching a capability. The board polls `/api/v1/posicion/` every 20 s; the poll doubles as the keep-alive.
 
-**`/app/propuesta/{id}` — the shop's screen.** The third surface, and the place the confirmation is given. `Pantalla` shows the full `desglose`: product, quantity and `precio_unitario` for every line, plus the `total` — nothing else, no balance, no ageing, no other customer. The screen's two actions are `Confirmar` and `Cancelar`: they post to `/api/v1/propuestas/{id}/confirmar/` and `…/cancelar/` respectively, and they are the two buttons of `Pantalla` rather than separate components. The client reads it from the counter; the client does **not** authenticate to it and holds no credential while doing so.
+**`/app/propuesta/{id}` — the shop's screen.** The third surface, and the place the confirmation is given. `Pantalla` shows the full `desglose`: product, quantity and `precio_unitario` for every line, plus the `total` — nothing else, no balance, no ageing, no other customer. The screen's two actions are `Confirmar` and `Cancelar`: they post to `/api/v1/propuestas/{propuesta_id}/confirmar/` and `…/cancelar/` respectively, and they are the two buttons of `Pantalla` rather than separate components. The client reads it from the counter; the client does **not** authenticate to it and holds no credential while doing so.
 
 **`/app/cliente` — the client statement.** `Acceso`: one credential field, `autocomplete="off"`, React state only, cleared on navigation. `Estado`: the total owed, then one row per charge — date, amount, confirmation date, and its `desglose`. `ProponerPago`: an `importe` and a `referencia`; it proposes, and says plainly that the owner still records the payment. It names **no** charge: the proposal is an amount, not a debt, and the FIFO decides which charges the payment retires (ADR-27). The client's own statement shows the charges and their `saldo`, so it knows what it owes and how much of it to offer - but it does not choose. The client page does **not** poll — a poll would multiply the credential's exposure for no benefit.
 
@@ -530,36 +588,39 @@ dueño/dep.   Tienda            API (staff)                     DB
   |                           |------------------------------>|
   |                           |  lineas[] + total              |
   |                           |<------------------------------|
-  |                           | the client confirms (or declines)
-  | POST .../confirmar/ {}    |                                |
+  |                           | the person confirms (or refuses)
+  |                           |  -- FROM HER OWN ACCOUNT:
+  |                           |  POST /api/v1/cuenta/fiados/aceptar/ {fiado_id}
   |---------------------------------------------------------->|
   |                           | atomic: the proposal is 'pendiente'
-  |                           |   else 422 propuesta_ya_confirmada;
+  |                           |   else 422 propuesta_ya_aceptada;
   |                           |  the customer is not suspendido;
   |                           |  total == sum(lineas);
+  |                           |  the body may carry nothing but 'fiado_id'
   |                           |  INSERT LedgerEntry(cargo) + CargoLinea[]
   |                           |  INSERT Confirmacion(confirmado, confirmado_en=now,
   |                           |     origen=<server-inferred>, confirmado_por_id=<acting user>)
-  |                           |  UPDATE FiadoPropuesto(confirmado)
+  |                           |  UPDATE FiadoPropuesto(aceptado)
   |<----------------------------------------------------------|  -- NOW it is debt
 ```
 
-The client's `codigo` is **not** involved: the client confirms in the shop, and the staff session records it. The outstanding moves at the exact instant of the confirmation. **The actor must be the preparer**: a `dependiente` confirms the proposals it prepared and no others, and the refusal for somebody else's is a **404**.
+The client's `codigo` is **not** involved: the client's bearer credential has no confirmation action, and the PERSON's account is what answers. The outstanding moves at the end of the same transaction, and the client's own statement - the one that reads through the credential - sees it only after the charge exists.
 
-### 13.2 The cancellation flow
+### 13.2 The rejection flow
 
 ```
-dueño/dep.   Tienda            API (staff)                     DB
-  | the client declines                                            |
-  | POST .../cancelar/ {}                                          |
+persona          API (the person's own)              DB
+  | she refuses                                            |
+  | POST /api/v1/cuenta/fiados/rechazar/ {fiado_id, motivo?}|
   |---------------------------------------------------------->|
   |                           | atomic: the proposal is 'pendiente'
-  |                           |  else 422 propuesta_ya_cancelada;
-  |                           |  UPDATE FiadoPropuesto(cancelado)
+  |                           |  else 422 propuesta_ya_rechazada;
+  |                           |  UPDATE FiadoPropuesto(rechazado)
+  |                           |  UPDATE FiadoPropuesto(motivo_rechazo)
   |<----------------------------------------------------------|  -- no cargo, no debt
 ```
 
-The outstanding never moved, because it never moved in the first place.
+The outstanding never moved, because it never moved in the first place. **And the reason is HERS**: free text, and it may be empty - a refusal without an explanation is not an answer, and an empty explanation is still an answer.
 
 ### 13.3 The payment flow
 
@@ -646,7 +707,7 @@ The specs declare three verification levels; the suite has one layer per level, 
 
 **15.1 Unit.** The pure functions of §10 run against hand-computed fixtures with **no database at all**: pytest-django raises `RuntimeError: Database access not allowed` for any ORM call in a test without the `django_db` marker, so the DB-free property is enforced, not asserted. The bucket boundaries, the FIFO order, the partial payment, **the absence of an overpayment residual**, the derived suspension and its lifting, the `precio` override, the `lineas_descuadradas` decision, the proposal transition table, the one-state `estado_cargo` and the stock ceiling are checked here; `test_domain_is_orm_free.py` AST-parses every file of `domain/`.
 
-**15.2 Integration.** The Django test client against **PostgreSQL**, never SQLite — landmine 7. It proves: the 422 payload and every `codigo_error`, with a refused write creating no row and no line; the 2×8 matrix, the credit-book 403, the 403 for a staff session on a client route and the scoped 404; a recursive JSON walk searching **every key and every value** of every response of every audience for a forbidden token (another customer's `alias`, the `codigo` plaintext, the `prefix`, `caja`, `posicion_real`, `credit_limit`); **the field-set assertion that carries CAC-10** — `test_el_esquema_del_cliente_no_declara_campos_solo_de_personal`, which reads the `EstadoClienteSerializer`'s declared `fields` and fails if it names any of the nine staff-only fields (`caja`, `fiado_pendiente`, `posicion_real`, `buckets`, `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo`, `prefix`); **the credential RED suite of §5.3, all nine** — `test_codigo_ausente_de_todo_arbol_staff` (R1, the plaintext and the `prefix` are absent from every JSON path of every owner and `dependiente` response), `test_codigo_ausente_de_todo_arbol_cliente` (R2, the plaintext is absent from every JSON path of every client response), `test_codigo_ausente_de_los_logs` (R3, `caplog` over a client request cycle holds no occurrence), `test_codigo_ausente_de_la_url` (R4, `path` and `get_full_path()` never contain the credential and a credential as a query parameter is refused), `test_codigo_ausente_del_cuerpo_de_error` (R5, a forced 422 and a forced 500 carry no part of the credential), `test_codigo_en_claro_no_se_persiste` (R6, no field of any model row holds the plaintext — the only row a client request can create is its own `PagoPropuesto`, whose `importe` and `referencia` are the client's own words), `test_dependiente_ve_cero_credenciales` (R7, every credit-book endpoint answers 403 and **every 200 staff response holds neither `codigo` nor `prefix`**), `test_throttle_no_es_oraculo` (R8, an unknown, a revoked and a throttled credential answer byte-identical payloads) and `test_credential_unicity` (R9, the credential is unique in the shop, one active credential exists per customer and a rotated value refuses the previous one); **plus** `test_cliente_no_crea_cookie`, which asserts the client surface sets no `Set-Cookie` on any response — the client holds no ambient authority; the real `CHECK`, `UNIQUE` and partial unique indexes raising, with the transaction rolling back and leaving no partial row; **the new invariants** — a proposal alone creates no charge and moves no outstanding; the confirmation creates the charge, the lines and the `Confirmacion` in one transaction; a second confirmation appends nothing and answers `propuesta_ya_confirmada`; a cancelled proposal never becomes a charge; a proposal with no lines is refused; a client request writes **no** `LedgerEntry`, `CargoLinea` or `Confirmacion`; a proposed payment writes no `pago`; the races — two concurrent confirmations append exactly **one** `Confirmacion` and one `cargo`; the scopes — a request with both a session and a `codigo` is refused by the client routes and ignored by the staff routes; and the seed, unchanged when run twice.
+**15.2 Integration.** The Django test client against **PostgreSQL**, never SQLite — landmine 7. It proves: the 422 payload and every `codigo_error`, with a refused write creating no row and no line; the 2×8 matrix, the credit-book 403, the 403 for a staff session on a client route and the scoped 404; a recursive JSON walk searching **every key and every value** of every response of every audience for a forbidden token (another customer's `alias`, the `codigo` plaintext, the `prefix`, `caja`, `posicion_real`, `credit_limit`); **the field-set assertion that carries CAC-10** — `test_el_esquema_del_cliente_no_declara_campos_solo_de_personal`, which reads the `EstadoClienteSerializer`'s declared `fields` and fails if it names any of the nine staff-only fields (`caja`, `fiado_pendiente`, `posicion_real`, `buckets`, `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo`, `prefix`); **the credential RED suite of §5.3, all nine** — `test_codigo_ausente_de_todo_arbol_staff` (R1, the plaintext and the `prefix` are absent from every JSON path of every owner and `dependiente` response), `test_codigo_ausente_de_todo_arbol_cliente` (R2, the plaintext is absent from every JSON path of every client response), `test_codigo_ausente_de_los_logs` (R3, `caplog` over a client request cycle holds no occurrence), `test_codigo_ausente_de_la_url` (R4, `path` and `get_full_path()` never contain the credential and a credential as a query parameter is refused), `test_codigo_ausente_del_cuerpo_de_error` (R5, a forced 422 and a forced 500 carry no part of the credential), `test_codigo_en_claro_no_se_persiste` (R6, no field of any model row holds the plaintext — the only row a client request can create is its own `PagoPropuesto`, whose `importe` and `referencia` are the client's own words), `test_dependiente_ve_cero_credenciales` (R7, every credit-book endpoint answers 403 and **every 200 staff response holds neither `codigo` nor `prefix`**), `test_throttle_no_es_oraculo` (R8, an unknown, a revoked and a throttled credential answer byte-identical payloads) and `test_credential_unicity` (R9, the credential is unique in the shop, one active credential exists per customer and a rotated value refuses the previous one); **plus** `test_cliente_no_crea_cookie`, which asserts the client surface sets no `Set-Cookie` on any response — the client holds no ambient authority; the real `CHECK`, `UNIQUE` and partial unique indexes raising, with the transaction rolling back and leaving no partial row; **the new invariants** — a proposal alone creates no charge and moves no outstanding; the confirmation creates the charge, the lines and the `Confirmacion` in one transaction; a second confirmation appends nothing and answers `propuesta_ya_aceptada`; a cancelled proposal never becomes a charge; a proposal with no lines is refused; a client request writes **no** `LedgerEntry`, `CargoLinea` or `Confirmacion`; a proposed payment writes no `pago`; the races — two concurrent confirmations append exactly **one** `Confirmacion` and one `cargo`; the scopes — a request with both a session and a `codigo` is refused by the client routes and ignored by the staff routes; and the seed, unchanged when run twice.
 
 **15.3 End to end.** Against the **deployed public URL**: HTTPS; one service serving both the pages and the API; `DEBUG=False` and no debug information; the seeded `dueno@tienda.test` and `dependiente@tienda.test` both signing in and landing in their own capability set; the owner's board fetching `/api/v1/posicion/` on the same origin with no cross-origin request; the client page fetching the client API on the same origin; a 403 on the credit book for the `dependiente`; no alias and no `codigo` in any response; and the seeded figures matching.
 
@@ -677,7 +738,7 @@ Every row of `requirement-index.md` appears exactly once. `C` marks a conditiona
 | PA-11 | The credit rules are pure and ORM-free | | §10; ADR-3 |
 | IC-01 | The ledger is append-only | | §3.1 immutability; §9.1 |
 | IC-02 | The amount of a `cargo` equals its itemisation total | | §10 `charge_amount_matches`; §3.2 rule 3 |
-| IC-03 | A charge exists only after the client confirms it | | §1 idea 3; §6; ADR-19; §3.2 rule 5 |
+| IC-03 | A charge exists only after the PERSON confirms it | | §1 idea 3; §6; ADR-19; §3.2 rule 5 |
 | IC-04 | The effective confirmation state is derived | | §10 `estado_cargo`; ADR-18 |
 | IC-05 | The `cargo` write API is validated | | §9.1; §9.3 |
 | IC-06 | The charge rules are pure and ORM-free | | §10 `charges.py`; ADR-3 |
@@ -781,7 +842,7 @@ None of these blocks the design; each names what would settle it.
 | # | Question | What would settle it |
 |---|---|---|
 | 1 | Does the confirmation survive? The gates are decided under hypothesis: Regla 4 builds the client surface, Regla 5 builds the catalogue and `CargoLinea`, Regla 6 keeps `existencias_registradas` as an optional ceiling, and N5 — **opened by the owner** — lets the `dependiente` prepare, confirm and collect. | A validation round with shop owners — **not executed**. If Regla 4 empties, the scope becomes `fiado desglosado`: §5, §7.2, §9.1's client routes, §11 client statement, §13.4 and the **10 Regla-4 requirements** (CAC-09, CAC-10, CC-01, CC-02, CC-03, CC-04, CC-05, CC-07, CF-01, CF-02) are cut with it. If Regla 5 empties, `Producto` and `CargoLinea` leave the data model, the `specs/product-catalogue/` directory is deleted in full and the **4 Regla-5 requirements** (CC-06, IC-07, IC-08, IC-09) are cut with it — and the `desglose` becomes a single amount. If Regla 6 empties, `StockMovement` and `existencias_registradas` leave the data model with CP-07 — and because `StockMovement` → `Producto` is a PROTECT foreign key, **Regla 6 cannot be cut while Regla 5 survives**. |
-| 2 | Is the shop's screen workable at the counter? The client confirms there, in the shop, in front of the owner. | The owner's reading of the flow: prepare, show, confirm, or decline and cancel. The screen is one route and one component; if the shop prefers a paper slip, the confirmation route stays the same and the UI changes. |
+| 2 | Is the counter's flow workable? The person identifies by her username, the shop prepares the figure, and she confirms it from her own account. | The owner's reading of the flow: prepare, show, confirm, or decline and cancel. The screen is one route and one component; if the shop prefers a paper slip, the confirmation route stays the same and the UI changes. |
 | 3 | Should the client be able to cancel the proposal themselves? Today the client declines in the shop and the **owner** records the cancellation, because the client holds no write scope. | The owner's view of the counter step. If the client must cancel from the portal, the `codigo` would gain a narrow write on `FiadoPropuesto` — an erosion of D9 that the design currently refuses. |
 | 4 | The counter's human step: the server cannot verify that the person at the counter is the customer the proposal names. | The shop-floor protocol (§12.2, landmine 9) plus rotation. A stronger guarantee would need the client to scan the slip, which is out of scope. |
 | 5 | Is rotation an acceptable substitute for re-printing a slip? Hashing makes the slip a consumable (§2 D2). | The owner's answer on whether a slip handed over at the counter can be re-issued on demand. If not, the credential would have to be stored reversibly, with the data-protection cost that implies. |
