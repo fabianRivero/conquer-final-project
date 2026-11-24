@@ -46,6 +46,8 @@ from tienda.api.personal import (
     PersonalView,
 )
 from tienda.api.vinculos import (
+    FiadoAceptarView,
+    FiadoRechazarView,
     VinculoAceptarView,
     VinculoEliminarView,
     VinculoRechazarView,
@@ -259,6 +261,18 @@ urlpatterns = [
         "cuenta/vinculos/rechazar/",
         VinculoRechazarView.as_view(),
         name="cuenta_vinculo_rechazar",
+    ),
+    # The FIADO, and the person's answer. The shop asks; she answers from
+    # her own account, and the shop may not answer for her.
+    path(
+        "cuenta/fiados/aceptar/",
+        FiadoAceptarView.as_view(),
+        name="cuenta_fiado_aceptar",
+    ),
+    path(
+        "cuenta/fiados/rechazar/",
+        FiadoRechazarView.as_view(),
+        name="cuenta_fiado_rechazar",
     ),
     path(
         "tienda/vinculos/",

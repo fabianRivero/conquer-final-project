@@ -60,6 +60,27 @@ def migrar_los_vocabulario(apps, schema_editor):
     )
 
 
+def migrar_los_vocabulario_inverso(apps, schema_editor):
+    """**Backwards**: the rows say the same thing in the old words.
+
+    The reverse has to move the rows BEFORE the old vocabulary constraint
+    comes back, because that constraint holds the old words in its
+    CONDITION: a row that says `aceptado` violates it.
+
+    And the reason is dropped on the way back: the old model has no
+    column for it, and a reason that the model cannot hold would be a
+    value nothing could read.
+    """
+    FiadoPropuesto = apps.get_model("tienda", "FiadoPropuesto")
+
+    FiadoPropuesto.objects.filter(estado="aceptado").update(
+        estado="confirmado"
+    )
+    FiadoPropuesto.objects.filter(estado="rechazado").update(
+        estado="cancelado"
+    )
+
+
 class Migration(migrations.Migration):
     # **NOT atomic**, and the reason is PostgreSQL: the data step writes
     # rows and the constraints that come after are schema operations, and
@@ -81,9 +102,29 @@ class Migration(migrations.Migration):
             name="motivo_rechazo",
             field=models.TextField(blank=True, null=True),
         ),
-        # The DATA: the rows say the same thing in the new words.
-        migrations.RunPython(
-            migrar_los_vocabulario, migrations.RunPython.noop, atomic=False
+        # **The vocabulary constraint goes BEFORE the data step.** It
+        # holds the words in its CONDITION - `estado__in=('pendiente',
+        # 'confirmado', 'cancelado')` - so the rows the data step is
+        # about to write as `aceptado` would violate it.
+        #
+        # It is replaced by the new one BEFORE the data, and not after:
+        # the constraint is the vocabulary, and the vocabulary has to be
+        # the new one for the migration to write anything.
+        migrations.RemoveConstraint(
+            model_name="fiadopropuesto",
+            name="chk_fiadopropuesto_estado_vocabulary",
+        ),
+        # The old constraints carry the old words in their NAMES, and a
+        # name that says a word the vocabulary no longer has is a lie in
+        # the schema. Django cannot rename a constraint, so the old ones
+        # go and the new ones come.
+        migrations.RemoveConstraint(
+            model_name="fiadopropuesto",
+            name="chk_fiadopropuesto_confirmado_fields",
+        ),
+        migrations.RemoveConstraint(
+            model_name="fiadopropuesto",
+            name="chk_fiadopropuesto_cancelado_fields",
         ),
         # The field's own `choices` carry the vocabulary, and they change
         # with it. Django reads the `choices` out of the migration state,
@@ -100,38 +141,6 @@ class Migration(migrations.Migration):
                 ],
                 default="pendiente",
                 max_length=20,
-            ),
-        ),
-        # The old constraints carry the old words in their NAMES, and a
-        # name that says a word the vocabulary no longer has is a lie in
-        # the schema. Django cannot rename a constraint, so the old ones
-        # go and the new ones come.
-        #
-        # **The vocabulary constraint goes too**, and that is not a rename:
-        # its CONDITION changed, because the condition names the
-        # vocabulary - `estado__in=('pendiente', 'confirmado',
-        # 'cancelado')` became `estado__in=('pendiente', 'aceptado',
-        # 'rechazado')`. A constraint whose condition changed has to be
-        # dropped and created again.
-        migrations.RemoveConstraint(
-            model_name="fiadopropuesto",
-            name="chk_fiadopropuesto_estado_vocabulary",
-        ),
-        migrations.RemoveConstraint(
-            model_name="fiadopropuesto",
-            name="chk_fiadopropuesto_confirmado_fields",
-        ),
-        migrations.RemoveConstraint(
-            model_name="fiadopropuesto",
-            name="chk_fiadopropuesto_cancelado_fields",
-        ),
-        migrations.AddConstraint(
-            model_name="fiadopropuesto",
-            constraint=models.CheckConstraint(
-                condition=models.Q(
-                    estado__in=("pendiente", "aceptado", "rechazado")
-                ),
-                name="chk_fiadopropuesto_estado_vocabulary",
             ),
         ),
         migrations.AddConstraint(
@@ -190,6 +199,43 @@ class Migration(migrations.Migration):
                     | models.Q(estado="rechazado")
                 ),
                 name="chk_fiadopropuesto_motivo_solo_en_el_rechazo",
+            ),
+        ),
+        # **The DATA, and it goes LAST.**
+        #
+        # Django undoes the operations **backwards**, so the inverse of
+        # the LAST one runs FIRST. And the inverse has to move the rows
+        # back to the old words **before** the old vocabulary constraint
+        # comes back - that constraint holds the old words in its
+        # CONDITION, and a row that says `aceptado` violates it.
+        #
+        # The forward does the opposite and it is also last: the
+        # constraint is replaced BEFORE the data, and the data is
+        # written with the new words.
+        migrations.RunPython(
+            migrar_los_vocabulario,
+            migrar_los_vocabulario_inverso,
+            atomic=False,
+        ),
+        # **And the new vocabulary constraint goes AFTER the data.**
+        #
+        # The old constraint holds the old words in its CONDITION, so it
+        # has to go BEFORE the data is written - and the new one holds
+        # the NEW words, so it has to come AFTER. The data is written in
+        # between, and that is the only order in which both the forward
+        # and the reverse work.
+        #
+        # **The reverse undoes the list backwards**, so the constraint
+        # comes off first, then the rows go back to the old words, and
+        # then the old constraint comes back - and it accepts the old
+        # words, which is what the rows say by then.
+        migrations.AddConstraint(
+            model_name="fiadopropuesto",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    estado__in=("pendiente", "aceptado", "rechazado")
+                ),
+                name="chk_fiadopropuesto_estado_vocabulary",
             ),
         ),
     ]

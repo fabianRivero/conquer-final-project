@@ -779,6 +779,177 @@ def _propuesta_bloqueada(shop_id, propuesta_id: int, *, user=None) -> FiadoPropu
     return propuesta
 
 
+def _fiado_de_la_persona(cliente, fiado_id: int) -> FiadoPropuesto:
+    """The person's own fiado, with its row locked.
+
+    **The scope is the PERSON.** The filter is on the customer, not on
+    the shop: a person may have fiados in SEVERAL shops, and each of
+    them is hers.
+
+    A fiado of another person is **NOT FOUND**, not refused: a 403 would
+    confirm that it exists, and the person has no business learning that
+    somebody else is being asked.
+    """
+    propuesta = (
+        FiadoPropuesto.objects.select_for_update()
+        .filter(customer=cliente, id=fiado_id)
+        .first()
+    )
+    if propuesta is None:
+        raise Http404
+    return propuesta
+
+
+def _escribir_el_cargo(propuesta, momento):
+    """The four rows of an accepted fiado, written together.
+
+    The `LedgerEntry(cargo)`, the `CargoLinea[]` COPIED from the
+    proposal's own lines, and the `Confirmacion(confirmado)`. If any of
+    them fails, none of them survives: the transaction is the unit.
+
+    **The figure is the proposal's.** The person says yes or no; she does
+    not write the charge, and she cannot change what the shop asked
+    for. The lines are read from the proposal and copied - never
+    recomputed from a body field.
+    """
+    lineas = list(propuesta.lineas.order_by("id"))
+
+    cargo = LedgerEntry.objects.create(
+        shop_id=propuesta.shop_id,
+        customer=propuesta.customer,
+        user=propuesta.user,
+        kind=EntryKind.CARGO.value,
+        amount=propuesta.total,
+        occurred_at=momento,
+    )
+    CargoLinea.objects.bulk_create(
+        [
+            CargoLinea(
+                cargo=cargo,
+                producto=linea.producto,
+                cantidad=linea.cantidad,
+                precio_unitario=linea.precio_unitario,
+                total=linea.total,
+            )
+            for linea in lineas
+        ]
+    )
+    Confirmacion.objects.create(
+        cargo=cargo,
+        estado=ConfirmState.CONFIRMADO.value,
+        confirmado_en=momento,
+        # The origin is the SHOP's: the shop prepared the figure, and
+        # the person accepted it. `confirmado_por` names the shop's
+        # preparer, because that is who wrote the charge.
+        origen="tienda",
+        confirmado_por=propuesta.user,
+    )
+    return cargo
+
+
+def aceptar_fiado(cliente, fiado_id: int, at=None):
+    """**She accepts the fiado.** The shop asked; she answers.
+
+    The write is one transaction and it writes the same four things the
+    staff's confirmation writes: the `LedgerEntry(cargo)`, the
+    `CargoLinea[]` copied from the proposal's own lines, the
+    `Confirmacion(confirmado)` and the proposal's `confirmed_at`.
+
+    **Rule 7** - the move is one-way: a fiado that is not `pendiente` is
+    refused with `propuesta_ya_aceptada` or `propuesta_ya_rechazada`.
+
+    **Rule 8** - a fiado accepted while the customer is suspended writes
+    **no** charge. The suspension is derived, never stored, and it is
+    read INSIDE the transaction: a customer suspended a moment ago is
+    suspended now.
+
+    **The scope is the PERSON's**, not the shop's: she may have fiados
+    in several shops, and each of them is hers.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _fiado_de_la_persona(cliente, fiado_id)
+
+        destino = PropuestaEstado.ACEPTADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        # Rule 3: the declared total equals the sum of the proposal's
+        # own lines. The lines are the ones that will be copied, so this
+        # is the last point where a mismatch can be refused.
+        lineas = list(propuesta.lineas.order_by("id"))
+        if not reglas_cargos.propuesta_amount_matches(
+            [
+                CargoLine(
+                    id=linea.id,
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario,
+                    total=linea.total,
+                )
+                for linea in lineas
+            ],
+            propuesta.total,
+        ):
+            raise DomainValidationError("lineas_descuadradas")
+
+        # Rule 8: the derived suspension, read inside the transaction.
+        estado_cliente = estado_de(
+            propuesta.customer, at=momento, tienda=propuesta.shop_id
+        )
+        if estado_cliente.suspendido:
+            motivo = estado_cliente.motivo
+            raise DomainValidationError(
+                motivo.value if motivo is not None else "limite_superado"
+            )
+
+        cargo = _escribir_el_cargo(propuesta, momento)
+
+        propuesta.estado = destino
+        propuesta.confirmed_at = momento
+        propuesta.save(update_fields=["estado", "confirmed_at"])
+    return cargo, propuesta
+
+
+def rechazar_fiado(cliente, fiado_id: int, *, motivo="", at=None):
+    """**She refuses the fiado**, and she may say why.
+
+    **Nothing is written but the instant and her reason.** No charge, no
+    lines, no confirmation: the outstanding never moved, because it
+    never moved in the first place (CC-04, design 13.2).
+
+    **The reason is free text and it may be empty.** A refusal without
+    an explanation is not an answer, and an empty explanation is still
+    an answer: she is not obliged to justify herself to the shop.
+
+    **Rule 7** - the move is one-way.
+    """
+    momento = at or timezone.now()
+
+    with transaction.atomic():
+        propuesta = _fiado_de_la_persona(cliente, fiado_id)
+
+        destino = PropuestaEstado.RECHAZADO.value
+        error = reglas_confirmacion.propuesta_transicion_permitida(
+            propuesta.estado, destino
+        )
+        if error is not None:
+            raise DomainValidationError(error)
+
+        propuesta.estado = destino
+        propuesta.canceled_at = momento
+        # The reason is stored as it came: an empty reason is stored as
+        # an empty string, and the column says "no reason" with NULL.
+        propuesta.motivo_rechazo = (motivo or "").strip() or None
+        propuesta.save(
+            update_fields=["estado", "canceled_at", "motivo_rechazo"]
+        )
+    return propuesta
+
+
 def confirmar_propuesta(shop_id, user, *, propuesta_id: int, at=None):
     """Confirm a proposal - **the only path that creates a charge**.
 
