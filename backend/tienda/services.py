@@ -463,6 +463,15 @@ def vinculos_del_cliente(cliente) -> list:
     formality - she would already have seen everything the acceptance
     reveals. The link she is asked about says which shop is asking, and
     no more.
+
+    **An ACCEPTED link opens the figures**, and they are hers to read:
+    how much she owes **in that shop**, how old the oldest debt is
+    there, and the limit the owner gave her.
+
+    **The figures are PER SHOP.** "She owes 30 here" and "she owes 20
+    there" are two facts, and one account that mixed them would be
+    lying about both. The limit and the ageing belong to the link, and
+    the link names the shop.
     """
     filas = []
     for vinculo in Vinculo.objects.filter(cliente=cliente).select_related("tienda"):
@@ -475,7 +484,93 @@ def vinculos_del_cliente(cliente) -> list:
             # The acceptance is what opens the owner's figures to her.
             fila["credit_limit"] = vinculo.credit_limit
             fila["pendiente"] = pendiente_de(cliente, tienda=vinculo.tienda)
+            # The ageing of THIS shop. The age of the debt she has in
+            # this shop says something; her age as a person says
+            # nothing.
+            fila["antiguedad_max_dias"] = estado_de(
+                cliente, tienda=vinculo.tienda
+            ).antiguedad_max_dias
         filas.append(fila)
+    return filas
+
+
+def fiados_del_cliente(cliente) -> list:
+    """The person's own fiados, with their state.
+
+    **Every fiado of every shop she is trusted in**, and the state says
+    what happened: `pendiente` (the shop asked and she has not
+    answered), `aceptado` (she said yes, and the charge exists) or
+    `rechazado` (she said no).
+
+    **A pending fiado carries its lines and its total.** A figure she
+    cannot see broken down is not a figure she confirmed - and the
+    lines are there BEFORE she answers, because the answer is about
+    those lines.
+
+    **A rejection carries the reason she gave.** It is her text, and it
+    may be empty.
+    """
+    filas = []
+    for fiado in (
+        FiadoPropuesto.objects.filter(customer=cliente)
+        .select_related("shop")
+        .order_by("-created_at", "-id")
+    ):
+        fila = {
+            "id": fiado.id,
+            "tienda": fiado.shop.name,
+            "estado": fiado.estado,
+            "total": fiado.total,
+            "creado_en": fiado.created_at,
+        }
+        if fiado.estado == "rechazado":
+            fila["motivo"] = fiado.motivo_rechazo
+        if fiado.estado in ("pendiente", "aceptado"):
+            fila["lineas"] = [
+                {
+                    "producto": linea.producto.nombre,
+                    "cantidad": linea.cantidad,
+                    "precio_unitario": linea.precio_unitario,
+                    "total": linea.total,
+                }
+                for linea in fiado.lineas.select_related("producto").order_by("id")
+            ]
+        filas.append(fila)
+    return filas
+
+
+def cargos_del_cliente(cliente) -> list:
+    """The person's own charges, with the state each one is in.
+
+    **The state is a WORD**: `pendiente` (nobody paid it), `parcial` (a
+    payment retired part of it) or `pagado` (a payment retired all of
+    it). It is derived on read and never stored - a `pagado` column on
+    the charge would break the append-only guarantee of the book, and a
+    stored balance is a derived value (ADR-27).
+
+    **The charges of EVERY shop she is trusted in.** A person may owe
+    in several, and her account is the one place where all of them are
+    hers together.
+    """
+    filas = []
+    for cargo in (
+        LedgerEntry.objects.filter(customer=cliente, kind=EntryKind.CARGO.value)
+        .filter(confirmaciones__estado=ConfirmState.CONFIRMADO.value)
+        .select_related("shop")
+        .order_by("-occurred_at", "-id")
+        .distinct()
+    ):
+        filas.append(
+            {
+                "id": cargo.id,
+                "tienda": cargo.shop.name,
+                "fecha": cargo.occurred_at,
+                "amount": cargo.amount,
+                "pagado": pagado_de(cargo),
+                "saldo": saldo_de(cargo),
+                "estado": estado_cargo(cargo),
+            }
+        )
     return filas
 
 

@@ -135,6 +135,59 @@ class VinculoRechazarView(VinculoAceptarView):
         return Response({"id": vinculo.id, "estado": vinculo.estado})
 
 
+class FiadosDelClienteView(APIView):
+    """`GET /api/v1/cuenta/fiados/` - **her own fiados**, with their
+    state.
+
+    Every fiado of every shop she is trusted in, and the state says
+    what happened: `pendiente` (the shop asked and she has not
+    answered), `aceptado` (she said yes) or `rechazado` (she said no,
+    with the reason she gave).
+
+    **A pending fiado carries its lines and its total.** A figure she
+    cannot see broken down is not a figure she confirmed - and the lines
+    are there BEFORE she answers, because the answer is about those
+    lines.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["get"]
+
+    def get(self, request):
+        from tienda.services import fiados_del_cliente
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response([])
+
+        return Response(fiados_del_cliente(cliente))
+
+
+class CargosDelClienteView(APIView):
+    """`GET /api/v1/cuenta/cargos/` - **her own charges**, with the
+    state each one is in.
+
+    The state is a WORD - `pendiente`, `parcial` or `pagado` - and it
+    is derived on read, never stored.
+
+    **The charges of EVERY shop she is trusted in.** A person may owe
+    in several, and her account is the one place where all of them are
+    hers together.
+    """
+
+    permission_classes = [EsClienteConVinculo]
+    http_method_names = ["get"]
+
+    def get(self, request):
+        from tienda.services import cargos_del_cliente
+
+        cliente = _cliente_de(request.user)
+        if cliente is None:
+            return Response([])
+
+        return Response(cargos_del_cliente(cliente))
+
+
 class FiadoAceptarView(APIView):
     """`POST /api/v1/cuenta/fiados/aceptar/` - **she accepts the fiado**.
 
