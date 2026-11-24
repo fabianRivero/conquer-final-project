@@ -325,10 +325,21 @@ def test_las_dos_cuentas_entran_y_caen_en_su_conjunto(navegador):
         )
 
 
-def test_el_dependiente_da_403_en_el_libro_de_credito(navegador):
-    """A 403 on the credit book for the `dependiente`.
+def test_el_dependiente_da_403_en_la_politica_del_dueno(navegador):
+    """A 403 on the OWNER'S POLICY for the `dependiente`.
 
-    The total refusal, with no partial data in any field.
+    **The gate N5 is OPEN**, so the `dependiente` READS the credit book:
+    `/api/v1/clientes/` answers 200 for it, with the reduced schema and
+    no policy in it. That is the decision of the Phase 9, and it is what
+    the previous version of this test contradicted - it was written when
+    the `dependiente` was refused everywhere, and it was never
+    re-inverted when the gate opened.
+
+    **What the `dependiente` still cannot do is the owner's POLICY**:
+    the catalogue, the proposed payments, the limit, the suspension and
+    the credential. Those answer the total 403 of design §7.1 - no
+    alias, no identifier, no count, not in the body and not in the
+    message.
     """
     dueno = Navegador(URL_PUBLICA)
     dueno.entrar("dueno")
@@ -336,14 +347,26 @@ def test_el_dependiente_da_403_en_el_libro_de_credito(navegador):
     dependiente = Navegador(URL_PUBLICA)
     dependiente.entrar("dependiente")
 
-    for ruta in ("/api/v1/clientes/", "/api/v1/catalogo/"):
+    # The POLICY: refused, and with nothing in the body.
+    for ruta in ("/api/v1/catalogo/", "/api/v1/pagos-propuestos/"):
         estado, cuerpo = dependiente.pedir(ruta)
         assert estado == 403, f"{ruta} responde {estado} y deberia ser 403"
         assert json.loads(cuerpo)["codigo_error"] == "permiso_insuficiente"
 
     # And the owner DOES reach them.
-    estado, _ = dueno.pedir("/api/v1/clientes/")
-    assert estado == 200
+    for ruta in ("/api/v1/clientes/", "/api/v1/catalogo/"):
+        estado, _ = dueno.pedir(ruta)
+        assert estado == 200, f"el dueno no alcanza {ruta}"
+
+    # **The credit book IS readable by the `dependiente`** - through the
+    # reduced schema, which declares the debts and none of the policy.
+    estado, cuerpo = dependiente.pedir("/api/v1/clientes/")
+    assert estado == 200, "el dependiente no puede leer el libro de credito"
+    for prohibido in ("credit_limit", "codigo", "prefix", "suspended_reason"):
+        assert prohibido not in str(cuerpo), (
+            f"el dependiente recibe {prohibido}: el payload reducido no lo "
+            f"declara"
+        )
 
 
 def test_ninguna_respuesta_trae_un_alias_ni_un_codigo(navegador):
