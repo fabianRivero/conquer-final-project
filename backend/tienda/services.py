@@ -455,6 +455,56 @@ def reclamar_cliente(user, alias):
     return cliente
 
 
+def buscar_en_el_mostrador(shop_id, username) -> list:
+    """The people of a shop that a username may name.
+
+    **The counter identifies the person by the account she owns.** The
+    attendant asks her for her username, types it, and the system finds
+    her - the person is identified with the account she owns, not with a
+    slip of paper the shop keeps.
+
+    **It is a SEARCH, and not an authentication.** It finds a person and
+    it does not sign her in: the answer to the fiado is hers, from her
+    own account, and the counter has no way to answer for her - so it
+    has no way to pretend she did.
+
+    **Only a person with an ACCOUNT is found.** The counter identifies
+    the person by the account she owns, and a customer row without one
+    is not identified that way. The shop still has her in its list - the
+    alias finds her - but that is the owner's own list, and the
+    counter's identification is the account.
+
+    **The scope is the shop.** A person may be a client of several, and
+    each of them asks her separately: the owner of one shop does not
+    look for the customers of another.
+
+    **The username is her PUBLIC NAME**, like an email address. That is
+    why the search needs nothing else: the password is typed by her, on
+    her own device, and it never travels to the counter.
+    """
+    username = (username or "").strip()
+    if not username:
+        return []
+
+    return [
+        {
+            "cliente_id": vinculo.cliente_id,
+            "alias": vinculo.cliente.alias,
+            "username": vinculo.cliente.user.username,
+            "credit_limit": vinculo.credit_limit,
+        }
+        for vinculo in (
+            Vinculo.objects.filter(
+                tienda_id=shop_id,
+                cliente__user__username=username,
+                estado="aceptado",
+            )
+            .select_related("cliente", "cliente__user")
+            .order_by("cliente__alias")
+        )
+    ]
+
+
 def vinculos_del_cliente(cliente) -> list:
     """The links of a client, as **she** sees them.
 

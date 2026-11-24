@@ -421,7 +421,7 @@ def test_the_client_routes_live_under_their_own_prefix():
     assert len(cliente_rutas) == 3
     assert len(persona_rutas) == 14
     assert len(tienda_rutas) == 5
-    assert len(personal_rutas) == 17
+    assert len(personal_rutas) == 18
     # And no route serves two audiences.
     assert not set(cliente_rutas) & set(personal_rutas)
     assert not set(persona_rutas) & set(personal_rutas)

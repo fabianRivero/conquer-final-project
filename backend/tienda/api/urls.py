@@ -40,6 +40,7 @@ from tienda.api.cuenta import (
     PerfilesView,
     PerfilTiendaView,
 )
+from tienda.api.mostrador import MostradorBuscarView
 from tienda.api.personal import (
     LoginTiendaView,
     PersonalMiembroView,
@@ -140,6 +141,14 @@ urlpatterns = [
     path("cierre/", CierreView.as_view(), name="cierre"),
     path("catalogo/", CatalogoView.as_view(), name="catalogo"),
     path("existencias/", vista_pendiente("existencias"), name="existencias"),
+    # The COUNTER. The attendant asks her for her username and types it,
+    # and the system finds her. It is a search and not an
+    # authentication: the answer to the fiado is hers.
+    path(
+        "mostrador/buscar/",
+        MostradorBuscarView.as_view(),
+        name="mostrador_buscar",
+    ),
     path("clientes/", ClientesView.as_view(), name="clientes"),
     path(
         "clientes/<int:cliente_id>/",
