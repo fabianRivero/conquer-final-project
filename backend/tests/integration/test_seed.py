@@ -209,7 +209,15 @@ def test_the_seed_creates_a_customer_with_an_account(seeded):
     The credential is gone - the 10.6 removed it - so what the demo
     seeds is a person with a **username and a password of her own**,
     and a `Customer` row that points at her.
+
+    **And the password WORKS.** That is the companion that caught the
+    real bug: the migration gives a person without an account a
+    **LOCKED** account, and a seed that created a *second* user instead
+    of reusing hers left the row pointing at the locked one - so the
+    demo's client could not log in.
     """
+    from django.contrib.auth.models import User
+
     vinculo = Vinculo.objects.get(tienda=seeded)
     cliente = vinculo.cliente
 
@@ -222,6 +230,44 @@ def test_the_seed_creates_a_customer_with_an_account(seeded):
     # hash es de Django.
     assert cliente.user.password
     assert cliente.user.password.startswith("pbkdf2_")
+
+    # **Y la contrasena del demo deja entrar.**
+    from tienda.management.commands.seed_demo import PASSWORD_DEMO
+
+    assert cliente.user.check_password(PASSWORD_DEMO), (
+        "la contrasena del demo no abre la cuenta de la persona"
+    )
+    # Y la cuenta es de UNA sola: la de su fila.
+    from django.contrib.auth.models import User
+
+    assert User.objects.filter(username=cliente.user.username).count() == 1
+
+
+def test_el_seed_no_deja_dos_cuentas_para_la_misma_persona(seeded):
+    """**Una persona, una cuenta.**
+
+    The migration gives a row that has no person an account, and it
+    uses the ALIAS as the username. A seed that created a second one
+    would leave the row pointing at the LOCKED account the migration
+    gave - and the demo's client could not log in.
+
+    That is exactly what the first version of this seed did, and the
+    deployment showed it: the owner's accounts logged in and the
+    client's did not.
+    """
+    from django.contrib.auth.models import User
+
+    cliente = Customer.objects.get(alias="Ana")
+
+    # **Una sola cuenta para ella**, y es la de su fila.
+    assert cliente.user is not None
+    assert (
+        User.objects.filter(username__startswith="ana").count()
+        + User.objects.filter(username__startswith="Ana").count()
+    ) == 1, (
+        "la persona del demo tiene mas de una cuenta: la de la "
+        "migracion y otra"
+    )
 
 
 def test_the_seed_creates_one_confirmed_charge_with_its_lines(seeded):
