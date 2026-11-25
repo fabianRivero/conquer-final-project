@@ -109,6 +109,47 @@ CATALOGO = (
 PASSWORD_DEMO = "tienda-demo-2026"
 
 
+def _usuario_de_la_persona(username: str, alias: str):
+    """The account of the demo's client, found by NAME and never made twice.
+
+    **The account may already exist**: the 10.6 migration gives a
+    customer row that has no person an account, and it uses the alias
+    as the username. So the seed has to find that account and REUSE it -
+    a seed that created a second one would leave the row pointing at
+    the **locked** account the migration gave, and the demo's client
+    could not log in.
+
+    That is not a hypothetical: it is exactly what the first version of
+    this seed did, and the deployment showed it - the owner's accounts
+    logged in and the client's did not.
+
+    **And the account the migration made is REUSED, not duplicated.** The
+    alias is the name the shop knows her by and the username is the one
+    she chose, so the two can differ - and two accounts for one person
+    is one person too many.
+    """
+    from django.contrib.auth.models import User
+
+    # La cuenta de SU fila, si la tiene.
+    from tienda.models import Customer
+
+    fila = Customer.objects.filter(alias=alias).first()
+    if fila is not None and fila.user_id is not None:
+        return fila.user
+
+    # La cuenta con el ALIAS como nombre: la creo la migracion.
+    usuario = User.objects.filter(username=alias).first()
+    if usuario is None:
+        usuario = User.objects.filter(username=username).first()
+    if usuario is None:
+        usuario = User.objects.create(
+            username=username,
+            email=f"{username}@demo.local",
+            last_login=timezone.now(),
+        )
+    return usuario
+
+
 class Command(BaseCommand):
     """`manage.py seed_demo` - the demo dataset."""
 
@@ -248,26 +289,33 @@ class Command(BaseCommand):
         """
         from tienda.models import Vinculo
 
-        usuario, _ = User.objects.get_or_create(
-            username="ana",
-            defaults={"email": "ana@demo.local"},
-        )
-        # La contrasena del demo es la de las demas cuentas del demo.
-        usuario.set_password(PASSWORD_DEMO)
-        usuario.save()
-
-        cliente, _ = Customer.objects.get_or_create(
-            alias="Ana",
-            defaults={
-                "created_by": dueno,
-                "phone": "600000000",
-                "user": usuario,
-            },
-        )
-        # Y si la fila ya existia sin persona, la reclama ahora.
-        if cliente.user_id is None:
-            cliente.user = usuario
+        # **La cuenta de la persona.** La fila puede venir de la
+        # migracion, que le dio una cuenta con una contrasena
+        # INUTILIZABLE - y el demo necesita que se pueda entrar.
+        #
+        # **La cuenta se busca por NOMBRE, y no se crea a ciegas**: una
+        # cuenta que ya existe - la creo la migracion con el alias como
+        # nombre - es la cuenta de la fila, y una cuenta nueva seria una
+        # segunda persona con el mismo nombre.
+        cliente = Customer.objects.filter(alias="Ana").first()
+        if cliente is None:
+            # La cuenta va PRIMERO: 'Customer.user' es NOT NULL, y una
+            # fila sin persona detras no es una persona.
+            usuario = _usuario_de_la_persona("ana", "Ana")
+            cliente = Customer.objects.create(
+                alias="Ana",
+                created_by=dueno,
+                phone="600000000",
+                user=usuario,
+            )
+        elif cliente.user_id is None:
+            # La fila existia sin persona: se le da una.
+            cliente.user = _usuario_de_la_persona("ana", "Ana")
             cliente.save(update_fields=["user"])
+
+        # Y la contrasena del demo es la de las demas cuentas.
+        cliente.user.set_password(PASSWORD_DEMO)
+        cliente.user.save()
 
         Vinculo.objects.update_or_create(
             tienda=tienda,
