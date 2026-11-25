@@ -454,6 +454,102 @@ v2_redesign:
       username, and the only reader of a credential is the client's own
       statement, which is a THIRD audience and not the shop's counter.
       The client's own statement still reads through the credential.
+  phase10f_delivered:
+    completed: '2026-11-25'
+    pull_requests: [41]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/domain/confirmation.py
+      - backend/tienda/domain/types.py
+      - backend/tienda/api/cuenta.py
+      - backend/tienda/api/cuenta_pagos.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/api/permissions.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/client_auth.py (deleted)
+      - backend/tienda/api/client_authentication.py (deleted)
+      - backend/tienda/api/throttle.py (deleted)
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tienda/migrations/0008_la_persona_es_la_unica.py
+      - backend/tests/conftest.py
+      - backend/tests/integration/personas.py
+      - backend/tests/integration/test_10_6_sin_cuenta_no_hay_vinculo.py
+      - backend/tests/integration/test_10_6_propuesta_de_pago.py
+      - backend/tests/integration/test_10_4_persona_y_cliente.py
+      - backend/tests/integration/test_credencial_api.py (deleted)
+      - backend/tests/integration/test_cliente_api.py (deleted)
+      - frontend/src/api/cliente.ts (deleted)
+      - frontend/src/api/fiados.ts
+      - frontend/src/components/Acceso.tsx (deleted)
+      - frontend/src/components/Estado.tsx (deleted)
+      - frontend/src/components/ProponerPago.tsx (deleted)
+      - frontend/src/components/Cargos.tsx
+      - frontend/src/components/Fiados.tsx
+      - frontend/src/router.tsx
+      - frontend/src/surfaces/Cliente.tsx (deleted)
+      - frontend/src/surfaces/Cuenta.tsx
+      - openspec/changes/fiado-confirmado/design.md
+    lines: -2935
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration WITH its data, the service layer, the routes,
+      the screens and the tests are ONE behaviour - the person is the
+      only one who can owe - and a PR with the model without the routes
+      reaches nothing. **And it REMOVES more than it adds**: the
+      credential machinery is four modules, two models and three routes
+      that no longer have a case. The diff is -3591/+656.
+    the_owners_rule: >-
+      *A client without an account cannot have a fiado.* And without a
+      fiado there is no debt to pay - which is what made the `codigo`
+      pointless. The credential opened a fourth audience: the client's
+      own statement, read with a bearer token the shop kept. There was
+      no case left for it.
+    the_door_that_was_open: >-
+      The owner's route - \`POST /api/v1/clientes/\` - created the person
+      with the link \`aceptado\`, **without asking anybody and without
+      requiring an account**. By that way a person with no account could
+      have a charge: a debt she could neither see nor refuse. The demo
+      did exactly that with "Ana". **The link is now born \`pendiente\`**
+      - the owner's act is the QUESTION and hers is the ANSWER - and
+      \`Customer.user\` is **NOT NULL**: a row without a person behind it
+      is not a person, it is a row the owner wrote and nobody can
+      answer.
+    the_row_is_hers_and_the_claim_is_gone: >-
+      The registration creates the account AND the row, because the
+      owner's rule makes them inseparable. **The claim went with the
+      credential**: there is nothing to reclaim if the row cannot exist
+      without the person. The shop does not create people - it asks the
+      ones who exist, and it finds them by their USERNAME.
+    the_payment_proposal_names_its_shop: >-
+      The service used to pick the FIRST accepted link, and that was a
+      GUESS - a guess that pays the wrong shop's debt: a person owing 30
+      in one shop and 20 in another could see her payment land in
+      either one. **The shop is named now**, and when she owes in several
+      the refusal says which. The proposal still names no charge: the
+      FIFO decides which debts it retires (ADR-27).
+    the_migration_gives_an_account_to_the_rows_without_one: >-
+      The rows that the shop created before the person had an account
+      get one, with the alias as the username - and with a **LOCKED**
+      password: a random digest that nobody knows. **An empty password
+      would be a credential anybody could use**, and a real one would be
+      a secret the shop chose for the person, which is the thing the
+      10.1 removed. The links that were \`aceptado\` go back to
+      \`pendiente\` with their \`aceptado_at\` cleared: the instant has
+      to match the state, because an acceptance that never happened
+      cannot carry its instant.
+    evidence: >-
+      128 unit and 550 integration tests pass on the slice, and
+      \`makemigrations --check\` detects no change. **The migration was
+      verified against the REAL scenario**: a database already at the
+      \`0007\`, with data - it applies, **no row is lost** (2 customers,
+      1 link, 1 ledger row, 1 confirmation, 1 proposal), the person
+      without an account gets one, the link goes back to \`pendiente\`, the
+      credential tables are gone, and the chain reverses and applies
+      again. The frontend typecheck and the bundle build pass.
   phase10d_delivered:
     completed: '2026-11-23'
     pull_requests: [36]
