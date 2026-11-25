@@ -270,6 +270,27 @@ def test_el_seed_no_deja_dos_cuentas_para_la_misma_persona(seeded):
     )
 
 
+def test_la_persona_del_demo_tiene_su_perfil_de_cliente(seeded):
+    """**El perfil es lo que dice "soy clienta en el mundo del credito".**
+
+    Without it she signs in and reaches nothing: `EsClienteConVinculo`
+    demands the profile, and the profile is what turns an account into
+    a client's account.
+
+    **The deployment showed it**: the `0008` migration created the
+    account without the profile, and the person logged in to a 403 on
+    every route of her own.
+    """
+    from tienda.models import PerfilCliente
+
+    cliente = Customer.objects.get(alias="Ana")
+
+    assert PerfilCliente.objects.filter(user=cliente.user).exists(), (
+        "la persona del demo no tiene perfil de cliente: entra y no "
+        "alcanza nada"
+    )
+
+
 def test_la_ficha_de_la_persona_no_bloquea_el_borrado_del_dueno(seeded):
     """**`created_by` es PROTECT, y el seed borra al dueno.**
 

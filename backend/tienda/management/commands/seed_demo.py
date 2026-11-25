@@ -127,18 +127,22 @@ def _usuario_de_la_persona(username: str, alias: str):
     alias is the name the shop knows her by and the username is the one
     she chose, so the two can differ - and two accounts for one person
     is one person too many.
+
+    **And the username becomes the demo's own.** The demo is
+    deterministic: the client is always `ana`, whatever the history of
+    the database. An account whose name is free is renamed, and the
+    leftovers - the accounts of an earlier demo, which point at nobody -
+    are removed.
     """
     from django.contrib.auth.models import User
 
-    # La cuenta de SU fila, si la tiene.
     from tienda.models import Customer
 
     fila = Customer.objects.filter(alias=alias).first()
-    if fila is not None and fila.user_id is not None:
-        return fila.user
+    usuario = fila.user if fila is not None and fila.user_id else None
 
-    # La cuenta con el ALIAS como nombre: la creo la migracion.
-    usuario = User.objects.filter(username=alias).first()
+    if usuario is None:
+        usuario = User.objects.filter(username=alias).first()
     if usuario is None:
         usuario = User.objects.filter(username=username).first()
     if usuario is None:
@@ -147,6 +151,23 @@ def _usuario_de_la_persona(username: str, alias: str):
             email=f"{username}@demo.local",
             last_login=timezone.now(),
         )
+
+    # **Los sobrantes de un demo anterior**: cuentas con el nombre de la
+    # persona del demo que NO apuntan a ninguna ficha. Son del demo -
+    # su fila se borro - y no son de nadie.
+    for sobrante in User.objects.filter(username__in=[username, alias]).exclude(
+        id=usuario.id
+    ):
+        if not Customer.objects.filter(user=sobrante).exists():
+            sobrante.delete()
+
+    # **Y el nombre es el del demo.** Con la fila apuntando a el.
+    if usuario.username != username:
+        if not User.objects.filter(username=username).exists():
+            usuario.username = username
+            usuario.email = f"{username}@demo.local"
+            usuario.save(update_fields=["username", "email"])
+
     return usuario
 
 
@@ -326,6 +347,16 @@ class Command(BaseCommand):
         # anterior - donde la persona no tenia contrasena.
         cliente.created_by = cliente.user
         cliente.save(update_fields=["created_by"])
+
+        # **Y el perfil de cliente.** Sin el, la persona entra pero no
+        # alcanza nada: `EsClienteConVinculo` exige el perfil, y el
+        # perfil es lo que dice "soy clienta en el mundo del credito".
+        #
+        # La migracion `0008` creo la cuenta sin el perfil, y eso se
+        # vio en el despliegue.
+        from tienda.models import PerfilCliente
+
+        PerfilCliente.objects.get_or_create(user=cliente.user)
 
         # Y la contrasena del demo es la de las demas cuentas.
         cliente.user.set_password(PASSWORD_DEMO)
