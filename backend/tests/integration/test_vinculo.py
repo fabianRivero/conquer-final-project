@@ -10,6 +10,7 @@ puts in this client **in this shop**: Ana may have 100 in one shop and
 for 90 days" says nothing about the other one.
 
 **The consent is the client's.** The shop asks, and the client accepts
+
 from her own account. Until she does, the link is `pendiente` and the
 client sees **only the shop's name and the buttons**: if she could see
 the debt and the ageing first, the consent would be a formality - she
@@ -25,6 +26,9 @@ would already have seen everything the acceptance reveals.
 """
 
 from __future__ import annotations
+
+from tests.integration.personas import crear_persona
+
 
 from decimal import Decimal
 
@@ -75,7 +79,8 @@ def dueno(negocio):
 @pytest.fixture
 def cliente(db):
     """A person. **No shop** - she belongs to no shop yet."""
-    return Customer.objects.create(alias="Ana")
+    _usuario, persona = crear_persona("ana", alias="Ana")
+    return persona
 
 
 @pytest.fixture

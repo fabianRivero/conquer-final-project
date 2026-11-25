@@ -19,7 +19,10 @@ It is derived on read and never stored - a `pagado` column on the
 charge would break the append-only guarantee of the book (ADR-27).
 """
 
+
 from __future__ import annotations
+
+from tests.integration.personas import crear_persona
 
 from decimal import Decimal
 
@@ -68,7 +71,8 @@ def otra_tienda(db):
 @pytest.fixture
 def cliente(tienda, otra_tienda, dueno):
     """A person trusted in TWO shops, with a DIFFERENT limit in each."""
-    fila = Customer.objects.create(alias="Ana", created_by=dueno)
+
+    _usuario, fila = crear_persona("ana", alias="Ana", dueno=dueno)
     Vinculo.objects.create(
         tienda=tienda,
         cliente=fila,

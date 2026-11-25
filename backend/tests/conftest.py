@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration.personas import crear_persona as _crear_persona
+
 # The development fallback secret is allowed here because the test process
 # has no `DATABASE_URL`, so the settings module treats it as non-production.
 # A deployed instance always has one and still refuses the fallback.
@@ -128,3 +130,25 @@ def membresia(perfil, user, rol):
     return MiembroDeTienda.objects.create(
         perfil_tienda=perfil, user=user, rol=rol
     )
+
+
+# ---------------------------------------------------------------------------
+# The person
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def crear_persona(db):
+    """**The person, with her account and her row.**
+
+    The `Customer.user` is NOT NULL: a row without a person behind it is
+    not a person, it is a row the owner wrote and nobody can answer. So
+    every test that needs a customer needs a PERSON, and this is the
+    helper that says so.
+
+    It is a fixture and not a plain function so that every test file
+    gets it without importing anything: the fact that a customer comes
+    with a person is then a property of the SUITE, and not a thing each
+    file has to remember.
+    """
+    return _crear_persona

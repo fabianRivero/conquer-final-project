@@ -176,18 +176,6 @@ def _codigo(fichero: Path) -> str:
     return texto
 
 
-def test_el_cliente_no_envia_cookies():
-    """The client sends `credentials: "omit"` (ADR-4).
-
-    The client holds no session, and sending one would blur the two
-    scopes. Every client request carries it.
-    """
-    codigo = _codigo(FRONTEND / "src" / "api" / "cliente.ts")
-
-    omite = codigo.count('"omit"')
-    assert omite >= 3, "las tres peticiones del cliente omiten las cookies"
-    assert "same-origin" not in codigo, "el cliente no envia la sesion"
-
 
 def test_el_personal_envia_la_sesion():
     """The staff sends the session with `credentials: "same-origin"`."""
@@ -196,32 +184,6 @@ def test_el_personal_envia_la_sesion():
     assert "same-origin" in codigo
     assert '"omit"' not in codigo
 
-
-def test_el_cliente_usa_la_sola_cabecera_del_credencial():
-    """The credential travels in `X-Codigo` and nowhere else.
-
-    Never in a query parameter, never in a cookie, never in the body
-    (design 5, R4).
-    """
-    codigo = _codigo(FRONTEND / "src" / "api" / "cliente.ts")
-
-    assert "X-Codigo" in codigo
-    # The credential is not in a URL. The `?` of TypeScript's optional
-    # properties is not a query string, so the check is on the STRING
-    # LITERALS: one that carries a `?` followed by something. The
-    # pattern is per-literal - a greedy one would match across a whole
-    # file and prove nothing.
-    literales = re.findall(r'"([^"\n]*)"', codigo)
-    for literal in literales:
-        assert "?" not in literal, (
-            f"una cadena con query string: {literal!r}"
-        )
-    # And it is not in the body: the body's fields are `importe` and
-    # `referencia`, and nothing that names the credential.
-    cuerpos = re.findall(r"cuerpo:\s*\{([^}]*)\}", codigo)
-    for cuerpo in cuerpos:
-        assert "codigo" not in cuerpo.lower()
-        assert "credential" not in cuerpo.lower()
 
 
 def test_el_personal_manda_el_csrf():
@@ -241,20 +203,27 @@ def test_el_personal_manda_el_csrf():
 
 
 def test_el_enrutador_declara_las_tres_rutas():
-    """The three routes of design 11.
+    """The routes of design 11.
 
-    `/app/posicion`, `/app/propuesta/:id` and `/app/cliente`. The paths
-    carry NO trailing slash: Django mounts them with one, and the two
-    would not be the same route.
+    `/app/posicion`, `/app/propuesta/:id` and `/app/cuenta` - plus
+    `/app/mostrador`, the counter. The paths carry NO trailing slash:
+    Django mounts them with one, and the two would not be the same
+    route.
+
+    **There is no `/app/cliente`**: the credential's audience is gone,
+    and the person's account is her only door.
     """
     fuente = (FRONTEND / "src" / "router.tsx").read_text(encoding="utf-8")
 
     assert '"/app/posicion"' in fuente
     assert '"/app/propuesta/:id"' in fuente
-    assert '"/app/cliente"' in fuente
+    assert '"/app/cuenta"' in fuente
+    assert '"/app/mostrador"' in fuente
     # And none of them carries a trailing slash.
     assert '"/app/posicion/"' not in fuente
-    assert '"/app/cliente/"' not in fuente
+    assert '"/app/cuenta/"' not in fuente
+    # **And the client's route is gone.**
+    assert '"/app/cliente"' not in fuente
 
 
 def test_el_documento_carga_la_politica_de_seguridad():

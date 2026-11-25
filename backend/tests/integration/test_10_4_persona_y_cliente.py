@@ -1,30 +1,27 @@
-"""The person's account and her customer row: they are the SAME human,
-and the link between them is a STRING.
+"""The Slice 10.4: **the person and her row are the same human**.
 
-**The bug this file pins.** `Customer` has no `user` field. The person
-chooses her own username when she registers, and the shop calls her by
-an ALIAS - "Ana" - which is not a username at all. The only thing that
-joined the two was `_cliente_de`, which looked for
-`Customer.objects.filter(alias=user.username)`.
+**The claim is GONE** - and it went in the 10.6, because the owner's
+rule closed the door it was guarding: *a client without an account
+cannot have a fiado*. If the row cannot exist without a person, there
+is nothing to claim.
 
-So the client's own account only worked when her username happened to
-BE her alias: "Ana" registered as "Ana". And the person chooses her
-username - that is the whole point of the 10.1 - so a person who
-registered as "ana.perez" and is called "Ana" by the shop saw **no
-links at all**: her consent could not be given, because the shop's
-question was addressed to a customer row her account could not find.
+**What replaces it**: the person creates the account AND her row, in the
+same registration. The account and the row are not separable, because
+the owner's rule makes the second useless without the first.
 
-The person's customer row and her account are the same human, and the
-model has to say so.
+**What stays**: the account and the row are the same human, and the
+model says so - `Customer.user` is a OneToOne, and a row without a
+person behind it is not a person.
 """
 
+
 from __future__ import annotations
+
+from tests.integration.personas import crear_persona
 
 from decimal import Decimal
 
 import pytest
-
-from tests.conftest import membresia
 
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -32,17 +29,13 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from tienda.models import (
-    Customer,
-    PerfilCliente,
-    PerfilTienda,
-    Shop,
-    Vinculo,
-)
+from tests.conftest import membresia
+
+from tienda.models import Customer, PerfilTienda, Shop, Vinculo
 
 
 @pytest.fixture
-def owner(db, negocio):
+def dueno(db, negocio):
     membresia(negocio, negocio.user, "dueno")
     return negocio.user
 
@@ -53,108 +46,146 @@ def tienda(db, negocio):
 
 
 @pytest.fixture
-def cliente(tienda):
-    """The customer row: the shop calls her "Ana"."""
-    return Customer.objects.create(alias="Ana")
-
-
-@pytest.fixture
-def persona(db, cliente):
-    """**A person whose username is NOT her alias.**
-
-    This is the real case: she chooses her username when she registers,
-    and the shop calls her by an alias. The two are different things.
-    """
-    user = User.objects.create_user(
-        username="ana.perez", password="secreta123"
+def otra_tienda(db):
+    """A SECOND shop, with its own owner and its own business."""
+    dueno = User.objects.create_user(username="dueno2", password="x")
+    perfil = PerfilTienda.objects.create(
+        user=dueno,
+        nombre="Otra",
+        direccion="",
+        nif="",
+        shop=Shop.objects.create(
+            name="Otra", opening_cash=Decimal("0.00"), currency="EUR"
+        ),
     )
-    PerfilCliente.objects.create(user=user)
-    return user
+    membresia(perfil, dueno, "dueno")
+    return perfil.shop
 
 
 @pytest.fixture
-def persona_reclamada(persona, cliente):
-    """The person, and the row she claims: the shop registered her
-    before she had an account, and she takes the row now."""
-    from tienda.services import reclamar_cliente
+def persona(db):
+    """**La persona**: su cuenta y su ficha."""
+    return crear_persona("ana.perez", alias="Ana")
 
-    reclamar_cliente(persona, cliente.alias)
-    return persona
+
+@pytest.fixture
+def cliente(persona):
+    """**Su ficha**: la fila que es ella en el mundo del credito."""
+    return persona[1]
 
 
 @pytest.fixture
 def api_persona(persona):
-    """The client of the person's own account."""
+    """The client of the person's own account - a session, no `shop_id`."""
     from django.contrib.sessions.backends.db import SessionStore
 
+    usuario, _cliente = persona
+
     api = APIClient()
-    api.force_authenticate(persona)
+    api.force_authenticate(usuario)
     sesion = SessionStore()
     sesion.save()
     api.cookies["sessionid"] = sesion.session_key
     return api
 
 
-def test_the_person_claims_the_row_the_shop_created_for_her(
-    api_persona, persona, cliente, tienda
-):
-    """**The claim is the meeting.** The shop registered her before she
-    had an account; she takes the row now.
+# ---------------------------------------------------------------------------
+# The row and the account are the same human
+# ---------------------------------------------------------------------------
 
-    Before the fix there was no way to do this at all: the account found
-    the row by `alias == username`, and "ana.perez" is not "Ana".
+
+def test_the_registration_makes_the_account_and_the_row(db):
+    """**The account and the row arrive together.**
+
+    The owner's rule makes them inseparable: a row without a person
+    behind it is a row nobody can answer.
     """
-    Vinculo.objects.create(
-        tienda=tienda,
-        cliente=cliente,
-        estado="pendiente",
-        pedido_at=timezone.now(),
-    )
-
-    assert cliente.user_id is None
-
-    respuesta = api_persona.post(
-        reverse("api:cuenta_reclamar"),
-        {"alias": "Ana"},
+    api = APIClient()
+    respuesta = api.post(
+        reverse("api:cuenta_registro"),
+        {"username": "ana.perez", "password": "secreta123", "alias": "Ana"},
         format="json",
     )
 
     assert respuesta.status_code == 201, respuesta.content
-    cliente.refresh_from_db()
-    assert cliente.user_id == persona.id
+
+    usuario = User.objects.get(username="ana.perez")
+    cliente = Customer.objects.get(user=usuario)
+    assert cliente.alias == "Ana"
+    assert cliente.user_id == usuario.id
 
 
-def test_the_person_sees_her_links_after_claiming_the_row(
-    api_persona, persona_reclamada, cliente, tienda
+def test_the_row_points_at_the_person_and_the_person_at_the_row(db):
+    """**The two are the same human**, and the model says so.
+
+    `Customer.user` is a OneToOne: a person is ONE row, wherever she
+    buys on credit.
+    """
+    usuario, cliente = crear_persona("ana.perez", alias="Ana")
+
+    assert cliente.user_id == usuario.id
+    # Y del otro lado: el usuario tiene ESA fila y no otra.
+    assert usuario.customer.id == cliente.id
+
+
+def test_a_second_row_for_the_same_person_is_refused(db):
+    """**A person is ONE row.** The uniqueness is a constraint."""
+    from django.db import IntegrityError, transaction
+
+    usuario, _cliente = crear_persona("ana.perez", alias="Ana")
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            Customer.objects.create(
+                user=usuario,
+                alias="Ana otra vez",
+                created_by=usuario,
+            )
+
+
+# ---------------------------------------------------------------------------
+# What she does with her row
+# ---------------------------------------------------------------------------
+
+
+def test_the_person_sees_her_links(
+    api_persona, persona, cliente, tienda, otra_tienda, dueno
 ):
-    """Her account finds her customer row, whatever she is called.
+    """**Her links, and the figures of each shop.**
 
-    Before the fix the answer was an EMPTY list: the lookup was
-    `alias=user.username`, and "ana.perez" is not "Ana".
+    The link she accepted opens the owner's figures to her: how much she
+    owes THERE, how old the debt is THERE, and the limit the owner gave
+    her THERE.
     """
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,
-        estado="pendiente",
-        pedido_at=timezone.now(),
+        estado="aceptado",
+        credit_limit=Decimal("100.00"),
+    )
+    Vinculo.objects.create(
+        tienda=otra_tienda,
+        cliente=cliente,
+        estado="aceptado",
+        credit_limit=Decimal("30.00"),
     )
 
     respuesta = api_persona.get(reverse("api:cuenta_vinculos"))
 
     assert respuesta.status_code == 200, respuesta.content
-    vinculos = respuesta.json()
-    assert len(vinculos) == 1, respuesta.content
-    assert vinculos[0]["tienda"] == tienda.name
+    filas = {f["tienda"]: f for f in respuesta.json()}
+    assert filas["Tienda de prueba"]["credit_limit"] == Decimal("100.00")
+    assert filas["Otra"]["credit_limit"] == Decimal("30.00")
 
 
-def test_the_person_accepts_a_link_after_claiming_the_row(
-    api_persona, persona_reclamada, cliente, tienda
+def test_the_person_accepts_a_link_from_her_own_account(
+    api_persona, persona, cliente, tienda, dueno
 ):
-    """**The consent is the whole point**, and it has to reach her.
+    """**The answer is hers.** She accepts the shop's question.
 
-    The shop asked; the question is addressed to her customer row. If
-    her account cannot find that row, she can never answer, and the
-    shop's question waits forever.
+    Before the 10.6 this was a two-step dance - the shop registered her
+    and she CLAIMED the row. Now the row is hers from the start, and
+    the answer is the only step that is left.
     """
     vinculo = Vinculo.objects.create(
         tienda=tienda,
@@ -172,39 +203,3 @@ def test_the_person_accepts_a_link_after_claiming_the_row(
     assert respuesta.status_code == 200, respuesta.content
     vinculo.refresh_from_db()
     assert vinculo.estado == "aceptado"
-
-
-def test_a_row_that_is_already_claimed_is_not_taken_again(
-    api_persona, persona_reclamada, cliente, tienda
-):
-    """**A person is ONE row.** The uniqueness is a constraint.
-
-    And the refusal does not say whether the row does not exist or
-    belongs to somebody else: the answer is the same either way.
-    """
-    otra = User.objects.create_user(username="otra", password="secreta123")
-    PerfilCliente.objects.create(user=otra)
-
-    respuesta = api_persona.post(
-        reverse("api:cuenta_reclamar"),
-        {"alias": "Ana"},
-        format="json",
-    )
-
-    assert respuesta.status_code == 422, respuesta.content
-    assert respuesta.json()["codigo_error"] == "alias_no_reclamable"
-
-    cliente.refresh_from_db()
-    assert cliente.user_id == persona_reclamada.id
-
-
-def test_the_claim_needs_the_alias(api_persona):
-    """An empty alias is refused."""
-    respuesta = api_persona.post(
-        reverse("api:cuenta_reclamar"),
-        {"alias": "  "},
-        format="json",
-    )
-
-    assert respuesta.status_code == 422, respuesta.content
-    assert respuesta.json()["codigo_error"] == "alias_requerido"

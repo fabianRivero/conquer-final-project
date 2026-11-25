@@ -38,6 +38,9 @@ proposal. The status code is a companion, never the proof.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 from threading import Barrier, Thread
 
@@ -132,7 +135,7 @@ def api_otro_dependiente(otro_helper, tienda):
 @pytest.fixture
 def customer(tienda):
     """A person, and the LINK that says she is a trusted client of the shop."""
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,
@@ -387,7 +390,7 @@ def test_confirming_a_suspended_customer_writes_no_charge(api, tienda, producto)
     from tienda.models import Customer as _Customer
     from tienda.models import Vinculo as _Vinculo
 
-    cliente = _Customer.objects.create(alias="Beto")
+    cliente = crear_persona("beto", alias="Beto")[1]
     _Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

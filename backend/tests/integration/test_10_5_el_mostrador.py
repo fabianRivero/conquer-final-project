@@ -21,7 +21,10 @@ the fiado; she accepts or refuses it from her own account. The counter
 never answers for her.
 """
 
+
 from __future__ import annotations
+
+from tests.integration.personas import crear_persona
 
 from decimal import Decimal
 
@@ -62,7 +65,8 @@ def tienda(db, negocio):
 
 @pytest.fixture
 def cliente(tienda, dueno):
-    fila = Customer.objects.create(alias="Ana", created_by=dueno)
+
+    _usuario, fila = crear_persona("ana", alias="Ana", dueno=dueno)
     Vinculo.objects.create(
         tienda=tienda,
         cliente=fila,
@@ -168,14 +172,10 @@ def test_the_search_only_finds_the_people_of_this_shop(
     otra = Shop.objects.create(
         name="Otra", opening_cash=Decimal("0.00"), currency="EUR"
     )
-    ajena = Customer.objects.create(alias="Beto", created_by=dueno)
+    ajena_usuario, ajena = crear_persona("beto", alias="Beto")
     Vinculo.objects.create(
         tienda=otra, cliente=ajena, estado="aceptado", credit_limit=None
     )
-    usuario = User.objects.create_user(username="beto", password="x")
-    PerfilCliente.objects.create(user=usuario)
-    ajena.user = usuario
-    ajena.save(update_fields=["user"])
 
     respuesta = api_dueno.get(
         reverse("api:mostrador_buscar"), {"username": "beto"}

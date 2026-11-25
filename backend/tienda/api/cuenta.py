@@ -14,7 +14,7 @@ here, with her own. The two sessions are of different kinds:
 
 That is why the person session reaches no staff route: `current_shop`
 reads the session's `shop_id`, and there is none. And the staff session
-reaches no client's route: `EsCliente` refuses a request that carries a
+reaches no client's route: the credential's routes are GONE, and the only
 staff session, even a valid one.
 
 **The refusals say nothing about WHICH part was wrong.** "No such user"
@@ -37,7 +37,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from tienda.api.exceptions import DomainValidationError
-from tienda.models import PerfilCliente, PerfilTienda
+from tienda.models import Customer, PerfilCliente, PerfilTienda
 
 #: The shortest password the owner accepted: **more than** five
 #: characters. The rule lives here, next to the refusal that carries it.
@@ -119,6 +119,17 @@ class CuentaRegistroView(_RutaSinSesion):
     The account is hers: she chose the username and the password, and
     the row holds the **digest**, never the text.
 
+    **And the row is hers too.** The body is `{username, password,
+    alias?}` and the registration creates BOTH: the account and the
+    `Customer` row that is her in the world of credit. The owner's rule
+    is that a client without an account cannot have a fiado, so the two
+    arrive together - a row without a person behind it is not a person,
+    it is a row the owner wrote and nobody can answer.
+
+    The `alias` is the name she answers to, and it defaults to the
+    username: the shop calls her by whatever name it knows her by, and
+    the username is the one she chose.
+
     The username is unique, and the refusal says it is taken - which
     reveals nothing about the other person's account beyond that. It is
     a public name, like an email address, and it is not a secret: the
@@ -128,6 +139,7 @@ class CuentaRegistroView(_RutaSinSesion):
     def post(self, request):
         username = (request.data.get("username") or "").strip()
         password = request.data.get("password") or ""
+        alias = (request.data.get("alias") or "").strip()
 
         if not username:
             return Response(
@@ -148,6 +160,17 @@ class CuentaRegistroView(_RutaSinSesion):
             with transaction.atomic():
                 usuario = User.objects.create_user(
                     username=username, password=password
+                )
+                # **The row is hers, and she creates it.** The shop does
+                # not create her and it does not issue her anything: the
+                # row is the person in the world of credit, and the alias
+                # is the name she answers to. The owner's rule is that a
+                # client without an account cannot have a fiado, so the
+                # account and the row arrive together.
+                Customer.objects.create(
+                    user=usuario,
+                    alias=alias or username,
+                    created_by=usuario,
                 )
         except IntegrityError:
             # The username is taken. The refusal says WHICH it was and
@@ -267,46 +290,6 @@ class PerfilClienteView(_ApiViewBase):
 
         return Response(
             {"id": perfil.id}, status=status.HTTP_201_CREATED
-        )
-
-
-class ClienteReclamarView(_ApiViewBase):
-    """`POST /api/v1/cuenta/reclamar/` - she claims the row the shop
-    created for her.
-
-    **The shop registers a person before she has an account.** She is a
-    customer of the shop and of nobody else, and the row carries the
-    ALIAS the shop calls her by. Then she registers herself, she chose
-    her username, and the username is not the alias - so the row and the
-    account have to be MEET.
-
-    **The alias is what the shop typed, and she confirms it.** The row
-    is not claimed because it looks like hers: it is claimed because she
-    named the alias the shop gave her, and the row is a row of a shop's
-    list of people that nobody has claimed yet.
-
-    The body is `{alias}`. The refusal does not say whether the row
-    does not exist or belongs to somebody else: the answer is the same
-    either way, so nothing can be learned from it.
-    """
-
-    permission_classes = [SesionDePersona]
-    http_method_names = ["post"]
-
-    def post(self, request):
-        from tienda.services import reclamar_cliente
-
-        try:
-            cliente = reclamar_cliente(request.user, request.data.get("alias"))
-        except DomainValidationError as exc:
-            return Response(
-                {"codigo_error": exc.codigo_error, "detail": exc.detail},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        return Response(
-            {"id": cliente.id, "alias": cliente.alias},
-            status=status.HTTP_201_CREATED,
         )
 
 

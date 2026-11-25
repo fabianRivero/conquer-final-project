@@ -35,11 +35,11 @@ from tienda.api.cuenta import (
     CuentaLoginView,
     CuentaLogoutView,
     CuentaRegistroView,
-    ClienteReclamarView,
     PerfilClienteView,
     PerfilesView,
     PerfilTiendaView,
 )
+from tienda.api.cuenta_pagos import PagoProponerView
 from tienda.api.mostrador import MostradorBuscarView
 from tienda.api.personal import (
     LoginTiendaView,
@@ -61,11 +61,8 @@ from tienda.api.views import (
     CajaView,
     CatalogoView,
     CierreView,
-    ClienteCargoView,
     ClienteDetalleView,
-    ClienteEstadoView,
     ClienteLibretaView,
-    ClienteProponerPagoView,
     ClientesView,
     PagoRechazarView,
     PagosPropuestosView,
@@ -204,19 +201,6 @@ urlpatterns = [
         PagoRechazarView.as_view(),
         name="pago_rechazar",
     ),
-    # The client routes. They live under their own prefix, and they never
-    # share a route with a staff one.
-    path("cliente/estado/", ClienteEstadoView.as_view(), name="cliente_estado"),
-    path(
-        "cliente/cargos/<int:cargo_id>/",
-        ClienteCargoView.as_view(),
-        name="cliente_cargo",
-    ),
-    path(
-        "cliente/pagos/proponer/",
-        ClienteProponerPagoView.as_view(),
-        name="cliente_proponer_pago",
-    ),
     # The PERSON's routes. They live under their own prefix and they
     # never share a route with a staff one: the person owns her account
     # and her credentials, and the shop neither issues them nor changes
@@ -238,13 +222,6 @@ urlpatterns = [
         "perfiles/tienda/",
         PerfilTiendaView.as_view(),
         name="perfiles_tienda",
-    ),
-    # She claims the customer row the shop created for her: the account
-    # and the row are the same human, and they meet here.
-    path(
-        "cuenta/reclamar/",
-        ClienteReclamarView.as_view(),
-        name="cuenta_reclamar",
     ),
     # The SHOP's routes. The shop gives its staff a user, and the role
     # lives in the membership - a `dependiente` of one shop is a
@@ -294,6 +271,14 @@ urlpatterns = [
         "cuenta/cargos/",
         CargosDelClienteView.as_view(),
         name="cuenta_cargos",
+    ),
+    # **She proposes a payment**, from her own account. The proposal
+    # writes no ledger row: the `pago` is a separate entry that the
+    # owner appends when he validates it.
+    path(
+        "cuenta/pagos/proponer/",
+        PagoProponerView.as_view(),
+        name="cuenta_pagos_proponer",
     ),
     path(
         "tienda/vinculos/",

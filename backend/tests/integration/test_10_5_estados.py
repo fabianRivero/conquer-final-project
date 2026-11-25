@@ -23,6 +23,9 @@ append-only guarantee of the book (ADR-27).
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -60,7 +63,7 @@ def tienda(db):
 
 @pytest.fixture
 def customer(tienda, owner):
-    cliente = Customer.objects.create(alias="Ana", created_by=owner)
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

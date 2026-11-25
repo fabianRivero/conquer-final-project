@@ -19,6 +19,9 @@ one.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -32,7 +35,6 @@ from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     ImputacionPago,
     LedgerEntry,
     PagoPropuesto,
@@ -83,7 +85,7 @@ def otra_tienda(db):
 @pytest.fixture
 def customer(tienda, otra_tienda):
     """A person, and a LINK to EACH shop: she is trusted in both."""
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

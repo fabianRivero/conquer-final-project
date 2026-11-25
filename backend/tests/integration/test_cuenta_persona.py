@@ -54,6 +54,11 @@ def test_una_persona_se_registra(api, db):
 
     The account is hers: she chose the username and the password, and
     the row holds the DIGEST, never the text.
+
+    **And her row is hers too.** The registration creates BOTH: the
+    account and the `Customer` row that is her in the world of credit.
+    The owner's rule is that a client without an account cannot have a
+    fiado, so the two arrive together.
     """
     respuesta = api.post(
         reverse("api:cuenta_registro"),
@@ -69,6 +74,12 @@ def test_una_persona_se_registra(api, db):
     assert usuario.check_password("secreta123")
     # And the text is not in the row.
     assert "secreta123" not in usuario.password
+
+    # **And the row points at her.**
+    from tienda.models import Customer
+
+    cliente = Customer.objects.get(user=usuario)
+    assert cliente.alias == "ana"
 
 
 def test_el_registro_rechaza_un_usuario_repetido(api, db):
@@ -299,15 +310,18 @@ def test_la_sesion_de_persona_no_alcanza_una_ruta_de_tienda(api, db):
 
 
 def test_la_sesion_de_tienda_no_alcanza_una_ruta_de_cliente(api, db):
-    """And the staff session does not reach a client's route.
+    """And the staff session does not reach a person's route.
 
     The companion: without it, "the person's session is refused" would
     pass on a route that refuses everybody.
+
+    **The client's credential is GONE**, so the client's routes are the
+    PERSON's now: `cuenta/cargos/`.
     """
     usuario = User.objects.create_user(username="dueno", password="secreta123")
     api.force_authenticate(usuario)
 
-    respuesta = api.get(reverse("api:cliente_estado"))
+    respuesta = api.get(reverse("api:cuenta_cargos"))
 
     assert respuesta.status_code == 403
 

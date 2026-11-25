@@ -34,6 +34,8 @@ export interface Fiado {
 export interface Cargo {
   id: number;
   tienda: string;
+  /** The shop's id - the payment has to name the shop it is for. */
+  tienda_id?: number;
   fecha: string;
   amount: string;
   pagado: string;
@@ -48,6 +50,23 @@ export const fiados = {
 
   /** Her own charges, with the state each one is in. */
   misCargos: () => peticion("/cuenta/cargos/", { credentials: "same-origin" }),
+
+  /**
+   * **She proposes a payment**, from her own account.
+   *
+   * The proposal names **no charge**: the FIFO decides which debt it
+   * retires (ADR-27). It does name the **shop**, because a payment
+   * belongs to ONE shop's book.
+   */
+  proponerPago: (importe: string, tiendaId?: number) =>
+    peticion("/cuenta/pagos/proponer/", {
+      method: "POST",
+      credentials: "same-origin",
+      cuerpo: {
+        importe,
+        ...(tiendaId !== undefined ? { tienda_id: tiendaId } : {}),
+      },
+    }),
 
   /** **She accepts.** The shop asked and she said yes. */
   aceptar: (fiadoId: number) =>
