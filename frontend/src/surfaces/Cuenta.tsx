@@ -207,9 +207,29 @@ export function Cuenta() {
 
           {/*
             **Her charges, with the state each one is in** - including
-            `parcial`, the payment that retired part of a charge.
+            `parcial`, the payment that retired part of a charge - and
+            the payment she proposes.
           */}
-          <Cargos cargos={susCargos} />
+          <Cargos
+            cargos={susCargos}
+            onProponerPago={async (importe, tienda) => {
+              const respuesta = await fiadosApi.proponerPago(
+                importe,
+                tienda ? Number(tienda) : undefined,
+              );
+              if (!respuesta.ok) {
+                const fallo = await cuerpo<{ codigo_error?: string }>(
+                  respuesta,
+                );
+                setError(fallo?.codigo_error ?? "no se pudo proponer el pago");
+                return;
+              }
+              setError(null);
+              setAviso("Propusiste el pago. La tienda lo valida.");
+              await refrescar();
+            }}
+            error={error}
+          />
 
           {/*
             **The claim.** The shop registered her before she had an

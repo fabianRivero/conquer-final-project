@@ -6,6 +6,7 @@ Her account is where the answer is given, and the answer is hers.
 
 **The acceptance writes the charge.** The same four rows the staff's
 confirmation wrote: the `LedgerEntry(cargo)`, the `CargoLinea[]` copied
+
 from the proposal's own lines, the `Confirmacion(confirmado)` and the
 proposal's `confirmed_at`. If any of them fails, none of them survives.
 
@@ -24,6 +25,8 @@ shop that could decide for her.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
 from decimal import Decimal
 
 import pytest
@@ -33,6 +36,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from rest_framework.test import APIClient
+
 
 from tienda.models import (
     CargoLinea,
@@ -68,7 +72,8 @@ def tienda(db):
 @pytest.fixture
 def cliente(tienda, dueno):
     """The person, her account, and the LINK that says she is trusted."""
-    fila = Customer.objects.create(alias="Ana", created_by=dueno)
+
+    _usuario, fila = crear_persona("ana", alias="Ana", dueno=dueno)
     Vinculo.objects.create(
         tienda=tienda,
         cliente=fila,
@@ -292,7 +297,7 @@ def test_she_cannot_reject_a_fiado_that_is_not_hers(
     and the person has no business learning that somebody else is being
     asked.
     """
-    otra = Customer.objects.create(alias="Beto", created_by=dueno)
+    otra_usuario, otra = crear_persona("beto", alias="Beto")
     ajena = FiadoPropuesto.objects.create(
         shop=tienda,
         customer=otra,

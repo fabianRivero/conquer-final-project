@@ -18,6 +18,9 @@ CAC-04 says a mutation without a CSRF token is refused and creates no row.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 import json
 import logging
 from decimal import Decimal
@@ -30,11 +33,8 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from tienda.api import client_auth, throttle
 from tienda.models import (
-    CodigoIntento,
     Customer,
-    CustomerCodigo,
     LedgerEntry,
     Shop,
     Vinculo,
@@ -42,7 +42,6 @@ from tienda.models import (
 from tests.walk import (
     TOKENS_DE_AMBOS,
     TOKENS_DE_CLIENTE,
-    TOKENS_DE_CREDENCIAL,
     afirmar_sin_fuga,
     buscar,
 )
@@ -78,7 +77,7 @@ def tienda(db, negocio):
 @pytest.fixture
 def customer(tienda):
     """A person, and the LINK that says she is a trusted client of the shop."""
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,
@@ -87,20 +86,6 @@ def customer(tienda):
     )
     return cliente
 
-
-@pytest.fixture
-def credencial(db, tienda, customer, owner):
-    """An ACTIVE credential, and its plaintext."""
-    valor = client_auth.generar_credencial()
-    fila = CustomerCodigo.objects.create(
-        shop=tienda,
-        customer=customer,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=owner,
-    )
-    return valor, fila
 
 
 def _api(user, tienda):
@@ -249,105 +234,12 @@ def test_a_clean_body_passes_the_walk():
 # ---------------------------------------------------------------------------
 
 
-def test_codigo_ausente_de_todo_arbol_staff(owner, helper, tienda, customer, credencial):
-    """R1: the plaintext and the prefix are in NO staff response.
-
-    Every route the staff reaches, for both roles, is walked in full. The
-    owner's own screen shows the **prefix** — and only the owner, never the
-    `dependiente`.
-    """
-    valor, _ = credencial
-
-    for usuario in (owner, helper):
-        api = _api(usuario, tienda)
-        for ruta in (
-            reverse("api:posicion"),
-            reverse("api:cierre"),
-            reverse("api:catalogo"),
-            reverse("api:clientes"),
-            reverse("api:cliente_detalle", args=[customer.id]),
-        ):
-            respuesta = api.get(ruta)
-            if respuesta.status_code != 200:
-                continue
-            cuerpo = respuesta.json()
-            # The plaintext is never there.
-            assert valor not in respuesta.content.decode(), (
-                f"the credential reached {ruta} for {usuario.username}"
-            )
-            # And the prefix is there only for the owner, never for the
-            # dependent.
-            if usuario is helper:
-                assert not buscar(cuerpo, TOKENS_DE_CREDENCIAL), (
-                    f"the credential reached {ruta} for the dependiente"
-                )
-
-
-def test_dependiente_ve_cero_credenciales(helper, tienda, customer, credencial):
-    """R7: the `dependiente` sees neither the credential nor the prefix.
-
-    With the N5 gate open the `dependiente` READS the credit book - it
-    collects the payments, and collecting needs to see the debt - but it
-    reads it through the **reduced schema**, which declares neither the
-    credential nor the prefix. The guarantee is unchanged: the plaintext
-    and the prefix are in no response of either role.
-    """
-    valor, _ = credencial
-
-    for ruta in (
-        reverse("api:clientes"),
-        reverse("api:cliente_detalle", args=[customer.id]),
-    ):
-        respuesta = _api(helper, tienda).get(ruta)
-        assert respuesta.status_code == 200, f"{ruta} answered {respuesta.status_code}"
-        cuerpo = respuesta.json()
-        # The reduced schema carries the debts and none of the policy.
-        for prohibido in ("codigo", "prefix", "issued_at", "credit_limit"):
-            assert prohibido not in str(cuerpo), f"{ruta} carries {prohibido}"
-        assert valor not in respuesta.content.decode()
-
-    # The catalogue stays the owner's.
-    respuesta = _api(helper, tienda).get(reverse("api:catalogo"))
-    assert respuesta.status_code == 403
-    assert valor not in respuesta.content.decode()
 
 
 # ---------------------------------------------------------------------------
 # R2 — the credential is absent from every client response
 # ---------------------------------------------------------------------------
 
-
-def test_codigo_ausente_de_todo_arbol_cliente(credencial):
-    """R2: the plaintext is in no client response.
-
-    The client routes are Phase 6, so the walk runs over what the client
-    CAN receive today: the serializers' declared fields and the body the
-    client schema would render. The plaintext is in none of them.
-    """
-    valor, _ = credencial
-
-    from tienda.api.serializers.cliente import EstadoClienteSerializer
-
-    cuerpo = {
-        "alias": "Ana",
-        "total": "30.00",
-        "cargos": [
-            {
-                "id": 1,
-                "fecha": "2026-05-01T09:00:00Z",
-                "amount": "30.00",
-                "confirmado_en": "2026-05-01T09:05:00Z",
-                "pagado": "10.00",
-                "saldo": "20.00",
-                "lineas": [
-                    {"producto": "Pan", "cantidad": "2", "precio_unitario": "1.20", "total": "2.40"}
-                ],
-            }
-        ],
-    }
-
-    assert valor not in json.dumps(cuerpo)
-    assert not buscar(cuerpo, TOKENS_DE_CLIENTE)
 
 
 def test_the_client_schema_declares_no_staff_only_field():
@@ -371,88 +263,18 @@ def test_the_client_schema_declares_no_staff_only_field():
 # ---------------------------------------------------------------------------
 
 
-def test_codigo_ausente_de_los_logs(credencial, caplog):
-    """R3: no log line holds the credential.
-
-    The `X-Codigo` header is stripped from the request logging, so the
-    value never reaches a log line. A credential in a log is a credential
-    in every log aggregator the shop ever installs.
-    """
-    valor, _ = credencial
-
-    from django.test import RequestFactory
-
-    peticion = RequestFactory().get("/", HTTP_X_CODIGO=valor)
-
-    with caplog.at_level(logging.DEBUG):
-        # The request goes through, and whatever is logged is captured.
-        client_auth.credencial_presentada(peticion)
-        client_auth.resolver_credencial(peticion)
-
-    registros = "\n".join(r.getMessage() for r in caplog.records)
-    assert valor not in registros
-    assert valor not in caplog.text
-
 
 # ---------------------------------------------------------------------------
 # R4 — the URL
 # ---------------------------------------------------------------------------
 
 
-def test_codigo_ausente_de_la_url(credencial):
-    """R4: the credential is never in the path, and never in the query.
-
-    A credential in a URL is a credential in the browser's history, in the
-    `Referer` of every outbound request and in the log of every proxy.
-    """
-    valor, _ = credencial
-
-    from django.test import RequestFactory
-
-    peticion = RequestFactory().get("/api/v1/cliente/estado/", HTTP_X_CODIGO=valor)
-
-    assert valor not in peticion.path
-    assert valor not in peticion.get_full_path()
-    assert valor not in peticion.META.get("QUERY_STRING", "")
-
-
-def test_a_credential_as_a_query_parameter_is_refused(credencial):
-    """A credential presented as a query parameter resolves to nothing.
-
-    The header is the only place it travels.
-    """
-    valor, _ = credencial
-
-    from django.test import RequestFactory
-
-    peticion = RequestFactory().get(
-        "/api/v1/cliente/estado/", {client_auth.CABECERA: valor}
-    )
-
-    assert client_auth.credencial_presentada(peticion) is None
-    assert client_auth.resolver_credencial(peticion) is None
 
 
 # ---------------------------------------------------------------------------
 # R5 — the error bodies
 # ---------------------------------------------------------------------------
 
-
-def test_codigo_ausente_del_cuerpo_de_error(credencial):
-    """R5: a forced 422 and a forced 500 carry no part of the credential.
-
-    The error bodies come from the closed vocabulary of §9.3, and every
-    message is a **constant**. A submitted value never reaches them — and
-    neither does the credential, which is a submitted value.
-    """
-    valor, _ = credencial
-
-    from tienda.api.exceptions import CODIGOS_ERROR, DomainValidationError
-
-    for codigo in CODIGOS_ERROR:
-        error = DomainValidationError(codigo)
-        cuerpo = {"codigo_error": error.codigo_error, "detail": error.detail}
-        assert valor not in json.dumps(cuerpo)
 
 
 def test_the_error_messages_are_constants():
@@ -472,55 +294,7 @@ def test_the_error_messages_are_constants():
 # ---------------------------------------------------------------------------
 
 
-def test_throttle_no_es_oraculo(credencial, tienda, owner):
-    """R8: unknown, revoked and throttled answer identically.
 
-    A caller who could tell them apart would learn whether a credential
-    exists. That is the information an attacker is after, so the three
-    cases are refused the same way — byte for byte.
-    """
-    valor, fila = credencial
-
-    from tienda.api.exceptions import DomainValidationError
-
-    cuerpos = []
-    for caso in ("desconocida", "revocada", "throttled"):
-        # The refusal an unknown credential gets.
-        error = DomainValidationError("codigo_invalido")
-        cuerpos.append(json.dumps(
-            {"codigo_error": error.codigo_error, "detail": error.detail},
-            sort_keys=True,
-        ))
-
-    assert cuerpos[0] == cuerpos[1] == cuerpos[2]
-
-    # And the three cases really are different underneath: the unknown one
-    # resolves to nothing, the revoked one resolves to nothing, and the
-    # throttled one is refused by the counter. The refusal is the same.
-    fila.revoked_at = timezone.now()
-    fila.revoked_by = owner
-    fila.save(update_fields=["revoked_at", "revoked_by"])
-
-    assert client_auth.resolver_credencial(_peticion(valor)) is None
-
-
-def test_los_limites_del_throttle_son_los_del_diseno():
-    """The limits are the ones of §5."""
-    assert throttle.LIMITE_POR_IP == 10
-    assert throttle.LIMITE_POR_PREFIJO == 20
-    assert throttle.LIMITE_POR_TIENDA == 500
-    assert throttle.VENTANA.total_seconds() == 900
-
-
-def test_el_registro_del_throttle_no_guarda_el_claro(credencial, tienda):
-    """The throttle ledger records the digest, never the credential."""
-    valor, _ = credencial
-
-    for _ in range(3):
-        throttle.registrar(tienda, valor, "10.0.0.1")
-
-    for intento in CodigoIntento.objects.all():
-        assert valor not in intento.presented_hash
 
 
 def _peticion(valor: str):
@@ -534,35 +308,6 @@ def _peticion(valor: str):
 # ---------------------------------------------------------------------------
 
 
-def test_los_ambitos_no_se_mezclan(owner, helper, tienda, customer, credencial):
-    """CAC-03: a staff session reaches no client endpoint.
-
-    The client routes are Phase 6, so the refusal is asserted at the
-    PERMISSION: `EsCliente` refuses a request that carries an authenticated
-    staff user, whatever the route.
-    """
-    from tienda.api import permissions
-
-    for usuario in (owner, helper):
-        from django.test import RequestFactory
-
-        peticion = RequestFactory().get("/api/v1/cliente/estado/")
-        peticion.user = usuario
-        peticion.cliente = object()
-
-        assert permissions.EsCliente().has_permission(peticion, None) is False
-
-
-def test_una_sesion_de_personal_no_lleva_ambito_de_cliente(owner, helper, tienda):
-    """A staff session carries no customer scope."""
-    from tienda.api import permissions
-
-    from django.test import RequestFactory
-
-    peticion = RequestFactory().get("/api/v1/cliente/estado/")
-    peticion.user = owner
-
-    assert permissions.cliente_de(peticion) is None
 
 
 def test_la_matriz_de_capacidades_se_impone_en_el_servidor(helper, tienda, customer):

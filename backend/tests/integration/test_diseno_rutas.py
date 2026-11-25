@@ -1,4 +1,4 @@
-﻿"""The design's route table, against the API's map.
+"""The design's route table, against the API's map.
 
 **The design is the contract, and a contract that lies is not a
 contract.** The design's Â§9.1 lists the routes that exist; a route that
@@ -111,7 +111,6 @@ def test_the_table_names_the_routes_of_the_account_rewrite():
         "perfiles/",
         "perfiles/cliente/",
         "perfiles/tienda/",
-        "cuenta/reclamar/",
         "cuenta/vinculos/",
         "cuenta/vinculos/aceptar/",
         "cuenta/vinculos/rechazar/",

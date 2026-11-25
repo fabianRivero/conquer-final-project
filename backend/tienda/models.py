@@ -14,8 +14,6 @@ Four rules govern this file more than anything else:
 * **Five tables are append-only.** `LedgerEntry`, `CargoLinea`,
   `Confirmacion`, `PropuestaLinea` and `ImputacionPago` refuse an update and
   refuse a delete. A correction is appended, never edited.
-* **The credential is not a column of `Customer`.** `CustomerCodigo` holds
-  the `prefix`, the hash and the revocation record.
 * **A customer never holds a credit.** A `pago` never exceeds the debt it
   retires (rule 19): the shop returns the excess as change and it never
   enters the book. There is no field, anywhere, that holds a balance in the
@@ -205,11 +203,11 @@ class Customer(models.Model):
     # are the same human: she chose her username, and the shop calls her
     # by an ALIAS - "Ana" - which is not a username at all.
     #
-    # **NULLABLE**, and the reason is the two ways a person arrives:
-    # the shop registers her before she has an account - she is a
-    # customer of the shop and of nobody else - and she registers
-    # herself and claims the row that is already hers. The second case
-    # is the one that fills this field.
+    # **NOT NULL**, and the reason is the owner's rule: *a client without
+    # an account cannot have a fiado*. A row without a person behind it is
+    # not a person - it is a row the owner wrote and nobody can answer.
+    # So the owner registers her and the LINK waits: she accepts it from
+    # her own account.
     #
     # It is a ONE-TO-ONE: a person is ONE customer row, wherever she
     # buys on credit, and the row is hers in every shop at once.
@@ -217,8 +215,6 @@ class Customer(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="customer",
-        blank=True,
-        null=True,
     )
     alias = models.CharField(max_length=200)
     phone = models.CharField(max_length=50, blank=True, null=True)
@@ -982,93 +978,6 @@ class StockMovement(models.Model):
 
     def __str__(self):
         return f"{self.kind} {self.cantidad}"
-
-
-class CustomerCodigo(models.Model):
-    """The credential of a customer — the `codigo` the client presents.
-
-    The credential is **not** a column of `Customer`: it lives here, so that
-    the plaintext can be rotated without touching the customer's own record.
-    Only the hash is stored; the plaintext is shown once, at issue time.
-
-    `prefix` is the six-character non-secret head of the credential. It is
-    unique per shop, and a customer holds at most one **active** credential
-    at a time — the partial unique index admits a second row only once the
-    first one is revoked (rule 10).
-    """
-
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="codigos")
-    customer = models.ForeignKey(
-        Customer, on_delete=models.CASCADE, related_name="codigos"
-    )
-    prefix = models.CharField(max_length=6)
-    codigo_hash = models.CharField(max_length=255)
-    issued_at = models.DateTimeField()
-    issued_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="codigos_issued",
-    )
-    revoked_at = models.DateTimeField(blank=True, null=True)
-    revoked_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="codigos_revoked",
-        blank=True,
-        null=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "tienda_customercodigo"
-        constraints = [
-            # UNIQUE (shop_id, prefix) — the prefix identifies a credential
-            # inside its shop (rule 10).
-            models.UniqueConstraint(fields=["shop", "prefix"], name="uniq_codigo_shop_prefix"),
-            # A revocation records an act, so it always names the author.
-            models.CheckConstraint(
-                condition=models.Q(revoked_at__isnull=True)
-                | models.Q(revoked_by__isnull=False),
-                name="chk_codigo_revocation_has_author",
-            ),
-            # Partial UNIQUE (customer_id) WHERE revoked_at IS NULL — one
-            # active credential per customer.
-            models.UniqueConstraint(
-                fields=["customer"],
-                condition=Q(revoked_at__isnull=True),
-                name="uniq_codigo_one_active_per_customer",
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.prefix} ({self.customer_id})"
-
-
-class CodigoIntento(models.Model):
-    """The append-only throttle ledger — every presented credential.
-
-    The row holds the source address, the hash of the presented credential
-    and the instant. It never holds the plaintext: the hash is what is
-    compared, so the throttle ledger cannot leak a credential.
-    """
-
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="codigo_intentos")
-    source_ip = models.GenericIPAddressField()
-    presented_hash = models.CharField(max_length=255)
-    at = models.DateTimeField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "tienda_codigointento"
-        indexes = [
-            models.Index(fields=["shop", "at"], name="idx_codigointento_shop_at"),
-            models.Index(
-                fields=["shop", "presented_hash"], name="idx_codigointento_shop_hash"
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.source_ip} @ {self.at}"
 
 
 #: The roles of a shop's staff. The role lives in the RELATION - the

@@ -66,8 +66,6 @@ def test_the_vocabulary_has_the_codes_of_the_design():
         "propuesta_ya_rechazada",
         "pago_ya_resuelto",
         "pago_excede_deuda",
-        "codigo_invalido",
-        "codigo_duplicado",
         "cargo_ajeno",
         "producto_ajeno",
         # The person's account. The account's refusals say nothing about
@@ -81,10 +79,10 @@ def test_the_vocabulary_has_the_codes_of_the_design():
         "vinculo_no_pendiente",
         "vinculo_requerido",
         "cliente_no_existe",
+        "tienda_requerida",
+        "cliente_requerido",
         # The claim. The refusal does not say whether the row does not
         # exist or belongs to somebody else.
-        "alias_requerido",
-        "alias_no_reclamable",
     }
 
     assert set(exceptions.CODIGOS_ERROR) == esperados
@@ -357,46 +355,6 @@ def test_is_dueno_refuses_the_dependiente(db, negocio):
     assert permissions.IsDueno().has_permission(request, None) is False
 
 
-def test_es_cliente_refuses_a_staff_session(db):
-    """A staff session never reaches a client route.
-
-    This is invariant 1 of design 7.2: a request carrying a staff session
-    cookie is refused, even if it also presents a valid credential.
-
-    The credential IS resolved in this request, on purpose. Without it the
-    assertion would pass for the wrong reason - no credential, no
-    permission - and the guard that refuses a staff session would never be
-    exercised. The request that proves the guard is the one that would
-    otherwise be admitted.
-    """
-    owner = User.objects.create_user(username="dueno", password="x")
-
-    factory = APIRequestFactory()
-    request = factory.get("/api/v1/cliente/estado/")
-    request.user = owner
-    # The credential resolved fine. The staff session is the only reason
-    # this request must be refused.
-    request.cliente = object()
-
-    assert permissions.EsCliente().has_permission(request, None) is False
-def test_es_cliente_admits_a_credential_without_a_session(db):
-    """A client route is served by the credential, not by a session."""
-    factory = APIRequestFactory()
-    request = factory.get("/api/v1/cliente/estado/")
-    request.user = None
-    request.cliente = object()
-
-    assert permissions.EsCliente().has_permission(request, None) is True
-
-
-def test_es_cliente_refuses_a_credential_with_no_customer(db):
-    """A credential that resolved to no customer is not a client."""
-    factory = APIRequestFactory()
-    request = factory.get("/api/v1/cliente/estado/")
-    request.user = None
-    request.cliente = None
-
-    assert permissions.EsCliente().has_permission(request, None) is False
 
 
 # ---------------------------------------------------------------------------
@@ -454,18 +412,4 @@ def test_exigir_shop_returns_the_shop(db):
     assert permissions.exigir_shop(request) == 7
 
 
-def test_cliente_de_reads_the_resolved_customer(db):
-    """`cliente_de` is the single reader of the client identity."""
-    factory = APIRequestFactory()
-    request = factory.get("/api/v1/cliente/estado/")
-    request.cliente = "el-cliente"
 
-    assert permissions.cliente_de(request) == "el-cliente"
-
-
-def test_cliente_de_is_none_without_a_credential(db):
-    """No credential, no customer."""
-    factory = APIRequestFactory()
-    request = factory.get("/api/v1/cliente/estado/")
-
-    assert permissions.cliente_de(request) is None

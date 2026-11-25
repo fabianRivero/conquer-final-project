@@ -120,16 +120,6 @@ def test_el_tablero_polla_cada_veinte_segundos():
     assert "setInterval" in codigo
 
 
-def test_la_pagina_del_cliente_no_polla():
-    """The client's page does not poll.
-
-    A poll would multiply the credential's exposure for no benefit.
-    """
-    codigo = _codigo("src/surfaces/Cliente.tsx")
-
-    assert "setInterval" not in codigo
-    assert "setTimeout" not in codigo
-
 
 def test_el_tablero_no_pide_el_credito_al_dependiente():
     """The `dependiente`'s branch does not read the credit book.
@@ -190,65 +180,9 @@ def test_la_confirmacion_y_la_cancelacion_van_a_sus_rutas():
 # ---------------------------------------------------------------------------
 
 
-def test_el_credential_del_cliente_no_se_guarda():
-    """The credential lives in React state and nowhere else.
-
-    It is not in `localStorage`, not in `sessionStorage`, not in the URL.
-    """
-    codigo = _codigo("src/surfaces/Cliente.tsx")
-
-    for prohibido in ("localStorage", "sessionStorage", "document.cookie"):
-        assert prohibido not in codigo, (
-            f"el cliente guarda el credential en {prohibido}"
-        )
 
 
-def test_el_campo_del_credential_no_se_autocompleta():
-    """The credential field carries `autocomplete="off"`.
 
-    The browser's password manager would otherwise keep the credential
-    where the page cannot reach it - and where a leak could.
-    """
-    codigo = _codigo("src/components/Acceso.tsx")
-
-    assert 'autoComplete="off"' in codigo
-    assert "type=\"password\"" in codigo
-
-
-def test_el_cliente_limpia_el_credential_al_navegar():
-    """The credential is cleared on navigation."""
-    codigo = _codigo("src/surfaces/Cliente.tsx")
-
-    # The unmount clears it.
-    assert "setCodigo(null)" in codigo
-
-
-def test_la_propuesta_del_cliente_no_lleva_cargo_id():
-    """The proposal names NO charge.
-
-    The body carries an `importe` and a `referencia`, and nothing else:
-    the FIFO decides which charges the payment retires, and a body that
-    carries a `cargo_id` is refused with `campo_no_admitido` (ADR-27).
-    """
-    codigo = _codigo("src/surfaces/Cliente.tsx")
-    componente = _codigo("src/components/ProponerPago.tsx")
-
-    assert "cargo_id" not in codigo
-    assert "cargo_id" not in componente
-    # And the body it sends carries the importe and the referencia.
-    assert "importe" in componente
-    assert "referencia" in componente
-
-
-def test_el_cliente_dice_que_el_dueno_registra_el_pago():
-    """The component says plainly that the owner still records the payment.
-
-    A client that believed its payment was recorded would be a client
-    that believes it still owes the money.
-    """
-    componente = _codigo("src/components/ProponerPago.tsx")
-
-    assert "dueno" in componente
 
 
 # ---------------------------------------------------------------------------
@@ -372,13 +306,16 @@ def test_el_personal_solo_lo_ve_el_dueno():
         "PropuestaForm.tsx",
         "PagosPropuestos.tsx",
         "Pantalla.tsx",
-        "Acceso.tsx",
-        "Estado.tsx",
-        "ProponerPago.tsx",
+        # **The person's own**: the fiados she answers and the charges
+        # with their state.
+        "Fiados.tsx",
+        "Cargos.tsx",
+        # And the links she answers.
+        "Vinculos.tsx",
     ],
 )
 def test_el_componente_existe(componente):
-    """The eleven components of the three surfaces."""
+    """The components of the surfaces."""
     assert (FRONTEND / "src" / "components" / componente).exists()
 
 

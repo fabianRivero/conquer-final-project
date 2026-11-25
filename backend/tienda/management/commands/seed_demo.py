@@ -40,7 +40,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from tienda import services
-from tienda.api.client_auth import generar_credencial, hashear_credencial, prefijo_de
 from tienda.domain import charges as reglas_cargos
 from tienda.domain.types import (
     ConfirmState,
@@ -51,7 +50,6 @@ from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     FiadoPropuesto,
     LedgerEntry,
     PropuestaLinea,
@@ -141,7 +139,6 @@ class Command(BaseCommand):
             usuarios = self._usuarios(tienda)
             productos = self._catalogo(tienda)
             cliente = self._cliente(tienda, usuarios["dueno"])
-            self._credencial(tienda, cliente, usuarios["dueno"])
             self._cargo_confirmado(tienda, cliente, usuarios["dueno"], productos)
             self._propuesta_pendiente(tienda, cliente, usuarios["dueno"], productos)
             self._propuesta_cancelada(tienda, cliente, usuarios["dueno"], productos)
@@ -241,18 +238,37 @@ class Command(BaseCommand):
     def _cliente(self, tienda, dueno):
         """One customer of the demo shop.
 
+        **The person has an ACCOUNT.** The owner's rule is that a client
+        without an account cannot have a fiado, so the demo's customer
+        is a person with a username and a password of her own - and her
+        `Customer` row points at her.
+
         **The person belongs to no shop**, and the LINK says she is a
         trusted client of this one - with the limit the owner gave her.
         """
         from tienda.models import Vinculo
+
+        usuario, _ = User.objects.get_or_create(
+            username="ana",
+            defaults={"email": "ana@demo.local"},
+        )
+        # La contrasena del demo es la de las demas cuentas del demo.
+        usuario.set_password(PASSWORD_DEMO)
+        usuario.save()
 
         cliente, _ = Customer.objects.get_or_create(
             alias="Ana",
             defaults={
                 "created_by": dueno,
                 "phone": "600000000",
+                "user": usuario,
             },
         )
+        # Y si la fila ya existia sin persona, la reclama ahora.
+        if cliente.user_id is None:
+            cliente.user = usuario
+            cliente.save(update_fields=["user"])
+
         Vinculo.objects.update_or_create(
             tienda=tienda,
             cliente=cliente,
@@ -265,25 +281,6 @@ class Command(BaseCommand):
             },
         )
         return cliente
-
-    def _credencial(self, tienda, cliente, dueno):
-        """One credential for the customer: hashed, and active.
-
-        The plaintext exists for the length of this call and nowhere
-        else: only the digest and the prefix are stored.
-        """
-        if CustomerCodigo.objects.filter(customer=cliente, revoked_at__isnull=True).exists():
-            return None
-
-        valor = generar_credencial()
-        return CustomerCodigo.objects.create(
-            shop=tienda,
-            customer=cliente,
-            prefix=prefijo_de(valor),
-            codigo_hash=hashear_credencial(valor),
-            issued_at=timezone.now(),
-            issued_by=dueno,
-        )
 
     def _cargo_confirmado(self, tienda, cliente, dueno, productos):
         """One CONFIRMED charge, with its lines and its confirmation.

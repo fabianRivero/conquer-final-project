@@ -20,7 +20,10 @@ Every refusal is checked for the same two things: it raises
 writes no row**.
 """
 
+
 from __future__ import annotations
+
+from tests.integration.personas import crear_persona
 
 from decimal import Decimal
 
@@ -32,7 +35,6 @@ from tienda.api.exceptions import DomainValidationError
 from tienda.models import (
     CashMovement,
     Customer,
-    CustomerCodigo,
     DayClose,
     LedgerEntry,
     Producto,
@@ -66,7 +68,7 @@ def customer(db, shop):
     **The person belongs to no shop**, and the limit belongs to the link:
     the confidence is the owner's, and the owner has it **in this shop**.
     """
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=shop,
         cliente=cliente,
@@ -378,7 +380,7 @@ def test_a_customer_of_another_shop_is_not_found(db, shop, customer, user):
     The answer must not learn that the customer exists elsewhere.
     """
     otra = Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
-    cliente = Customer.objects.create(alias="Luis")
+    cliente_usuario, cliente = crear_persona("luis", alias="Luis")
     Vinculo.objects.create(
         tienda=otra,
         cliente=cliente,
@@ -390,19 +392,35 @@ def test_a_customer_of_another_shop_is_not_found(db, shop, customer, user):
 
 
 def test_a_customer_is_registered_with_its_author(db, shop, user):
-    """The owner is the author, and the author is stamped server-side."""
-    cliente = services.crear_cliente(shop, user, alias="Luis")
+    """**The person is the author of her own row.**
 
-    assert cliente.created_by_id == user.id
+    The shop does not create her: she created her account, and the row
+    is hers. The owner's act is to ASK, and the request carries the
+    name he knows her by - which is what the counter types.
+    """
+
+    _usuario, persona = crear_persona("luis", alias="Luis")
+
+    cliente = services.crear_cliente(shop, user, alias="luis")
+
+    # **La fila es de ella**, y el dueno solo pregunta.
+    assert cliente.user_id == persona.user_id
     assert cliente.alias == "Luis"
+    # Y el vinculo lo pidio el dueno, y espera su respuesta.
+    vinculo = Vinculo.objects.get(cliente=cliente)
+    assert vinculo.pedido_por_id == user.id
+    assert vinculo.estado == "pendiente"
 
 
 def test_a_negative_credit_limit_is_refused(db, shop, user):
     """A negative limit is refused and writes nothing."""
+
+    crear_persona("luis", alias="Luis")
+
     with pytest.raises(DomainValidationError) as exc:
-        services.crear_cliente(shop, user, alias="Luis", credit_limit=Decimal("-1.00"))
+        services.crear_cliente(shop, user, alias="luis", credit_limit=Decimal("-1.00"))
     assert exc.value.codigo_error == "importe_no_positivo"
-    assert Customer.objects.filter(alias="Luis").count() == 0
+    assert Vinculo.objects.count() == 0
 
 
 def test_a_null_credit_limit_is_the_explicit_no_limit(db, shop, user):
@@ -412,7 +430,10 @@ def test_a_null_credit_limit_is_the_explicit_no_limit(db, shop, user):
     the owner has it in this shop. A trusted client without a cap is
     `NULL` on the link, and it never fires `limite_superado`.
     """
-    cliente = services.crear_cliente(shop, user, alias="Luis", credit_limit=None)
+
+    crear_persona("luis", alias="Luis")
+
+    cliente = services.crear_cliente(shop, user, alias="luis", credit_limit=None)
 
     vinculo = Vinculo.objects.get(cliente=cliente)
     assert vinculo.credit_limit is None
@@ -423,69 +444,9 @@ def test_a_null_credit_limit_is_the_explicit_no_limit(db, shop, user):
 # ---------------------------------------------------------------------------
 
 
-def test_a_credential_is_issued(db, shop, customer, user):
-    """The credential is issued with its author."""
-    codigo = services.emitir_codigo(
-        shop, customer, user, prefijo="ABCDEF", hash_credencial="hash"
-    )
-
-    assert codigo.id is not None
-    assert codigo.issued_by_id == user.id
-    assert CustomerCodigo.objects.count() == 1
 
 
-def test_a_duplicate_prefix_is_refused(db, shop, customer, user):
-    """Rule 10: the prefix is unique in the shop."""
-    services.emitir_codigo(
-        shop, customer, user, prefijo="ABCDEF", hash_credencial="hash"
-    )
 
-    with pytest.raises(DomainValidationError) as exc:
-        services.emitir_codigo(
-            shop, customer, user, prefijo="ABCDEF", hash_credencial="otro"
-        )
-    assert exc.value.codigo_error == "codigo_duplicado"
-    assert CustomerCodigo.objects.count() == 1
-
-
-def test_a_second_active_credential_is_refused(db, shop, customer, user):
-    """A customer holds at most one active credential."""
-    services.emitir_codigo(
-        shop, customer, user, prefijo="ABCDEF", hash_credencial="hash"
-    )
-
-    with pytest.raises(DomainValidationError) as exc:
-        services.emitir_codigo(
-            shop, customer, user, prefijo="UVWXYZ", hash_credencial="otro"
-        )
-    assert exc.value.codigo_error == "codigo_duplicado"
-    assert CustomerCodigo.objects.count() == 1
-
-
-def test_a_revoked_credential_frees_the_slot(db, shop, customer, user):
-    """Rotation is the re-print path: the old one is revoked first."""
-    primero = services.emitir_codigo(
-        shop, customer, user, prefijo="ABCDEF", hash_credencial="hash"
-    )
-    services.revocar_codigo(shop, primero, user)
-
-    segundo = services.emitir_codigo(
-        shop, customer, user, prefijo="UVWXYZ", hash_credencial="otro"
-    )
-
-    assert segundo.id is not None
-    assert CustomerCodigo.objects.count() == 2
-
-
-def test_a_revocation_records_its_author(db, shop, customer, user):
-    """The revocation records an act, and it names who did it."""
-    codigo = services.emitir_codigo(
-        shop, customer, user, prefijo="ABCDEF", hash_credencial="hash"
-    )
-    revocado = services.revocar_codigo(shop, codigo, user)
-
-    assert revocado.revoked_by_id == user.id
-    assert revocado.revoked_at is not None
 
 
 def test_the_suspension_override_records_its_author(db, shop, customer, user):

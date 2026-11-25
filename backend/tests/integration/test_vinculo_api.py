@@ -11,6 +11,9 @@ The three questions the API answers:
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -52,7 +55,8 @@ def dueno(negocio):
 @pytest.fixture
 def cliente(db):
     """The PERSON. She belongs to no shop yet."""
-    return Customer.objects.create(alias="Ana")
+    _usuario, persona = crear_persona("ana", alias="Ana")
+    return persona
 
 
 @pytest.fixture

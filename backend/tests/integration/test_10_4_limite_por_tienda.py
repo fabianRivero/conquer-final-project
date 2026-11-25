@@ -17,6 +17,9 @@ writes the LINK's limit, and only that link's.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -73,7 +76,7 @@ def otra_tienda(db):
 @pytest.fixture
 def customer(tienda, otra_tienda):
     """A person, trusted in BOTH shops, with a DIFFERENT limit in each."""
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

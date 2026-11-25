@@ -32,7 +32,7 @@ under a race; the twin is what the client sees.
 
 **What this slice does not yet do.** The four proposal routes and the
 client's routes are Phases 5 and 6. The functions that serve them are not
-here yet, and neither is the credential machinery of `client_auth.py`. What
+here yet, and neither is the credential machinery that the 10.6 removed. What
 is here is the foundation every later slice stands on: the conversion
 between rows and plain values, the rules that can already be enforced, and
 the vocabulary of refusals.
@@ -68,7 +68,6 @@ from tienda.models import (
     CashMovement,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     DayClose,
     FiadoPropuesto,
     ImputacionPago,
@@ -360,29 +359,52 @@ def exigir_producto_de_la_tienda(shop, producto) -> Producto:
 def crear_cliente(shop, user, *, alias, phone=None, credit_limit=None):
     """Register a customer **of a shop**.
 
-    The person is created - she belongs to **no** shop - and the LINK is
-    created with her: **accepted**, because the owner is registering her
-    as a customer he trusts. The limit travels with the link, and a NULL
-    limit is "sin límite".
+    **The person EXISTS before the shop registers her.** She created her
+    own account - she chose her username and her password - and the row
+    is HERS. The shop does not create her and it does not issue her
+    anything: it asks her to be a trusted client, and the LINK is born
+    `pendiente`.
 
-    The owner is the author: `created_by` is stamped from the acting
+    **Why the link waits.** The owner's rule: *a client without an
+    account cannot have a fiado*. If the shop could register somebody
+    as a trusted client on the spot, a person with no account could have
+    a debt - and a debt she could neither see nor refuse. So the owner's
+    act is the QUESTION and hers is the ANSWER.
+
+    **The limit travels with the link**, and a NULL limit is "sin
+    límite".
+
+    **The owner is the author**: `created_by` is stamped from the acting
     session and never read from the request body.
+
+    **A person the shop already registered.** The row is found by the
+    USERNAME - the person's own name - and not by the alias: the alias
+    is the shop's name for her, and two shops may call the same person
+    differently. The person is ONE row.
     """
     if credit_limit is not None and Decimal(credit_limit) < 0:
         raise DomainValidationError("importe_no_positivo")
 
-    cliente, _ = Customer.objects.get_or_create(
-        alias=alias,
-        defaults={"created_by": user, "phone": phone},
+    cliente = (
+        Customer.objects.filter(user=user).first()
+        or Customer.objects.filter(user__username=alias).first()
     )
-    Vinculo.objects.create(
+    if cliente is None:
+        raise DomainValidationError("cliente_no_existe")
+
+    if phone and not cliente.phone:
+        cliente.phone = phone
+        cliente.save(update_fields=["phone"])
+
+    Vinculo.objects.get_or_create(
         tienda=shop,
         cliente=cliente,
-        estado="aceptado",
-        credit_limit=credit_limit,
-        pedido_at=timezone.now(),
-        pedido_por=user,
-        aceptado_at=timezone.now(),
+        defaults={
+            "estado": "pendiente",
+            "credit_limit": credit_limit,
+            "pedido_at": timezone.now(),
+            "pedido_por": user,
+        },
     )
     return cliente
 
@@ -414,45 +436,6 @@ def vinculo_de(shop, customer) -> "Vinculo | None":
     belongs to no shop, and she may be a trusted client of SEVERAL.
     """
     return Vinculo.objects.filter(tienda=shop, cliente=customer).first()
-
-
-def reclamar_cliente(user, alias):
-    """The person claims the customer row the shop created for her.
-
-    **The shop registers a person before she has an account.** She is a
-    customer of the shop and of nobody else, and the row carries the
-    alias the shop calls her by. Then she registers herself - she chose
-    her username, and the username is not the alias - and the row is
-    still there, waiting for her.
-
-    This is the meeting: **the account and the row are the same human**,
-    and the `Customer.user` field is where the model says so.
-
-    **The alias is what the shop typed, and she confirms it.** The row is
-    not claimed because it LOOKS like hers: it is claimed because she
-    named the alias the shop gave her, and the row is a row of a shop's
-    list of people that nobody has claimed yet.
-
-    **A row that is already claimed is not taken.** The uniqueness is a
-    constraint, and a person is ONE row.
-    """
-    alias = (alias or "").strip()
-    if not alias:
-        raise DomainValidationError("alias_requerido")
-
-    cliente = Customer.objects.filter(alias=alias, user__isnull=True).first()
-    if cliente is None:
-        # Either there is no such row, or it is already somebody else's.
-        # **The refusal does not say which**: "that row is taken" tells
-        # the person that a row with that alias exists, and the alias
-        # is the shop's name for her - it is not a secret, but the
-        # answer is the same either way so that nothing can be learned
-        # from the refusal.
-        raise DomainValidationError("alias_no_reclamable")
-
-    cliente.user = user
-    cliente.save(update_fields=["user"])
-    return cliente
 
 
 def buscar_en_el_mostrador(shop_id, username) -> list:
@@ -614,6 +597,10 @@ def cargos_del_cliente(cliente) -> list:
             {
                 "id": cargo.id,
                 "tienda": cargo.shop.name,
+                # **The shop's id**, and not only its name: the payment
+                # proposal names the shop it is for, and a payment
+                # belongs to ONE shop's book.
+                "tienda_id": cargo.shop_id,
                 "fecha": cargo.occurred_at,
                 "amount": cargo.amount,
                 "pagado": pagado_de(cargo),
@@ -733,38 +720,6 @@ def eliminar_vinculo(user, tienda, cliente):
     vinculo.eliminado_por = user
     vinculo.save(update_fields=["estado", "eliminado_at", "eliminado_por"])
     return vinculo
-
-
-def emitir_codigo(shop, customer, user, *, prefijo, hash_credencial, issued_at=None):
-    """Issue a credential.
-
-    Rules 10 and 11: the prefix is unique in the shop, and a customer
-    holds at most one **active** credential.
-    """
-    if CustomerCodigo.objects.filter(shop=shop, prefix=prefijo).exists():
-        raise DomainValidationError("codigo_duplicado")
-    if CustomerCodigo.objects.filter(
-        customer=customer, revoked_at__isnull=True
-    ).exists():
-        raise DomainValidationError("codigo_duplicado")
-    return CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=prefijo,
-        codigo_hash=hash_credencial,
-        issued_at=issued_at or timezone.now(),
-        issued_by=user,
-    )
-
-
-def revocar_codigo(shop, codigo, user, *, at=None):
-    """Revoke a credential. The revocation records an act and names its author."""
-    if codigo.revoked_at is not None:
-        raise DomainValidationError("codigo_duplicado")
-    codigo.revoked_at = at or timezone.now()
-    codigo.revoked_by = user
-    codigo.save(update_fields=["revoked_at", "revoked_by"])
-    return codigo
 
 
 def anular_suspension(customer, user, *, at=None):
@@ -1388,7 +1343,7 @@ def cliente_para_el_dependiente(
 def proponer_pago(
     customer: Customer, *, importe, referencia="", at=None, shop_id=None
 ):
-    """The client proposes a payment. Nothing is written to the book.
+    """The person proposes a payment. Nothing is written to the book.
 
     The proposal creates a `PagoPropuesto(pendiente)` and **no ledger
     row**: the `pago` itself is a separate `LedgerEntry` that the OWNER
@@ -1397,20 +1352,33 @@ def proponer_pago(
 
     Rule 17: the amount is strictly positive.
 
-    **The proposal names NO charge.** The client does not choose which
-    debt it pays: it proposes an amount and the FIFO decides which
+    **The proposal names NO charge.** The person does not choose which
+    debt it pays: she proposes an amount and the FIFO decides which
     charges it retires (ADR-27). There is no `cargo_id` on the entity,
     and the route refuses a body that carries one.
+
+    **The shop is NAMED, and it is not a guess.** A person may owe in
+    SEVERAL shops, and a payment belongs to ONE of them: the `pago` is
+    appended to that shop's book and the FIFO retires that shop's
+    charges. Picking the first link - which is what this used to do -
+    would pay the wrong shop's debt.
+
+    So the shop comes from the route, which takes it from the person
+    herself, and a shop she does not owe in is refused.
     """
     valor = Decimal(importe)
     if valor <= 0:
         raise DomainValidationError("importe_no_positivo")
 
     if shop_id is None:
-        vinculo = Vinculo.objects.filter(
-            cliente=customer, estado="aceptado"
-        ).first()
-        shop_id = vinculo.tienda_id if vinculo is not None else None
+        raise DomainValidationError("tienda_requerida")
+
+    # **The shop must be one she owes in.** The scope is the PERSON's,
+    # and the shop is named by her.
+    if not Vinculo.objects.filter(
+        cliente=customer, tienda_id=shop_id, estado="aceptado"
+    ).exists():
+        raise DomainValidationError("tienda_requerida")
 
     return PagoPropuesto.objects.create(
         shop_id=shop_id,

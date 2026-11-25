@@ -1,29 +1,33 @@
 """The permission model of design §7 — two scopes, and they never mix.
 
-Three principals, and only two of them are roles:
+Two principals, and only one of them is a role:
 
-* the **staff** — a Django user in the group `dueno` or `dependiente`,
-  resolved from the session;
-* the **client** — a bearer credential scoped to one `Customer`, resolved
-  from the `X-Codigo` header.
+* the **staff** — a Django user in the membership, resolved from the
+  session;
+* the **person** — the client, who owns her account and signs in with it.
 
 **Each principal class has exactly one source of scope, and the scope is a
 property of the ROUTE, never of the request.** A staff route reads the
-session and ignores any `X-Codigo`; a client route reads the header and
-refuses a request that carries a staff session cookie. There is no route
-that accepts both — the design §8.
+session; a person's route reads her session and refuses one that names a
+shop. There is no route that accepts both — the design §8.
 
-Three mechanisms carry that invariant, and this module is two of them:
+**The credential is GONE.** The `codigo` that opened the client's own
+statement was the third audience, and the 10.6 removed it: a client
+without an account cannot have a fiado, and without a fiado there is no
+debt to pay. The person has an account, and her account is her only
+door.
 
-* `RoleRequired` and `IsDueno` — the staff side, by Django group;
-* `EsCliente` — the client side, by credential;
+Two mechanisms carry the invariant, and this module is one of them:
+
+* `RoleRequired` and `IsDueno` — the staff side, by the membership;
 * `current_shop(request)` — the **single reader** of the staff scope. Every
   staff queryset is filtered through it, so a request can never reach a row
   of another shop.
 
-The third mechanism — `resolver_credencial` — lives in `client_auth.py`,
-because it needs the credential machinery of task 4.16. The split is
-deliberate: `permissions.py` knows about roles and shops, and nothing else.
+The person's side lives in `cuenta.py`: `SesionDePersona` reads the
+session and refuses one that names a shop, and `EsClienteConVinculo`
+adds the client profile. The split is deliberate: `permissions.py` knows
+about roles and shops, and nothing else.
 """
 
 from __future__ import annotations
@@ -206,35 +210,3 @@ class IsDueno(BasePermission):
         return True
 
 
-class EsCliente(BasePermission):
-    """The acting principal must be a client, resolved from the credential.
-
-    The credential itself is resolved by `resolver_credencial` in
-    `client_auth.py`; this permission only asserts the **shape** of the
-    request: a client route must not be reached by a staff session.
-
-    A request that carries a staff session cookie is **refused**, even if
-    it also presents a valid `X-Codigo`. There is no upgrade in either
-    direction (design §7.2, invariant 1).
-    """
-
-    def has_permission(self, request, view) -> bool:
-        user = getattr(request, "user", None)
-        if user is not None and getattr(user, "is_authenticated", False):
-            # A staff session reached a client route. Refused before any
-            # customer data is read.
-            return False
-        return getattr(request, "cliente", None) is not None
-
-    def has_object_permission(self, request, view, obj) -> bool:
-        return True
-
-
-def cliente_de(request):
-    """The customer resolved from the credential, or `None`.
-
-    The single reader of the client scope's identity. The customer is
-    attached to the request by `resolver_credencial`; this reads it and
-    nothing else, so a view cannot reach a customer by another route.
-    """
-    return getattr(request, "cliente", None)

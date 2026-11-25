@@ -54,8 +54,6 @@ CODIGOS_ERROR = {
     "propuesta_ya_rechazada": "Esa propuesta ya esta rechazada.",
     "pago_ya_resuelto": "Esa propuesta de pago ya esta resuelta.",
     "pago_excede_deuda": "El pago no puede exceder la deuda pendiente.",
-    "codigo_invalido": "La credencial no es valida.",
-    "codigo_duplicado": "Ese prefijo de credencial ya existe.",
     "cargo_ajeno": "Ese cargo no es de este cliente.",
     "producto_ajeno": "Ese producto no es de esta tienda.",
     # The person's account. The refusals of the account say nothing about
@@ -70,12 +68,10 @@ CODIGOS_ERROR = {
     "vinculo_no_pendiente": "Ese vinculo no esta esperando tu respuesta.",
     "vinculo_requerido": "Falta la tienda.",
     "cliente_no_existe": "No hay ninguna persona con ese alias.",
-    # The claim: the person takes the customer row the shop created for
-    # her. The refusal does NOT say whether the row does not exist or
-    # belongs to somebody else - the answer is the same either way, so
-    # nothing can be learned from it.
-    "alias_requerido": "Falta el alias.",
-    "alias_no_reclamable": "Ese alias no se puede reclamar.",
+    # The payment proposal names the shop it is for: a person may owe
+    # in several, and guessing would pay the wrong shop's debt.
+    "tienda_requerida": "No hay ninguna tienda que se pueda pagar asi.",
+    "cliente_requerido": "Falta la cliente.",
 }
 
 #: The code a refusal answers with. It is NOT part of the validation

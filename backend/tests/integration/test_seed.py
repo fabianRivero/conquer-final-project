@@ -38,6 +38,9 @@ DATA and not about the command's exit code.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -45,12 +48,10 @@ from django.contrib.auth.models import Group, User
 from django.core.management import call_command
 from django.db import connection
 
-from tienda.api import client_auth
 from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     FiadoPropuesto,
     LedgerEntry,
     PagoPropuesto,
@@ -108,14 +109,14 @@ def _estado():
             for p in Producto.objects.all()
         ),
         "codigos": sorted(
-            # The PREFIX is not part of the comparison: it is six
-            # random symbols of the credential, so a reseed produces a
-            # different one. What the contract says is that the seed
-            # leaves ONE active credential per customer, and that the
-            # plaintext is never stored - so the comparison is on the
-            # shape and not on the secret.
-            (c.customer.alias, c.revoked_at is not None)
-            for c in CustomerCodigo.objects.all()
+            # **The person and her row**: the credential is gone, and
+            # what the contract says is that the seed leaves the person
+            # with her account and her row.
+            (
+                c.alias,
+                c.user.username if c.user else None,
+            )
+            for c in Customer.objects.all()
         ),
         "cargos": sorted(
             (
@@ -202,32 +203,25 @@ def test_the_seed_creates_the_catalogue(seeded):
     assert pan.activo is True
 
 
-def test_the_seed_creates_a_customer_with_a_credential(seeded):
-    """CAC-08: one credential per seeded customer, hashed, one active.
+def test_the_seed_creates_a_customer_with_an_account(seeded):
+    """**The person has an account**, and the row is hers.
 
-    The plaintext never touches a row: only the digest and the prefix.
+    The credential is gone - the 10.6 removed it - so what the demo
+    seeds is a person with a **username and a password of her own**,
+    and a `Customer` row that points at her.
     """
-    cliente = Vinculo.objects.get(tienda=seeded).cliente
+    vinculo = Vinculo.objects.get(tienda=seeded)
+    cliente = vinculo.cliente
 
-    codigos = CustomerCodigo.objects.filter(customer=cliente)
-    assert codigos.count() == 1
-    codigo = codigos.get()
-    assert codigo.revoked_at is None
-    assert codigo.prefix
-    assert codigo.codigo_hash
-
-    # The stored form is a HASH and not the credential: it does not
-    # verify against itself as a plaintext would, and it does not look
-    # like the alphabet's symbols. The check that matters is the one
-    # that says the hash is not the value - so the probe is that
-    # storing the plaintext changes the answer.
-    assert codigo.codigo_hash != codigo.prefix
-    assert not all(
-        c in client_auth.ALFABETO for c in codigo.codigo_hash[:20]
-    ), "the stored form looks like the plaintext"
-
-    # And the stored digest verifies a credential, not itself.
-    assert not client_auth.hash_presentado(codigo.codigo_hash) == codigo.codigo_hash
+    assert cliente.user is not None, (
+        "el cliente del demo no tiene cuenta: una persona sin cuenta no "
+        "puede tener un fiado"
+    )
+    assert cliente.user.username
+    # Y la contrasena NO es una credencial: es la de la persona, y el
+    # hash es de Django.
+    assert cliente.user.password
+    assert cliente.user.password.startswith("pbkdf2_")
 
 
 def test_the_seed_creates_one_confirmed_charge_with_its_lines(seeded):
@@ -361,7 +355,7 @@ def test_the_seed_does_not_touch_a_real_shop(db):
     shop that is not the demo one.
     """
     real = Shop.objects.create(name="Tienda real", opening_cash=Decimal("10.00"))
-    cliente = Customer.objects.create(alias="Real")
+    cliente_usuario, cliente = crear_persona("real", alias="Real")
     Vinculo.objects.create(
         tienda=real,
         cliente=cliente,

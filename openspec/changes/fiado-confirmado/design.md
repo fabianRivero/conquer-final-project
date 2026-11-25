@@ -296,9 +296,8 @@ Three principals: the two shop **roles** — the `dueno` and the `dependiente`, 
 | Users and roles | staff administration | Yes | **No → 403** | No | No |
 | The catalogue (`Producto`) | `GET /api/v1/catalogo/` | Yes | No | No | No |
 | A `StockMovement` | `POST /api/v1/existencias/` | Yes | No | No | No |
-| The client's statement | `GET /api/v1/cliente/estado/` | No | No | Yes — own confirmed charges | Yes — own, through her account |
-| The itemisation of an own confirmed charge | `GET /api/v1/cliente/cargos/{cargo_id}/` | No | No | Yes — own charges | Yes — own, through her account |
-| Propose a payment | `POST /api/v1/cliente/pagos/proponer/` | No | No | Yes — own charges; writes no ledger row | Yes — own, through her account |
+| The person's own statement | `GET /api/v1/cuenta/cargos/` | No | No | No | **Yes — her own charges, with their state** |
+| Propose a payment | `POST /api/v1/cuenta/pagos/proponer/` | No | No | No | **Yes — her own charges; writes no ledger row** |
 | Identify the client at the counter | `GET /api/v1/mostrador/buscar/` | Yes | **Yes** | No | No |
 | Accept or refuse a fiado | `POST /api/v1/cuenta/fiados/aceptar/`, `…/rechazar/` | No | No | **No — the client never writes** | **Yes — it is HER answer, from her own account** |
 | Confirm a proposal on the shop's device | `POST /api/v1/propuestas/{propuesta_id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
@@ -411,9 +410,6 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET | `/api/v1/pagos-propuestos/` | `dueño` | — | 200 `PagoPropuesto[]` pending; 403 |
 | POST | `/api/v1/pagos-propuestos/{pago_id}/validar/` | `dueño` | `{}` | 201 the `pago`, whose `amount` is **exactly** the `PagoPropuesto.importe`, plus its `ImputacionPago` rows; 422 `pago_ya_resuelto`; 422 `pago_excede_deuda` — a proposed amount larger than the customer's outstanding is refused at validation; 403; 404 |
 | POST | `/api/v1/pagos-propuestos/{pago_id}/rechazar/` | `dueño` | `{}` | 200; 422 `pago_ya_resuelto`; 403; 404 |
-| GET | `/api/v1/cliente/estado/` | `cliente` \* | `X-Codigo` | 200 statement: own **confirmed** charges with their `desglose` + `total`; 422; 403 |
-| GET | `/api/v1/cliente/cargos/{cargo_id}/` | `cliente` \* | `X-Codigo` | 200 the charge with its full itemisation; 422; 403 |
-| POST | `/api/v1/cliente/pagos/proponer/` | `cliente` \* | `X-Codigo` + `{importe, referencia}` | 201 `PagoPropuesto(pendiente)` — **writes no ledger row**; 422 `importe_no_positivo`, `pago_excede_deuda`; 403 |
 | GET / POST | `/api/v1/mostrador/buscar/` | staff | `{username}` — **the username alone**: a body carrying a password is refused with `campo_no_admitido` | 200 the trusted clients of THIS shop whose username matches — `[]` when there are none; 422 `campo_no_admitido`; 403 |
 | POST | `/api/v1/cuenta/registro/` | public | `{username, password}` | 201; 422 `usuario_duplicado`, `usuario_requerido`, `contrasena_corta` |
 | POST | `/api/v1/cuenta/login/` | public | `{username, password}` | 200 — the refusal is **byte-identical** for an unknown user and a wrong password; 422 `credenciales_invalidas` |
@@ -421,7 +417,6 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET | `/api/v1/perfiles/` | person | — | 200 the client profile (one) and the business profiles (several) |
 | POST | `/api/v1/perfiles/cliente/` | person | `{}` | 201; 422 `perfil_ya_existe` |
 | POST | `/api/v1/perfiles/tienda/` | person | `{nombre, direccion?, nif?}` | 201; 422 `nombre_requerido` |
-| POST | `/api/v1/cuenta/reclamar/` | person | `{alias}` | 201 — the person claims the customer row the shop created for her; 422 `alias_requerido`, `alias_no_reclamable` |
 | GET | `/api/v1/cuenta/vinculos/` | person | — | 200 the links — **a pending link shows the shop's name and nothing else** |
 | POST | `/api/v1/cuenta/vinculos/aceptar/` | person | `{vinculo_id}` | 200; 422 `vinculo_no_pendiente`, `vinculo_requerido` |
 | POST | `/api/v1/cuenta/vinculos/rechazar/` | person | `{vinculo_id}` | 200; 422 `vinculo_no_pendiente`, `vinculo_requerido` |
@@ -429,13 +424,16 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | POST | `/api/v1/cuenta/fiados/aceptar/` | person | `{fiado_id}` — **nothing else**: the figure is the shop's | 200 the `cargo`; 422 `campo_no_admitido`, `propuesta_ya_aceptada`, `lineas_descuadradas`, `limite_superado`, `antiguedad_superada` |
 | POST | `/api/v1/cuenta/fiados/rechazar/` | person | `{fiado_id, motivo?}` — the reason is free text and **may be empty** | 200; 422 `campo_no_admitido`, `propuesta_ya_rechazada` |
 | GET | `/api/v1/cuenta/cargos/` | person | — | 200 the charges with their state — `pendiente`, `parcial` or `pagado` |
+| POST | `/api/v1/cuenta/pagos/proponer/` | person | `{importe, referencia?, tienda_id?}` — **names no charge**: the FIFO decides which debt it retires | 201 `PagoPropuesto(pendiente)` — **writes no ledger row**; 422 `importe_no_positivo`, `tienda_requerida`; 403 |
 | POST | `/api/v1/tienda/login/` | public | `{username, password}` | 200 — **three questions**: which shop, which role, which credentials; 422 `credenciales_invalidas` |
 | GET / POST | `/api/v1/tienda/personal/` | `dueño` | `{username, email?, rol}` | 200/201 the staff; 422; 403 |
 | DELETE | `/api/v1/tienda/personal/{user_id}/` | `dueño` | — | 200 — the membership is removed, the user and the rows it wrote stay; 403; 404 |
 | GET / POST | `/api/v1/tienda/vinculos/` | `dueño` | `{alias, credit_limit?}` | 200 the shop's links; 201 — the `POST` is the shop ASKING; 422 `cliente_no_existe`; 403 |
 | DELETE | `/api/v1/tienda/vinculos/{cliente_id}/` | `dueño` | — | 200 — the owner removes WITHOUT asking; 404 |
 
-\* conditional. The three client routes are gated by **Regla 4**; `POST /api/v1/existencias/` by **Regla 6**; the four proposal routes by **N5** — which on the current decision is open, so those four answer to the `dependiente` for its OWN proposals. No `PUT`, `PATCH` or `DELETE` route exists for `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` or `PagoPropuesto`: the ledger is append-only at the URL surface too.
+\* conditional. `POST /api/v1/existencias/` is gated by **Regla 6**; the four proposal routes by **N5** — which on the current decision is open, so those four answer to the `dependiente` for its OWN proposals. No `PUT`, `PATCH` or `DELETE` route exists for `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` or `PagoPropuesto`: the ledger is append-only at the URL surface too.
+
+**The credential's routes are GONE.** There is no `cliente/` prefix any more: the person has an account, and her account is her only door. The `codigo` that opened a third audience was removed in the 10.6 — *a client without an account cannot have a fiado*, and without a fiado there is no debt to pay.
 
 **The routes that are gone.** `POST /api/v1/cliente/confirmar/`, `POST /api/v1/cliente/disputar/` and `POST /api/v1/facilitar/{cargo_id}/` no longer exist. The client cannot reach a write, so the confirmation is a **staff** route over a proposal and the payment a staff route over a proposed payment.
 

@@ -37,7 +37,6 @@ from rest_framework.views import APIView
 
 from tienda import services
 from tienda.api import gates
-from tienda.api.client_authentication import CredencialCliente
 from tienda.api import permissions
 from tienda.api.exceptions import DomainValidationError
 from tienda.api.permissions import es_dependiente, es_dueno
@@ -47,7 +46,6 @@ from tienda.models import (
     CashMovement,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     DayClose,
     FiadoPropuesto,
     ImputacionPago,
@@ -545,18 +543,6 @@ class ClientesView(_ApiViewBase):
         )
         clientes = [vinculo.cliente for vinculo in vinculos]
 
-        # The credential's state: the `prefix` - the NON-SECRET head of
-        # it - and the issuing date. Both are the OWNER's own data: the
-        # prefix is six symbols of the alphabet and cannot resolve to a
-        # credential without the digest, and the digest never leaves
-        # this table. The list carries them so the board reads one
-        # response and not one per customer.
-        codigos = {}
-        for codigo in CustomerCodigo.objects.filter(
-            shop_id=shop_id, revoked_at__isnull=True
-        ).order_by("id"):
-            codigos.setdefault(codigo.customer_id, codigo)
-
         if es_dependiente(request.user, _scope(request)):
             # The reduced payload: the debts, and no policy.
             return Response(
@@ -578,16 +564,6 @@ class ClientesView(_ApiViewBase):
                     # The limit is the LINK's: the owner's confidence, and
                     # the owner has it in THIS shop.
                     "credit_limit": vinculo.credit_limit,
-                    "prefix": (
-                        codigos[vinculo.cliente.id].prefix
-                        if vinculo.cliente.id in codigos
-                        else None
-                    ),
-                    "issued_at": (
-                        codigos[vinculo.cliente.id].issued_at
-                        if vinculo.cliente.id in codigos
-                        else None
-                    ),
                 }
                 for vinculo in vinculos
             ]
@@ -929,199 +905,6 @@ class PropuestaCancelarView(_ApiViewBase):
 
 # ---------------------------------------------------------------------------
 # The client's own surface - tasks 6.7 and 6.8
-# ---------------------------------------------------------------------------
-
-
-def _cliente_de(request):
-    """The customer resolved from the credential, or a refusal.
-
-    The credential is the ONLY source of the client scope: the route
-    reads the `X-Codigo` header and nothing else. There is no session
-    upgrade and no query parameter - a credential that arrived any other
-    way is not a credential this application accepts (R4).
-
-    The refusal is `422 codigo_invalido`, the same one an unknown, a
-    revoked or a throttled credential gets: the answer never says whether
-    the credential existed.
-    """
-    from tienda.api.client_auth import resolver_credencial
-
-    cliente = resolver_credencial(request)
-    if cliente is None:
-        raise DomainValidationError("codigo_invalido")
-    return cliente
-
-
-def _lineas_de_cargo(cargo):
-    """The cargo's itemisation, as the client sees it."""
-    lineas = []
-    for linea in cargo.lineas.order_by("id"):
-        lineas.append(
-            {
-                "producto": linea.producto.nombre,
-                "cantidad": linea.cantidad,
-                "precio_unitario": linea.precio_unitario,
-                "total": linea.total,
-            }
-        )
-    return lineas
-
-
-class ClienteEstadoView(_ApiViewBase):
-    """`GET /api/v1/cliente/estado/` - the client's own statement.
-
-    The alias, the total and the client's **confirmed** charges, each
-    with its full `desglose` (CC-02, CC-06).
-
-    The itemisation is always present: every charge in the statement is a
-    confirmed charge with a mandatory `desglose`, so every charge carries
-    its `lineas[]`. The v1 rule "the itemisation lives only inside the
-    action" is gone - the client confirms in the shop and therefore sees
-    the `desglose` before the charge exists.
-
-    `pagado` and `saldo` are **derived on read** from the
-    `ImputacionPago` rows, never stored on the charge (ADR-27).
-
-    The payload is built by `EstadoClienteSerializer`, which declares the
-    client's own data and **none** of the nine staff-only fields. The
-    guarantee is a property of the schema: DRF's `fields` is exhaustive,
-    so a field that is not declared cannot appear whatever the view
-    hands over.
-    """
-
-    # The credential is resolved by the AUTHENTICATION layer, which
-    # runs before the permission: `EsCliente` reads `request.cliente`,
-    # and a permission runs after the authentication.
-    authentication_classes = [CredencialCliente]
-    permission_classes = [permissions.EsCliente]
-
-    def get(self, request):
-        cliente = _cliente_de(request)
-
-        # The shop is the CREDENTIAL's: the client reads the book of the
-        # shop that issued the credential, and a person may owe in
-        # several.
-        from tienda.api.client_auth import tienda_de_la_credencial
-
-        credencial = request.META.get("HTTP_X_CODIGO")
-        shop_id = tienda_de_la_credencial(credencial) if credencial else None
-
-        cargos = services.cargos_de_la_tienda(cliente, tienda=shop_id)
-
-        filas = []
-        total = Decimal("0")
-        for cargo in cargos:
-            pagado = services.pagado_de(cargo)
-            saldo = services.saldo_de(cargo)
-            total += saldo
-            filas.append(
-                {
-                    "id": cargo.id,
-                    "fecha": cargo.occurred_at,
-                    "amount": cargo.amount,
-                    "confirmado_en": cargo.confirmaciones.first().confirmado_en,
-                    "pagado": pagado,
-                    "saldo": saldo,
-                    "lineas": _lineas_de_cargo(cargo),
-                }
-            )
-
-        return Response(
-            cliente_serializers.EstadoClienteSerializer(
-                {"alias": cliente.alias, "total": total, "cargos": filas}
-            ).data
-        )
-
-
-class ClienteCargoView(_ApiViewBase):
-    """`GET /api/v1/cliente/cargos/{id}/` - one of the client's own charges.
-
-    The full itemisation of a charge the client confirmed (CC-02).
-
-    A charge that is not the client's is refused with `cargo_ajeno` and
-    returns **no data**: the refusal is not a charge with the fields
-    blanked.
-    """
-
-    # The credential is resolved by the AUTHENTICATION layer, which
-    # runs before the permission: `EsCliente` reads `request.cliente`,
-    # and a permission runs after the authentication.
-    authentication_classes = [CredencialCliente]
-    permission_classes = [permissions.EsCliente]
-
-    def get(self, request, cargo_id):
-        cliente = _cliente_de(request)
-
-        cargo = services.cargo_de_la_tienda(cliente, cargo_id)
-        if cargo is None:
-            raise DomainValidationError("cargo_ajeno")
-
-        return Response(
-            cliente_serializers.CargoClienteSerializer(
-                {
-                    "id": cargo.id,
-                    "fecha": cargo.occurred_at,
-                    "amount": cargo.amount,
-                    "confirmado_en": cargo.confirmaciones.first().confirmado_en,
-                    "pagado": services.pagado_de(cargo),
-                    "saldo": services.saldo_de(cargo),
-                    "lineas": _lineas_de_cargo(cargo),
-                }
-            ).data
-        )
-
-
-class ClienteProponerPagoView(_ApiViewBase):
-    """`POST /api/v1/cliente/pagos/proponer/` - the client proposes a payment.
-
-    The body is `{importe, referencia?}`. **The proposal names no
-    charge**: the client does not choose which debt it pays, so it
-    proposes an amount and the FIFO decides which charges it retires
-    (ADR-27). A body that carries a `cargo_id` is refused on the
-    **presence** of the field.
-
-    The proposal writes **no ledger row** (CC-07, PA-09): the `pago`
-    itself is a separate `LedgerEntry` that the OWNER appends when he
-    validates it, so the book stays append-only even though the request
-    that preceded it is not.
-    """
-
-    # The credential is resolved by the AUTHENTICATION layer, which
-    # runs before the permission: `EsCliente` reads `request.cliente`,
-    # and a permission runs after the authentication.
-    authentication_classes = [CredencialCliente]
-    permission_classes = [permissions.EsCliente]
-
-    def post(self, request):
-        cliente = _cliente_de(request)
-
-        try:
-            services.exigir_campos_no_admitidos(
-                request.data, {"importe", "referencia"}
-            )
-            propuesta = services.proponer_pago(
-                cliente,
-                importe=request.data.get("importe", 0),
-                referencia=request.data.get("referencia", ""),
-            )
-        except DomainValidationError as exc:
-            return Response(
-                {"codigo_error": exc.codigo_error, "detail": exc.detail},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        return Response(
-            {
-                "id": propuesta.id,
-                "estado": propuesta.estado,
-                "importe": str(propuesta.importe),
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-
-# ---------------------------------------------------------------------------
-# The proposed payments - the owner's routes
 # ---------------------------------------------------------------------------
 
 

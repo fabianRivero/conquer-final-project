@@ -20,7 +20,10 @@ The tests come in two families:
   credit — the landmine 15 guard.
 """
 
+
+from tests.integration.personas import crear_persona
 import datetime
+
 from decimal import Decimal
 
 import pytest
@@ -29,14 +32,11 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from tienda.api import client_auth
 from tienda.models import (
     CargoLinea,
     CashMovement,
-    CodigoIntento,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     DayClose,
     FiadoPropuesto,
     ImputacionPago,
@@ -79,7 +79,7 @@ def customer(db, shop):
 
     **The person belongs to no shop**, and the limit belongs to the link.
     """
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=shop,
         cliente=cliente,
@@ -313,18 +313,22 @@ def test_dayclose_counts_are_non_negative(shop, user):
 
 def test_customer_credit_limit_is_non_negative(shop):
     """A negative credit limit is refused; NULL means "no limit"."""
+    # **La MISMA persona** en los dos intentos: el primero falla y se
+    # deshace, y el segundo pone el limite explicito.
+    _usuario, persona = crear_persona("luis", alias="Luis")
+
     with pytest.raises(IntegrityError):
         with transaction.atomic():
             Vinculo.objects.create(
                 tienda=shop,
-                cliente=Customer.objects.create(alias="Luis"),
+                cliente=persona,
                 estado="aceptado",
                 credit_limit=Decimal("-1.00"),
             )
     # NULL is the explicit "no limit" state and is accepted.
     Vinculo.objects.create(
         tienda=shop,
-        cliente=Customer.objects.create(alias="Luis"),
+        cliente=persona,
         estado="aceptado",
         credit_limit=None,
     )
@@ -688,23 +692,6 @@ def test_imputacionpago_records_the_repartition(
     assert saldo(galletas) == Decimal("10.00")
 
 
-def test_codigo_revocation_always_names_its_author(shop, customer, user):
-    """A revoked credential names the user who revoked it."""
-    codigo = CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix="ABCDEF",
-        codigo_hash="hash",
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            CustomerCodigo.objects.filter(pk=codigo.pk).update(
-                revoked_at=timezone.now()
-            )
-    assert CustomerCodigo.objects.count() == 1
-
 
 # ---------------------------------------------------------------------------
 # 2.1 — the UNIQUE constraints
@@ -717,10 +704,10 @@ def test_customer_alias_is_unique(shop):
     **She is one person in every shop**, so the alias is unique in the
     world and not inside a shop.
     """
-    Customer.objects.create(alias="Ana")
+    crear_persona("ana1", alias="Ana")
     with pytest.raises(IntegrityError):
         with transaction.atomic():
-            Customer.objects.create(alias="Ana")
+            crear_persona("ana2", alias="Ana")
     assert Customer.objects.filter(alias="Ana").count() == 1
 
 
@@ -756,68 +743,6 @@ def test_producto_nombre_is_unique_per_shop(shop):
     assert Producto.objects.count() == 1
 
 
-def test_codigo_prefix_is_unique_per_shop(shop, customer, user):
-    """The prefix identifies a credential inside its shop."""
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix="ABCDEF",
-        codigo_hash="hash",
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            CustomerCodigo.objects.create(
-                shop=shop,
-                customer=customer,
-                prefix="ABCDEF",
-                codigo_hash="otro",
-                issued_at=timezone.now(),
-                issued_by=user,
-            )
-    assert CustomerCodigo.objects.count() == 1
-
-
-def test_only_one_active_codigo_per_customer(shop, customer, user):
-    """A customer holds at most one active credential.
-
-    The partial unique index admits a second row only once the first one is
-    revoked, which is the rotation path.
-    """
-    codigo = CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix="ABCDEF",
-        codigo_hash="hash",
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            CustomerCodigo.objects.create(
-                shop=shop,
-                customer=customer,
-                prefix="UVWXYZ",
-                codigo_hash="otro",
-                issued_at=timezone.now(),
-                issued_by=user,
-            )
-    assert CustomerCodigo.objects.count() == 1
-
-    # Once the first is revoked, a second one is admitted.
-    codigo.revoked_at = timezone.now()
-    codigo.revoked_by = user
-    codigo.save()
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix="UVWXYZ",
-        codigo_hash="otro",
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-    assert CustomerCodigo.objects.count() == 2
 
 
 def test_a_customer_may_have_several_live_proposals(shop, customer, user):
@@ -1001,7 +926,6 @@ def test_the_partial_unique_indexes_sit_on_the_right_tables():
     """
     expected = {
         "uniq_confirmacion_one_confirmado_per_cargo": Confirmacion,
-        "uniq_codigo_one_active_per_customer": CustomerCodigo,
     }
 
     for name, model in expected.items():
@@ -1015,7 +939,7 @@ def test_the_partial_unique_indexes_sit_on_the_right_tables():
     for name in expected:
         owners = [
             m.__name__
-            for m in (Confirmacion, FiadoPropuesto, CustomerCodigo, LedgerEntry)
+            for m in (Confirmacion, FiadoPropuesto, LedgerEntry)
             if name in [c.name for c in m._meta.constraints]
         ]
         assert len(owners) == 1, f"{name} is declared on {owners}."
@@ -1046,8 +970,7 @@ def test_the_v1_partial_indexes_are_gone():
     for model in (
         Confirmacion,
         FiadoPropuesto,
-        CustomerCodigo,
-        LedgerEntry,
+            LedgerEntry,
         CargoLinea,
         PropuestaLinea,
         ImputacionPago,
@@ -1152,29 +1075,6 @@ def test_customer_declares_no_confirmation_state():
         )
 
 
-def test_the_credential_is_not_a_column_of_customer():
-    """The credential lives in `CustomerCodigo`, not in `Customer` (CAC-09).
-
-    The plaintext is never stored at all; only the hash and the non-secret
-    prefix are, both on the credential table.
-    """
-    customer_fields = {field.name for field in Customer._meta.get_fields()}
-    assert "codigo" not in customer_fields
-    assert "codigo_hash" not in customer_fields
-
-
-def test_the_throttle_ledger_stores_no_plaintext():
-    """The throttle ledger holds the hash of the credential, never the value.
-
-    It records every presented credential so the throttle can count them. If
-    it held the plaintext, the ledger would be a second place where the
-    secret lives.
-    """
-    fields = {field.name for field in CodigoIntento._meta.get_fields()}
-
-    assert "codigo" not in fields
-    assert "presented_hash" in fields
-    assert "plaintext" not in fields
 
 
 def test_the_models_declare_no_derived_figure():
@@ -1244,7 +1144,7 @@ def test_no_model_declares_a_customer_credit():
     )
 
 
-def test_the_models_declare_the_sixteen_entities():
+def test_the_models_declare_the_entities():
     """The application declares the sixteen entities of design §3.
 
     The count is asserted because a missing entity is invisible: the
@@ -1269,8 +1169,6 @@ def test_the_models_declare_the_sixteen_entities():
         "CashMovement",
         "DayClose",
         "StockMovement",
-        "CustomerCodigo",
-        "CodigoIntento",
     }
 
     missing = expected - models
@@ -1279,172 +1177,13 @@ def test_the_models_declare_the_sixteen_entities():
     )
 
 
-@pytest.fixture
-def client_con_credencial():
-    """An API client that presents a credential in the header.
-
-    The header is the ONLY place the credential travels, so the fixture
-    sets it there and nowhere else.
-    """
-    from rest_framework.test import APIClient
-
-    api = APIClient()
-
-    def _con(codigo: str):
-        api.defaults["HTTP_X_CODIGO"] = codigo
-        return api
-
-    return _con
-
 
 # ---------------------------------------------------------------------------
 # 8.1 - The plaintext is never persisted
 # ---------------------------------------------------------------------------
 
 
-def test_codigo_en_claro_no_se_persiste(shop, customer, user):
-    """No row of the model holds the plaintext of a credential.
 
-    The credential exists in the clear for the length of ONE response -
-    the issuing response - and nowhere else. What is stored is the digest
-    and the prefix, and the prefix is six symbols that cannot resolve to
-    a credential without the digest.
-
-    The check is over EVERY text column of EVERY row, not over the
-    credential's own table: the plaintext could have leaked into a
-    customer's alias, a proposal's reference or a movement's concept.
-    """
-    valor = client_auth.generar_credencial()
-    prefijo = client_auth.prefijo_de(valor)
-
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=prefijo,
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # And some rows that hold OTHER people's words.
-    FiadoPropuesto.objects.create(
-        shop=shop,
-        customer=customer,
-        user=user,
-        estado="pendiente",
-        total=Decimal("5.00"),
-    )
-    PagoPropuesto.objects.create(
-        shop=shop,
-        customer=customer,
-        importe=Decimal("4.00"),
-        referencia="un billete de cinco",
-        estado="pendiente",
-        created_at=timezone.now(),
-    )
-
-    # The plaintext is in no text column of any row.
-    for columna, valor_columna in _filas_con_texto():
-        assert valor != valor_columna, (
-            f"el texto en claro de la credencial esta en {columna}"
-        )
-
-    # And the digest is a PBKDF2 hash, not the value.
-    codigo = CustomerCodigo.objects.get()
-    assert codigo.codigo_hash != valor
-    assert codigo.codigo_hash.startswith("pbkdf2_sha256$")
-    assert valor not in codigo.codigo_hash
-
-
-def _filas_con_texto():
-    """Every text column of every row, as `(columna, valor)` pairs.
-
-    The check has to be over the DATA and not over the schema: the
-    schema could hold a column that no row ever fills, and the schema
-    could NOT hold a column that a row fills with the wrong thing.
-
-    The columns are the ones that carry text - `CharField` and
-    `TextField` - and the values are read as strings, because a `Decimal`
-    is not a credential.
-    """
-    from django.db import models
-
-    for modelo in (
-        CashMovement,
-        CargoLinea,
-        Confirmacion,
-        Customer,
-        CustomerCodigo,
-        DayClose,
-        FiadoPropuesto,
-        ImputacionPago,
-        LedgerEntry,
-        PagoPropuesto,
-        Producto,
-        PropuestaLinea,
-        Shop,
-        StockMovement,
-    ):
-        for campo in modelo._meta.get_fields():
-            if not isinstance(campo, models.Field):
-                continue
-            if not isinstance(campo, (models.CharField, models.TextField)):
-                continue
-            if campo.choices:
-                continue
-            for fila in modelo.objects.all():
-                valor = getattr(fila, campo.attname, None)
-                if valor is None:
-                    continue
-                yield (
-                    f"{modelo.__name__}.{campo.attname}",
-                    str(valor),
-                )
-
-
-def test_la_peticion_del_cliente_no_persiste_la_credencial(
-    shop, customer, user, client_con_credencial
-):
-    """The only row a client request creates is its own proposal.
-
-    The credential travels in the `X-Codigo` HEADER, and the header is
-    not a row. So the row the client creates - the `PagoPropuesto` - holds
-    the client's own words and never the credential.
-
-    This is the v2 addition to the assertion: the credential's boundary
-    is not only the schema's, it is the DATA a client request leaves
-    behind.
-    """
-    valor = client_auth.generar_credencial()
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # The client proposes a payment, with its credential in the header.
-    cliente = client_con_credencial(valor)
-    respuesta = cliente.post(
-        "/api/v1/cliente/pagos/proponer/",
-        {"importe": "4.00", "referencia": "billete de cinco"},
-        format="json",
-    )
-    assert respuesta.status_code == 201
-
-    # The only row it created is its own proposal.
-    propuesta = PagoPropuesto.objects.get()
-    assert propuesta.customer_id == customer.id
-    assert propuesta.importe == Decimal("4.00")
-    assert propuesta.referencia == "billete de cinco"
-
-    # And the credential is in no row.
-    for columna, valor_columna in _filas_con_texto():
-        assert valor != valor_columna, (
-            f"el texto en claro de la credencial esta en {columna}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1452,164 +1191,7 @@ def test_la_peticion_del_cliente_no_persiste_la_credencial(
 # ---------------------------------------------------------------------------
 
 
-def test_credential_unicity(shop, customer, user):
-    """The credential is unique, and a rotated value refuses the old one.
-
-    Three things, and the third is the one the constraints cannot prove:
-
-    * the credential is unique in the shop - the prefix identifies it,
-      and the prefix is unique per shop;
-    * a customer holds at most one ACTIVE credential - the partial
-      unique index admits a second one only once the first is revoked;
-    * **a rotated value refuses the old one.** The constraints say the
-      ROWS cannot collide; they do not say the old credential stops
-      working. That is a behaviour, and it lives in the resolution.
-    """
-    valor = client_auth.generar_credencial()
-    codigo = CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # It resolves.
-    assert client_auth.resolver_credencial(_peticion_con(valor)) == customer
-
-    # The rotation: the old one is revoked, and a new one is issued.
-    codigo.revoked_at = timezone.now()
-    codigo.revoked_by = user
-    codigo.save()
-
-    nuevo = client_auth.generar_credencial()
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=client_auth.prefijo_de(nuevo),
-        codigo_hash=client_auth.hashear_credencial(nuevo),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # The NEW value resolves.
-    assert client_auth.resolver_credencial(_peticion_con(nuevo)) == customer
-
-    # And the OLD one does NOT. This is the clause the schema cannot
-    # prove.
-    assert client_auth.resolver_credencial(_peticion_con(valor)) is None, (
-        "la credencial revocada sigue resolviendo: la rotacion no rota"
-    )
 
 
-def test_una_credencial_con_el_prefijo_y_otro_valor_no_resuelve(
-    shop, customer, user
-):
-    """The prefix narrows the search; the DIGEST decides.
-
-    A credential whose first six symbols match a stored credential but
-    whose remaining fourteen do not must resolve to nothing.
-
-    This is the clause the resolution's `check_password` carries, and it
-    is the one a schema cannot state: the rows do not collide, but a
-    wrong value would still resolve if the comparison were skipped.
-
-    **The value is built, not generated.** The prefix is six symbols of
-    a 32-symbol alphabet, so two random credentials share one with a
-    probability of 1 in about a billion, and a loop looking for that
-    collision would spin essentially forever. So the value is assembled:
-    the stored credential's prefix, then fourteen different symbols.
-    """
-    valor = client_auth.generar_credencial()
-    prefijo = client_auth.prefijo_de(valor)
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=customer,
-        prefix=prefijo,
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # The same prefix, a different value: the fourteen symbols after the
-    # prefix are all different.
-    resto = "".join(
-        client_auth.ALFABETO[(i + 1) % len(client_auth.ALFABETO)]
-        for i in range(14)
-    )
-    impostor = prefijo + resto
-    assert impostor != valor
-    assert client_auth.prefijo_de(impostor) == prefijo
-
-    assert client_auth.resolver_credencial(_peticion_con(impostor)) is None, (
-        "una credencial con el prefijo correcto y el valor equivocado "
-        "resuelve: la comparacion del digest no se esta haciendo"
-    )
 
 
-def test_la_credencial_de_otro_cliente_no_resuelve(shop, customer, user):
-    """A credential resolves to exactly ONE customer.
-
-    The prefix narrows the search, but every candidate with that prefix
-    is compared - and the comparison is against the DIGEST, so the one
-    that matches is the only one that resolves.
-    """
-    otro = Customer.objects.create(alias="Beto")
-    Vinculo.objects.create(
-        tienda=shop,
-        cliente=otro,
-        estado="aceptado",
-        credit_limit=Decimal("50.00"),
-    )
-
-    valor = client_auth.generar_credencial()
-    CustomerCodigo.objects.create(
-        shop=shop,
-        customer=otro,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    cliente_resuelto = client_auth.resolver_credencial(_peticion_con(valor))
-    assert cliente_resuelto is not None
-    assert cliente_resuelto.id == otro.id
-    assert cliente_resuelto.id != customer.id
-
-
-def test_una_credencial_ajena_no_resuelve_en_la_tienda(shop, customer, user):
-    """A credential of ANOTHER shop does not resolve here.
-
-    The credential names its own shop: the shop is the one of the matching
-    `CustomerCodigo`, and it is never taken from the request.
-    """
-    otra_tienda = Shop.objects.create(
-        name="Otra tienda", opening_cash=Decimal("0.00")
-    )
-    valor = client_auth.generar_credencial()
-    CustomerCodigo.objects.create(
-        shop=otra_tienda,
-        customer=customer,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=user,
-    )
-
-    # It resolves - to the customer it names. What it does NOT do is
-    # extend the scope of a request that names another shop: the scope
-    # of a client request is its OWN customer's.
-    cliente_resuelto = client_auth.resolver_credencial(_peticion_con(valor))
-    assert cliente_resuelto is not None
-    assert cliente_resuelto.id == customer.id
-
-
-def _peticion_con(valor: str):
-    """A request carrying the credential, the way the API receives it."""
-    from django.test import RequestFactory
-
-    peticion = RequestFactory().get("/", HTTP_X_CODIGO=valor)
-    # The header is what the resolver reads.
-    return peticion

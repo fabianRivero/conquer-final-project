@@ -259,9 +259,6 @@ def test_the_api_map_declares_every_route_of_the_design():
         "pagos-propuestos/",
         "pagos-propuestos/<int:pago_id>/validar/",
         "pagos-propuestos/<int:pago_id>/rechazar/",
-        "cliente/estado/",
-        "cliente/cargos/<int:cargo_id>/",
-        "cliente/pagos/proponer/",
         # The counter's search - the 10.5.
         "mostrador/buscar/",
         # The person's account - the 10.1, the 10.3 and the 10.5.
@@ -271,7 +268,6 @@ def test_the_api_map_declares_every_route_of_the_design():
         "perfiles/",
         "perfiles/cliente/",
         "perfiles/tienda/",
-        "cuenta/reclamar/",
         "cuenta/vinculos/",
         "cuenta/vinculos/aceptar/",
         "cuenta/vinculos/rechazar/",
@@ -279,6 +275,7 @@ def test_the_api_map_declares_every_route_of_the_design():
         "cuenta/fiados/aceptar/",
         "cuenta/fiados/rechazar/",
         "cuenta/cargos/",
+        "cuenta/pagos/proponer/",
     ):
         assert esperado in patrones, f"the route {esperado} is not declared"
 
@@ -325,7 +322,6 @@ def test_the_api_map_declares_every_route_of_the_design():
         "perfiles/",
         "perfiles/cliente/",
         "perfiles/tienda/",
-        "cuenta/reclamar/",
         "cuenta/vinculos/",
         "cuenta/vinculos/aceptar/",
         "cuenta/vinculos/rechazar/",
@@ -333,6 +329,7 @@ def test_the_api_map_declares_every_route_of_the_design():
         "cuenta/fiados/aceptar/",
         "cuenta/fiados/rechazar/",
         "cuenta/cargos/",
+        "cuenta/pagos/proponer/",
         "tienda/login/",
         "tienda/personal/",
         "tienda/personal/<int:user_id>/",
@@ -467,7 +464,9 @@ def test_the_mutating_route_check_can_see_the_api_routes():
     encontrados = {str(p.pattern) for p in patrones(get_resolver())}
 
     assert "posicion/" in encontrados
-    assert "cliente/estado/" in encontrados
+    # **La ruta de la persona**: la credencial se fue, y la cuenta es su
+    # unica puerta.
+    assert "cuenta/cargos/" in encontrados
 
 
 def test_the_client_routes_live_under_their_own_prefix():
@@ -476,17 +475,24 @@ def test_the_client_routes_live_under_their_own_prefix():
     There is no route that accepts both a session and a credential — the
     design §8 invariant is structural, and the map is where it is visible.
 
-    There are **three** audiences now, and each keeps its own prefix:
+    There are **TWO audiences now**, and each keeps its own prefix:
 
     * the STAFF, at the root of the map - the shop's routes;
-    * the CLIENT, under `cliente/` - the client's own reads;
     * the PERSON, under `cuenta/` and `perfiles/` - the account she owns.
 
     And the SHOP's own routes - the login and the staff it gives a user -
-    live under `tienda/`, so they are a fourth prefix.
+    live under `tienda/`, so they are a third prefix.
+
+    **There is no `cliente/` prefix any more.** The credential opened a
+    third audience - the client's own statement - and the 10.6 removed
+    it: *a client without an account cannot have a fiado*, and without a
+    fiado there is no debt to pay.
     """
     from tienda.api import urls as urls_api
 
+    # **No hay grupo `cliente/`: la cuarta audiencia se fue.** La
+    # credencial abria la declaracion del cliente; ahora la persona tiene
+    # su cuenta y su cuenta es su unica puerta.
     cliente_rutas = [
         p for p, _, _ in _todas_las_rutas() if p.startswith("cliente/")
     ]
@@ -507,7 +513,7 @@ def test_the_client_routes_live_under_their_own_prefix():
         and not p.startswith("tienda/")
     ]
 
-    assert len(cliente_rutas) == 3
+    assert len(cliente_rutas) == 0
     assert len(persona_rutas) == 14
     assert len(tienda_rutas) == 5
     assert len(personal_rutas) == 18

@@ -20,6 +20,9 @@ nothing, and nothing would look like "there is nothing to show".
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -30,10 +33,8 @@ from django.contrib.sessions.backends.db import SessionStore
 from django.test import Client
 from django.utils import timezone
 
-from tienda.api import client_auth
 from tienda.models import (
     Customer,
-    CustomerCodigo,
     PagoPropuesto,
     Producto,
     Shop,
@@ -67,45 +68,6 @@ def api(owner, tienda):
     return cliente
 
 
-def test_la_lista_de_clientes_lleva_el_estado_de_la_credencial(api, tienda, owner):
-    """The list carries the credential's `prefix` and its issuing date.
-
-    The `prefix` is six symbols of the alphabet and cannot resolve to a
-    credential without the digest, and the digest never leaves the
-    credential's table. Both fields are the OWNER's own data, and the
-    board reads them in one response instead of one per customer.
-    """
-    cliente = Customer.objects.create(alias="Ana")
-    Vinculo.objects.create(
-        tienda=tienda,
-        cliente=cliente,
-        estado="aceptado",
-        credit_limit=Decimal("100.00"),
-    )
-    valor = client_auth.generar_credencial()
-    CustomerCodigo.objects.create(
-        shop=tienda,
-        customer=cliente,
-        prefix=client_auth.prefijo_de(valor),
-        codigo_hash=client_auth.hashear_credencial(valor),
-        issued_at=timezone.now(),
-        issued_by=owner,
-    )
-
-    respuesta = api.get("/api/v1/clientes/")
-
-    assert respuesta.status_code == 200
-    cuerpo = respuesta.json()
-    # A BARE LIST, not a paginated object.
-    assert isinstance(cuerpo, list)
-    fila = cuerpo[0]
-    assert fila["alias"] == "Ana"
-    assert fila["prefix"] == client_auth.prefijo_de(valor)
-    assert fila["issued_at"] is not None
-    # And the digest NEVER leaves the table.
-    assert "codigo_hash" not in fila
-    assert valor not in str(cuerpo)
-
 
 def test_la_lista_del_catalogo_lleva_el_id(api, tienda):
     """The catalogue carries the product's id.
@@ -135,7 +97,7 @@ def test_la_lista_de_pagos_propuestos_solo_los_pendientes(api, tienda, owner):
     The board's section is a work list: a proposal that was validated or
     rejected is history.
     """
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

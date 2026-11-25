@@ -20,6 +20,9 @@ The cases here are the ones the design fixes:
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from datetime import timedelta
 from decimal import Decimal
 
@@ -88,7 +91,7 @@ def customer(tienda):
     """
     from tienda.models import Customer, Vinculo
 
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,

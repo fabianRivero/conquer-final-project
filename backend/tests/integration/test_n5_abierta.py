@@ -30,6 +30,9 @@ written, the fields present and absent - never on a status code alone.
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -44,7 +47,6 @@ from tienda.models import (
     CargoLinea,
     Confirmacion,
     Customer,
-    CustomerCodigo,
     FiadoPropuesto,
     LedgerEntry,
     Producto,
@@ -119,7 +121,7 @@ def api_otro_dependiente(otro_helper, tienda):
 @pytest.fixture
 def customer(tienda):
     """A person, and the LINK that says she is a trusted client of the shop."""
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,
@@ -398,20 +400,15 @@ def test_el_dependiente_no_ve_la_politica_del_dueno(
 ):
     """The reduced schema declares NONE of the owner's policy fields.
 
-    No `credit_limit`, no ageing, no `codigo`, no prefix. The reduced
+    No `credit_limit`, no ageing, no `suspended_reason`. The reduced
     payload is not the full one with fields removed: it is a different
     schema, so a field that is not declared cannot appear whatever the
     query returns.
-    """
-    CustomerCodigo.objects.create(
-        shop=Vinculo.objects.get(cliente=customer).tienda,
-        customer=customer,
-        prefix="ABCDEF",
-        codigo_hash="x" * 40,
-        issued_at=timezone.now(),
-        issued_by=owner,
-    )
 
+    **The credential fields are gone from the model**, so the test does
+    not create one: there is nothing to hide any more, and the schema
+    that hides the POLICY is the same schema.
+    """
     respuesta = api_dependiente.get(reverse("api:clientes"))
 
     assert respuesta.status_code == 200
@@ -420,9 +417,6 @@ def test_el_dependiente_no_ve_la_politica_del_dueno(
         "credit_limit",
         "antiguedad_max_dias",
         "suspended_reason",
-        "codigo",
-        "prefix",
-        "issued_at",
     ):
         assert prohibido not in fila, f"el dependiente ve {prohibido}"
 
@@ -533,33 +527,6 @@ def test_el_dependiente_no_ponde_el_credit_limit(api_dependiente, customer):
     assert respuesta.status_code == 403
     vinculo = Vinculo.objects.get(cliente=customer)
     assert vinculo.credit_limit == Decimal("100.00")
-
-
-def test_el_dependiente_no_emite_el_codigo(api_dependiente, customer):
-    """The credential is the owner's: it opens the client's own scope.
-
-    The route is a **pending view** - it answers 501 for everybody,
-    because the issuing of a `codigo` was never built. The guarantee
-    here is therefore not "the `dependiente` is refused" but "the route
-    is the owner's alone": the credential table is written by the owner,
-    and the `dependiente` writes no credential row.
-
-    The companion is the `test_no_leak` suite, which walks the whole
-    tree looking for the credential - a `dependiente` request that
-    created a `CustomerCodigo` would be found there.
-    """
-    respuesta = api_dependiente.post(
-        reverse("api:cliente_codigo", args=[customer.id]), {}, format="json"
-    )
-
-    # The route is not built for anybody: no credential is issued.
-    assert respuesta.status_code == 501
-    assert CustomerCodigo.objects.count() == 0
-
-
-# ---------------------------------------------------------------------------
-# 9.7 - Several fiados at once
-# ---------------------------------------------------------------------------
 
 
 def test_un_cliente_puede_tener_varias_compras_fiadas(api, customer, producto):

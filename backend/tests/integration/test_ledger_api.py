@@ -23,6 +23,9 @@ charged, and a later change to the catalogue never rewrites a stored line
 
 from __future__ import annotations
 
+from tests.integration.personas import crear_persona
+
+
 from decimal import Decimal
 
 import pytest
@@ -87,7 +90,7 @@ def customer(tienda):
 
     **The person belongs to no shop**, and the limit belongs to the link.
     """
-    cliente = Customer.objects.create(alias="Ana")
+    cliente_usuario, cliente = crear_persona("ana", alias="Ana")
     Vinculo.objects.create(
         tienda=tienda,
         cliente=cliente,
@@ -254,7 +257,7 @@ def test_a_customer_of_another_shop_is_not_found(cliente, customer, tienda):
     A 403 would confirm that the customer exists; a 404 says nothing.
     """
     otra = Shop.objects.create(name="Otra tienda", opening_cash=Decimal("0.00"))
-    ajeno = Customer.objects.create(alias="Luis")
+    ajeno_usuario, ajeno = crear_persona("luis", alias="Luis")
     Vinculo.objects.create(
         tienda=otra,
         cliente=ajeno,
