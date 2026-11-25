@@ -454,6 +454,159 @@ v2_redesign:
       username, and the only reader of a credential is the client's own
       statement, which is a THIRD audience and not the shop's counter.
       The client's own statement still reads through the credential.
+  phase10g_delivered:
+    completed: '2026-11-25'
+    pull_requests: [44, 45, 46, 47]
+    tasks: 1
+    files:
+      - backend/tienda/models.py
+      - backend/tienda/services.py
+      - backend/tienda/domain/confirmation.py
+      - backend/tienda/domain/types.py
+      - backend/tienda/api/cuenta.py
+      - backend/tienda/api/cuenta_pagos.py
+      - backend/tienda/api/exceptions.py
+      - backend/tienda/api/permissions.py
+      - backend/tienda/api/urls.py
+      - backend/tienda/api/views.py
+      - backend/tienda/api/client_auth.py (deleted)
+      - backend/tienda/api/client_authentication.py (deleted)
+      - backend/tienda/api/throttle.py (deleted)
+      - backend/tienda/management/commands/seed_demo.py
+      - backend/tienda/migrations/0008_la_persona_es_la_unica.py
+      - backend/tienda/migrations/0009_el_perfil_de_la_persona.py
+      - backend/tests/conftest.py
+      - backend/tests/integration/personas.py
+      - backend/tests/integration/test_10_6_sin_cuenta_no_hay_vinculo.py
+      - backend/tests/integration/test_10_6_propuesta_de_pago.py
+      - backend/tests/integration/test_10_4_persona_y_cliente.py
+      - backend/tests/integration/test_seed.py
+      - backend/tests/integration/test_credencial_api.py (deleted)
+      - backend/tests/integration/test_cliente_api.py (deleted)
+      - frontend/src/api/cliente.ts (deleted)
+      - frontend/src/api/fiados.ts
+      - frontend/src/components/Acceso.tsx (deleted)
+      - frontend/src/components/Estado.tsx (deleted)
+      - frontend/src/components/ProponerPago.tsx (deleted)
+      - frontend/src/components/Cargos.tsx
+      - frontend/src/components/Fiados.tsx
+      - frontend/src/router.tsx
+      - frontend/src/surfaces/Cliente.tsx (deleted)
+      - frontend/src/surfaces/Cuenta.tsx
+      - openspec/changes/fiado-confirmado/design.md
+    lines: -2935
+    budget: size-exception
+    why_exception: >-
+      The slice is atomic in the way the ODD protocol describes: the
+      model, the migration WITH its data, the service layer, the routes,
+      the screens and the tests are ONE behaviour - the person is the
+      only one who can owe - and a PR with the model without the routes
+      reaches nothing. **And it REMOVES more than it adds**: the
+      credential machinery is four modules, two models and three routes
+      that no longer have a case. The diff is -3591/+656.
+    the_owners_rule: >-
+      *A client without an account cannot have a fiado.* And without a
+      fiado there is no debt to pay - which is what made the `codigo`
+      pointless. The credential opened a fourth audience: the client's
+      own statement, read with a bearer token the shop kept. **There was
+      no case left for it**, and the owner closed it.
+    the_door_that_was_open: >-
+      The owner's route - `POST /api/v1/clientes/` - created the person
+      with the link `aceptado`, **without asking anybody and without
+      requiring an account**. By that way a person with no account could
+      have a charge: a debt she could neither see nor refuse. The demo
+      did exactly that with "Ana". **The link is now born `pendiente`**
+      - the owner's act is the QUESTION and hers is the ANSWER - and
+      `Customer.user` is **NOT NULL**: a row without a person behind it
+      is not a person, it is a row the owner wrote and nobody can
+      answer.
+    the_row_is_hers_and_the_claim_is_gone: >-
+      The registration creates the account AND the row, because the
+      owner's rule makes them inseparable. **The claim went with the
+      credential**: there is nothing to reclaim if the row cannot exist
+      without the person. The shop does not create people - it asks the
+      ones who exist, and it finds them by their USERNAME.
+    the_payment_proposal_names_its_shop: >-
+      The service used to pick the FIRST accepted link, and that was a
+      GUESS - a guess that pays the wrong shop's debt: a person owing 30
+      in one shop and 20 in another could see her payment land in
+      either one. **The shop is named now**, and when she owes in several
+      the refusal says which. The proposal still names no charge: the
+      FIFO decides which debts it retires (ADR-27).
+    the_migration_gives_an_account_to_the_rows_without_one: >-
+      The rows that the shop created before the person had an account
+      get one, with the alias as the username - and with a **LOCKED**
+      password: a random digest that nobody knows. **An empty password
+      would be a credential anybody could use**, and a real one would be
+      a secret the shop chose for the person, which is the thing the
+      10.1 removed. The links that were `aceptado` go back to
+      `pendiente` with their `aceptado_at` cleared: the instant has to
+      match the state, because an acceptance that never happened cannot
+      carry its instant.
+    evidence: >-
+      128 unit and 561 integration tests pass. **And the flow was
+      verified against the LIVE deployment**, end to end: the person
+      signs in, reaches her links (with the amount and the ageing), her
+      fiados (with the reason of the rejection), her charges (with the
+      state and the shop's id), and proposes her payment. The owner
+      finds her at the counter by her username. And the whole cycle: the
+      shop proposes, she accepts, and the charge is written.
+    what_this_slice_does_not_touch: >-
+      The client's CREDENTIAL is gone with the fourth audience. The
+      person's own statement is now `cuenta/cargos/`, and the payment
+      proposal is `cuenta/pagos/proponer/`. The QR identification stays
+      closed, as the owner decided.
+  deploy_fix_2026_11_25:
+    completed: '2026-11-25'
+    pull_requests: [45, 46, 47]
+    what_happened: >-
+      The 10.6 deploy failed **three times**, and each failure was a
+      different bug. The first two were the SEED's, and the third was
+      the MIGRATION's.
+    the_seed_could_not_delete_the_owner: >-
+      `Customer.created_by` is **PROTECT**: a row that says "the owner
+      created me" makes the database REFUSE to delete the owner - and
+      the seed deletes the owner's account every time it rebuilds the
+      demo. The demo's row had been created by the OLD seed, with
+      `created_by` = the owner, and **the customer table no longer hangs
+      off the shop** - the 10.4 took away `Customer.shop_id` -, so the
+      demo's deletion did not reach it and the row survived with the
+      block. The seed blew up, the build blew up, and the deployment
+      kept the previous version. **The person is the AUTHOR of her own
+      row**, and that is what makes the deletion possible.
+    the_person_entered_and_reached_nothing: >-
+      The `0008` created the `User` but **not the `PerfilCliente`**, and
+      `EsClienteConVinculo` demands the profile: the person signed in
+      and every route of her own answered 403. The profile is what says
+      "I am a client in the world of credit" - an account without one
+      is a person's account, and the person has not said she buys on
+      credit yet: that is the link, and the link is hers to answer.
+      **The `0008` was already applied in Neon, so it was NOT touched** -
+      editing an applied migration is rewriting history - and a `0009`
+      gives the missing profile.
+    the_demo_is_deterministic: >-
+      The demo's client is always `ana`, wherever the database comes
+      from: if her account has another name it is renamed, and the
+      leftovers of an earlier demo - the accounts that point at nobody -
+      are removed. **Two accounts for one person is one person too many**,
+      and the 10.6 is about exactly that.
+    the_lessons_about_my_own_tests: >-
+      Two of them, and they are worth more than the bugs: (1)
+      `SESSION_COOKIE_SECURE = not DEBUG` - with `DEBUG` off the session
+      cookie only travels over HTTPS - so my local test over HTTP talked
+      to the server WITHOUT the cookie and everything answered 403; **the
+      code was right and the test was wrong**, and the only way to see it
+      was to read the server's log instead of keeping on assuming. (2)
+      The person signs in at `/api/v1/cuenta/login/` and the staff at
+      `/login/`; **mixing the two sessions breaks both**, and that is not
+      a defect - it is the design.
+    evidence: >-
+      561 integration and 128 unit tests pass, and the flow was verified
+      against the live deployment. The three failures each left a test
+      that pins them: the demo's password opens the person's account and
+      she has ONE account; her row says she authored it, and deleting
+      the owner with that row present is REFUSED; and she has her client
+      profile.
   phase10f_delivered:
     completed: '2026-11-25'
     pull_requests: [41]
