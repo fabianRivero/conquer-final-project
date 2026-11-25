@@ -304,7 +304,7 @@ class Command(BaseCommand):
             usuario = _usuario_de_la_persona("ana", "Ana")
             cliente = Customer.objects.create(
                 alias="Ana",
-                created_by=dueno,
+                created_by=usuario,
                 phone="600000000",
                 user=usuario,
             )
@@ -312,6 +312,20 @@ class Command(BaseCommand):
             # La fila existia sin persona: se le da una.
             cliente.user = _usuario_de_la_persona("ana", "Ana")
             cliente.save(update_fields=["user"])
+
+        # **La persona es la AUTORA de su propia fila.**
+        #
+        # Y esto no es un detalle: `Customer.created_by` es **PROTECT**,
+        # asi que una fila que dice "el dueno me creo" **impide borrar al
+        # dueno**. Y el seed borra al dueno - el demo se rehace entero -.
+        #
+        # **Ese era el fallo del build del deploy**: la fila la creo el
+        # seed viejo, con `created_by` = dueno, y al borrar las cuentas
+        # del demo la base se negaba. El seed reventaba, el build
+        # reventaba, y el despliegue se quedaba con la version
+        # anterior - donde la persona no tenia contrasena.
+        cliente.created_by = cliente.user
+        cliente.save(update_fields=["created_by"])
 
         # Y la contrasena del demo es la de las demas cuentas.
         cliente.user.set_password(PASSWORD_DEMO)

@@ -270,6 +270,37 @@ def test_el_seed_no_deja_dos_cuentas_para_la_misma_persona(seeded):
     )
 
 
+def test_la_ficha_de_la_persona_no_bloquea_el_borrado_del_dueno(seeded):
+    """**`created_by` es PROTECT, y el seed borra al dueno.**
+
+    A row that says "the owner created me" makes the database REFUSE
+    to delete the owner - and the seed deletes the owner's account
+    every time it rebuilds the demo.
+
+    **That was the deploy's build failure.** The demo's row was created
+    by the OLD seed, with `created_by` = the owner, and the deletion of
+    the demo's accounts was refused: the seed blew up, the build blew
+    up, and the deployment kept the previous version - the one where the
+    person had no password.
+
+    **The person is the author of her own row.**
+    """
+    cliente = Customer.objects.get(alias="Ana")
+
+    assert cliente.created_by_id == cliente.user_id, (
+        "la ficha de la persona dice que la creo el dueno: eso impide "
+        "borrarlo y el seed del deploy revienta"
+    )
+
+    # Y el borrado de las cuentas del demo se puede hacer.
+    from django.contrib.auth.models import User
+    from django.db import IntegrityError, transaction
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            User.objects.filter(username="dueno").delete()
+
+
 def test_the_seed_creates_one_confirmed_charge_with_its_lines(seeded):
     """CC-01: one confirmed charge, with its confirmation and its lines.
 
