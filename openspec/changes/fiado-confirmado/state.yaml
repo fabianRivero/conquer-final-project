@@ -214,20 +214,35 @@ v2_redesign:
     accepts or refuses the fiado from her own account.
     **The validation round with shop owners is NOT PURSUED** - the
     owner has decided so, and the knowledge base stays a declared
-    design hypothesis that is not waiting for anything. What remains
-    is therefore NOT a slice either, and it is three things of a
-    different kind:
-    (1) **there is NO route left in `501`**. `suspension/` - lifting a
-    suspension, which is PA-08 - now answers 200, 403 and 404, and its
-    service (`services.anular_suspension`) was already there and
-    tested: only the route was missing, and now it is not. The other two
-    are GONE: `existencias/` was cut by the owner on '2026-11-26' (Regla 6
-    is a declared cut and CP-07 is declared not-built), and
-    `clientes/{id}/codigo/` was the credential the 10.6 retired, so it
-    disappeared instead of being built;
+    design hypothesis that is not waiting for anything.
+    **THERE IS NO NEXT WORK UNIT: THE PROJECT IS DELIVERED.** What
+    follows is therefore NOT a slice, and what is left is WORK that nobody
+    has asked for - on the record so that it is remembered, not pending:
+    (1) **there is NO route left in `501`**, and there is nothing to
+    build. `suspension/` - lifting a suspension, which is PA-08 - answers
+    200, 403 and 404, and its service (`services.anular_suspension`) was
+    already there and tested: only the route was missing, and now it is
+    not. The other two are GONE: `existencias/` was cut by the owner on
+    '2026-11-26' (Regla 6 is a declared cut and CP-07 is declared
+    not-built), and `clientes/{id}/codigo/` was the credential the 10.6
+    retired, so it disappeared instead of being built;
     (2) **the project's own delivery is DONE**: the README, the memoria
     (whose sections 3.1-3.8 are the eight capabilities) and the 30-minute
     defence script - all three delivered on '2026-11-26';
+
+    (3) **the credential's DESIGN history still reads in the present
+    tense** - §5's body, D2-D4, D9, CAC-09 and the RED suite - and §12's
+    leak list and §16's traceability name its decisions. §5 now says at
+    its head that the credential is retired, and that is ON PURPOSE:
+    they are the record of what was decided, not a claim about what the
+    system does. The `StockMovement` table stays too - empty, and nothing
+    writes to it, because dropping it would be a destructive migration for
+    nothing;
+
+    (4) **and one thing nobody should have to fix again**: the documents
+    now have tests that pin them to the code - the route table against the
+    API map and the entity table against the models, in both directions
+    and with the count. That is what stops the drift from coming back;
     (3) **nothing else is a DECISION**: the owner's last open question -
     design section 19, item 7, whether the person may see her own
     `credit_limit` - was ANSWERED on '2026-11-25'. **She does**: her own
