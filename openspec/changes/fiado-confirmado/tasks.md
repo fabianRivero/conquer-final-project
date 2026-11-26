@@ -151,7 +151,7 @@ The nine credential RED tests of §5.3. Seven of them — R1, R2, R3, R4, R5, R7
 
 ## Phase 9: The N5 Decision — the `dependiente` operates the counter
 
-**This phase is not part of the v2 plan's 69 tasks.** It is the delivery of a **product decision by the owner**, taken after the plan closed: the N5 gate opens, and the `dependiente` prepares, confirms and collects. It is a decision under a **declared hypothesis** — the validation round with the shop owners has not been run, and the project's `knowledge_basis` stays `design-hypothesis`.
+**This phase is not part of the v2 plan's 69 tasks.** It is the delivery of a **product decision by the owner**, taken after the plan closed: the N5 gate opens, and the `dependiente` prepares, confirms and collects. It is a decision under a **declared hypothesis** — the validation round with the shop owners is closed, and the project's `knowledge_basis` stays `design-hypothesis`.
 
 - [x] 9.1 RED — `backend/tests/integration/test_n5_abierta.py`: the `dependiente` prepares, confirms and cancels **its own** proposal; it reaches **nobody else's** (404, not 403); the confirmation names its actor (`confirmado_por`, always) and its origin (`tienda`/`dependiente`); the `dependiente` reads the credit book through the **reduced** schema and sees **none** of the owner's policy; it records a payment on **any** debt, subject to rule 19; the `credit_limit`, the catalogue and the credential stay the owner's; and a customer may have **several** pending fiados.
 - [x] 9.2 GREEN — `backend/tienda/api/gates.py`: `N5_ABIERTA = True`, with the decision recorded in the constant.
@@ -164,7 +164,7 @@ The nine credential RED tests of §5.3. Seven of them — R1, R2, R3, R4, R5, R7
 
 ## Phase 10: The Account Rewrite — the person owns her account
 
-**This phase is not part of the v2 plan's 69 tasks.** It is the delivery of a **product decision by the owner**, taken after the plan closed: the person creates her own account, she owns her credentials, and a person can hold debt in **several** shops. It is a decision under a **declared hypothesis** — the validation round with the shop owners has not been run, and the project's `knowledge_basis` stays `design-hypothesis`.
+**This phase is not part of the v2 plan's 69 tasks.** It is the delivery of a **product decision by the owner**, taken after the plan closed: the person creates her own account, she owns her credentials, and a person can hold debt in **several** shops. It is a decision under a **declared hypothesis** — the validation round with the shop owners is closed, and the project's `knowledge_basis` stays `design-hypothesis`.
 
 The rewrite is **five slices**, one per pull request, and the order is dictated by one dependency alone: the link (slice C) needs both faces, and the credit book hangs from the link (slice D).
 
@@ -185,6 +185,6 @@ The rewrite is **five slices**, one per pull request, and the order is dictated 
 - **Database.** The integration suite runs on **PostgreSQL 16**, never SQLite — landmine 7. The unit suite runs with no database by construction. The local environment is rebuilt by `scripts/setup-toolchain.ps1`.
 - **Ordering.** Tests are written RED first: domain unit tests → model constraints and partial indexes → API contract → leak walk → concurrency → e2e (§15.4).
 - **Conditional capability.** The facilitation is gated by **N5**, and the owner has **opened** it: the four proposal routes answer the `dependiente`, and the boundary is the **OWNERSHIP** — it confirms only the proposals it prepared, and the refusal for somebody else's is a 404 (task 5.6, superseded by Phase 9). The `dependiente` also reads the credit book through a reduced schema and records the payments; the owner's policy — the `credit_limit`, the ageing, the suspension, the credential and the catalogue — stays the owner's.
-- **Regla cuts stay live.** If a validation round contradicts Regla 4, the client surface and the ten Regla-4 requirements are cut with it; if it contradicts Regla 5, `Producto` and `CargoLinea` leave the model and the `desglose` becomes a single amount; if it contradicts Regla 6, `StockMovement` and `existencias_registradas` leave with CP-07. No rule of the system changes (§19).
+- **Regla cuts stay documented.** If a validation round ever contradicted Regla 4, the client surface and the ten Regla-4 requirements would be cut with it; if it contradicted Regla 5, `Producto` and `CargoLinea` would leave the model and the `desglose` would become a single amount; if it contradicted Regla 6, `StockMovement` and `existencias_registradas` would leave with CP-07. No rule of the system changes (§19). The round is closed ('2026-11-25'), so nothing will trigger them — the cuts stay written because they are the answer to "what would this look like without the client surface".
 - **The `comprobante` is a planned extension, not implemented.** A `PagoPropuesto` carries an `importe` and a text `referencia`; no file, no upload, no attachment model (ADR-25).
 - **Not touched.** `openspec/changes/tienda-barrio/` and `openspec/explorations/` are not modified; nothing is written under `openspec/specs/`.
