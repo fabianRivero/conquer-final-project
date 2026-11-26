@@ -205,21 +205,32 @@ v2_redesign:
     decision under a declared hypothesis, not field evidence - and that
     is the Phase 9 slice. The ACCOUNT REWRITE is Phase 10: five slices,
     and **ALL FIVE are delivered** - the person's account (10.1), the
-    shop's login (10.2), the link with consent (10.3), the consolidation
-    per shop (10.4) and the counter with the fiado (10.5).
-    **The rewrite is CLOSED.** The person owns her account and her
-    credentials, she is a client of SEVERAL shops, the shop asks and
-    she answers, and she accepts or refuses the fiado from her own
-    account.
-    What remains is still not a slice but a DECISION: the validation
-    round with the shop owners, which design section 18.3 declares as
-    the evidence gate. The gate is open under the owner's decision, and
-    the round would confirm or contradict it. The project's
-    `knowledge_basis` stays `design-hypothesis`, and the round itself is
-    not planned work: it needs people who are not this agent.
-    ONE thing is still open, and it is not planned work either: the
-    rotation of the Neon password, which was left in the clear in a
-    chat.
+    shop's login (10.2), the link with consent (10.3), the
+    consolidation per shop (10.4) and the counter with the fiado
+    (10.5) - plus the Slice 10.6, which retired the credential and
+    made the person the only one who can owe. **The rewrite is
+    CLOSED.** The person owns her account and her credentials, she is
+    a client of SEVERAL shops, the shop asks and she answers, and she
+    accepts or refuses the fiado from her own account.
+    **The validation round with shop owners is NOT PURSUED** - the
+    owner has decided so, and the knowledge base stays a declared
+    design hypothesis that is not waiting for anything. What remains
+    is therefore NOT a slice either, and it is three things of a
+    different kind:
+    (1) **three routes still in `501`**: `existencias/` (the optional
+    stock ceiling), `suspension/` (lifting a suspension), and
+    `clientes/{id}/codigo/` - which is now MOOT, because the
+    credential it would issue was retired by the 10.6, and it should
+    disappear rather than be built;
+    (2) **the project's own delivery**: the README, the memoria
+    sections 3.1-3.8 and the 30-minute defence script - none of them
+    exists yet, and none of them is code;
+    (3) **one question that is the OWNER's and no longer the round's**:
+    design section 19, item 7 - whether the person may see her own
+    `credit_limit`. The delivered account SHOWS it and the design says
+    it must be absent (D11, CAC-10, ADR-24), and the round would
+    never have answered it anyway: it is the owner's view of a
+    commercial figure, not a shop owner's.
   deploy_fix_2026_11_24:
     completed: '2026-11-24'
     pull_requests: [38, 39]
@@ -607,6 +618,21 @@ v2_redesign:
       she has ONE account; her row says she authored it, and deleting
       the owner with that row present is REFUSED; and she has her client
       profile.
+  neon_password_rotated_2026_11_25:
+    completed: '2026-11-25'
+    by: user
+    what: >-
+      The production database's password was **rotated by the owner**, and
+      the deployed app was updated with the new one. It had been left in
+      the clear in a chat, which is the reason it was rotated.
+    why_it_is_recorded: >-
+      The old `next_work_unit` named it as the one thing still open, and
+      closing the validation round rewrote that paragraph. Dropping the
+      item without recording it would have left the register claiming
+      nothing was done about a password that was in a chat log.
+    what_it_does_not_change: >-
+      No code and no document. It is an operational fact, and it is
+      recorded here so that the next reader does not re-open it.
   phase10f_delivered:
     completed: '2026-11-25'
     pull_requests: [41]
@@ -2171,7 +2197,18 @@ v2_redesign:
       Thirty-eight tasks complete in total across the whole change: the
       thirty-one of the v1 plan plus the seven of the v2 Phase 2. The v2
       Phase 2 alone is seven of its seven.
-  open_decision: null
+  open_decision: >-
+    The validation round with shop owners is CLOSED - the owner closed it
+    on '2026-11-25' as not necessary - and the scope, the four gates and
+    the account rewrite are therefore DECIDED under a declared design
+    hypothesis that is not waiting for anything.
+
+    What is left open is the owner's own, and it is not the round's:
+    **whether the person may see her own `credit_limit`**. The
+    delivered account SHOWS it and the design says it must be absent
+    (D11, CAC-10, ADR-24), and the round would never have answered it:
+    it is the owner's view of a commercial figure shown to a debtor,
+    not a shop owner's account of the practice.
   no_customer_credit:
     decided: '2026-11-07'
     by: user
@@ -2250,11 +2287,12 @@ v2_redesign:
     N5_decision: >-
       The owner opened the N5 gate on '2026-11-20': the `dependiente`
       prepares, confirms and collects. It is a **product decision under a
-      declared hypothesis**, not field evidence - the validation round
-      with the shop owners has not been run, and the project's
-      `knowledge_basis` stays `design-hypothesis`. The decision changes
-      the capability, not the base: Regla 4, Regla 5 and Regla 6 keep
-      the base they had, and the cut mechanism stays live for all four.
+      declared hypothesis**, not field evidence - and the validation round
+      with the shop owners is closed, so nothing is waiting for it. The
+      project's `knowledge_basis` stays `design-hypothesis`. The decision
+      changes the capability, not the base: Regla 4, Regla 5 and Regla 6
+      keep the base they had, and the cut mechanism stays documented for
+      all four.
     N5_what_the_gate_opened: >-
       The four proposal routes, with the ownership filter on each: a
       `dependiente` confirms and cancels only the proposals IT prepared,
@@ -2277,23 +2315,29 @@ knowledge_basis:
   mode: design-hypothesis
   statement: >-
     The change is built on a declared design hypothesis about the shop credit
-    practice, not on field evidence. No interview with shop owners was run for
-    this variant. The four Regla gates are therefore design decisions under
-    hypothesis, not interview findings: Regla 4 builds the client surface,
-    Regla 5 builds the catalogue and CargoLinea, Regla 6 keeps
-    existencias_registradas as an optional ceiling, and N5 - **opened by the
-    owner on '2026-11-20'** - lets the `dependiente` prepare, confirm and
-    collect.
+    practice, not on field evidence. **No interview with shop owners was run
+    for this variant, and none is going to be**: the owner closed the
+    validation round on '2026-11-25' as not necessary. The hypothesis is
+    therefore not a pending question - it is the declared base. The four
+    Regla gates are design decisions under hypothesis, not interview
+    findings: Regla 4 builds the client surface, Regla 5 builds the
+    catalogue and CargoLinea, Regla 6 keeps existencias_registradas as an
+    optional ceiling, and N5 - **opened by the owner on '2026-11-20'** - lets
+    the `dependiente` prepare, confirm and collect.
   n5_is_an_owner_decision_not_evidence: >-
     The owner opened the N5 gate as a **product decision**, and the decision
-    does not pretend to be field evidence. The validation round with the shop
-    owners has still not been run, and `mode` stays `design-hypothesis`: what
-    changed is the capability, not the base. Regla 4, Regla 5 and Regla 6
-    keep the base they had, and the cut mechanism below stays live for all
-    four gates.
+    does not pretend to be field evidence. `mode` stays `design-hypothesis`:
+    what changed is the capability, not the base. Regla 4, Regla 5 and Regla 6
+    keep the base they had, and the cut mechanism below stays documented for
+    all four gates.
   cut_mechanism: >-
-    The reduction mechanism stays live. A future validation round that
-    contradicts any gate applies exactly the cut described in design §19: a
+    The reduction mechanism stays DOCUMENTED, and it will not be triggered:
+    the validation round is closed, so no gate will be contradicted by
+    field evidence. It stays written because it is the answer to "what
+    would this look like without the client surface", and the design
+    owes that answer to whoever reads it next. A gate that some future
+    evidence did contradict applies exactly the cut described in design
+    §19: a
     Regla-4 cut reduces the scope to fiado desglosado, a Regla-5 cut removes
     Producto and CargoLinea with the whole product-catalogue spec directory,
     and a Regla-6 cut removes StockMovement with CP-07. Regla 6 cannot be cut
@@ -2301,9 +2345,11 @@ knowledge_basis:
     foreign key.
   instrument: >-
     evidence-annex.md is retained as a validation instrument that was NOT
-    executed. Every one of its fields stays PENDING and it contains no quote,
-    figure or answer. The instrument's checklist and its Reglas are annotated
-    as not executed.
+    executed, and that will NOT be executed: the owner closed the round on
+    '2026-11-25'. Every one of its fields stays PENDING and it contains no
+    quote, figure or answer. The instrument's checklist and its Reglas are
+    annotated as not executed, and they stay documented as the answer to
+    "what would each rule confirm".
   artefacts_changed:
     - proposal.md
     - evidence-annex.md
@@ -2693,6 +2739,36 @@ product_decisions:
     decision: >-
       No external research lane is selected. The owner interviews remain the
       only evidence for the fiado practice, exactly as in the previous change.
+  - id: validation-round-not-pursued
+    status: confirmed
+    by: user
+    decided: '2026-11-25'
+    decision: >-
+      The validation round with shop owners is NOT PURSUED. The owner
+      does not consider it necessary. The project's knowledge base stays
+      a DECLARED DESIGN HYPOTHESIS, and it stops being a pending
+      question: the scope, the gates and the account rewrite are the
+      owner's decisions, taken under that hypothesis, and they are not
+      waiting for a round that will not happen.
+    what_it_changes: >-
+      The framing, not the code. The documents said the round "has not
+      been run", which reads as pending - something that could still
+      happen. It is now closed: the instrument stays as the record of
+      the method that was available, the cut mechanism stays documented
+      as a contingency that will not be triggered, and the knowledge
+      base is declared rather than provisional.
+    what_it_does_not_change: >-
+      The build. The deliverable's own criteria accept the annex
+      unexecuted - the proposal asks for "el anexo de validación
+      previsto (ejecutado o no, sin datos inventados)" - and the
+      annex is already complete, with its script, its capture sheet and
+      its 70 fields empty rather than invented.
+    what_it_leaves_unmeasured: >-
+      The owner's rule that a client without an account cannot have a
+      fiado stays unmeasured against real shops. If a shop grants
+      credit to customers who have no account, that rule breaks their
+      day - and with the round closed, nothing will ever say so. This
+      is recorded, not argued: the decision is the owner's and it stands.
 
 planning_only: false
 implementation_started: true

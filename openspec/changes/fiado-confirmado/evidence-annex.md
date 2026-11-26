@@ -5,11 +5,11 @@
 > **Este documento NO es una puerta de evidencia: es un instrumento de validación previsto que no se ha ejecutado.**
 > No contiene entrevistas, citas, cifras ni conclusiones: todos los campos rellenables están marcados como **PENDIENTE** y así se quedan.
 > La propuesta que acompaña este anexo se construye sobre una **hipótesis de diseño declarada** sobre el contexto del `fiado`, no sobre evidencia de campo. Las decisiones de alcance que dependían de las entrevistas se toman en `proposal.md` como decisiones bajo supuesto, y quedan declaradas como tales.
-> Este instrumento se conserva para que la validación con campo real pueda ejecutarse más adelante: si se ejecuta y contradice el supuesto, la reducción de alcance correspondiente ya está acotada en `design.md` §19.
+> **LA RONDA NO SE VA A REALIZAR**: el propietario la cerró el '2026-11-25' por no considerarla necesaria. Este instrumento se conserva como **el registro del método que estaba disponible**, y su §4 conserva **qué confirmaría cada regla** por si alguien con acceso a tiendas quisiera ejecutarla algún día. Si se ejecutara y contradijera el supuesto, la reducción de alcance correspondiente ya está acotada en `design.md` §19.
 > Al rellenarlo se aceptan únicamente respuestas **reales** de personas reales. No se admite ninguna cita, cifra ni entrevista inventada: si un dato no se obtuvo, se deja en **PENDIENTE** y se explica por qué.
 > El guion está **revisado**: las seis preguntas originales se conservan **verbatim** y se añaden siete preguntas nuevas (N1–N7) que decidirían la confirmación, el catálogo y las existencias.
 
-**Proyecto:** PFM · **Alumno/a:** *PENDIENTE* · **Ronda de validación:** *no ejecutada*
+**Proyecto:** PFM · **Alumno/a:** *PENDIENTE* · **Ronda de validación:** *no ejecutada y no prevista* (cerrada por el propietario el '2026-11-25')
 
 ---
 
@@ -118,7 +118,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 ## 4. Lista de comprobación de la decisión — para una ronda futura
 
 > **Esta lista no se ha ejecutado y no decide nada en el estado actual del proyecto.** Las casillas están vacías porque no hay notas de entrevistas que leer. La decisión de alcance ya está tomada en `proposal.md` como **hipótesis de diseño declarada**, no como una decisión-conditionada por esta lista.
-> Esta lista se conserva íntegra para que la ronda de validación pueda ejecutarse en el futuro. Si se ejecuta, sus reglas se aplican **entonces**, y el alcance se ajusta según lo que digan las notas.
+> **La ronda está cerrada** (el '2026-11-25'), así que estas reglas **no se van a aplicar**. Se conservan íntegras porque son **la respuesta a "qué confirmaría cada regla"**, y esa respuesta le sirve a quien lea el proyecto después, aunque la ronda no se haga.
 > Las casillas se marcan **solo** después de leer las notas reales de las entrevistas.
 
 ### Regla 1 — ¿Es el crédito una práctica real? *(sin cambios)*
@@ -130,7 +130,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 
 **Si las dos casillas están vacías** → **el crédito no es una práctica real en las tiendas visitadas**: la variante `fiado confirmado` queda **rechazada** y el proyecto **cambia a `margen`** («El margen real y el capital parado»), la segunda clasificada. La arquitectura de funciones puras se traslada 1:1, de modo que el trabajo de exploración no se pierde. **No se escribe una línea de código antes de cerrar esta decisión.**
 
-> *Estado actual: **no ejecutada**. El fiado se toma como práctica real del dominio — es el supuesto que sostiene la variante elegida. Si una ronda futura contradijera este supuesto, se aplicaría el repliegue a `margen` descrito arriba.*
+> *Estado actual: **no ejecutada, y la ronda está cerrada**. El fiado se toma como práctica real del dominio — es el supuesto que sostiene la variante elegida. Esta regla se queda documentada sin aplicarse: es la respuesta a «qué la confirmaría», no una pregunta pendiente.*
 
 - [ ] **Decisión registrada:** *PENDIENTE* — variante elegida: *PENDIENTE* — fecha: *PENDIENTE*
 
@@ -154,7 +154,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 
 ### Regla 4 — ¿El dueño pediría la confirmación? *(nueva)*
 
-> *Estado actual: **no ejecutada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto. Si una ronda futura se ejecuta, esta regla se aplica entonces.*
+> *Estado actual: **no ejecutada, y la ronda está cerrada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto, y **esta regla se queda documentada sin aplicarse**: es la respuesta a «qué la confirmaría», no una pregunta pendiente.*
 
 - [ ] **Leído en las notas:** al menos una tienda considera razonable pedir al cliente que confirme lo que se le ha fiado.
 - [ ] **Leído en las notas:** la formulación del dueño no es «desconfianza», sino algo equivalente a una garantía para el propio cliente.
@@ -168,7 +168,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 
 ### Regla 5 — ¿Se anota qué productos? *(nueva)*
 
-> *Estado actual: **no ejecutada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto. Si una ronda futura se ejecuta, esta regla se aplica entonces.*
+> *Estado actual: **no ejecutada, y la ronda está cerrada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto, y **esta regla se queda documentada sin aplicarse**: es la respuesta a «qué la confirmaría», no una pregunta pendiente.*
 
 - [ ] **Leído en las notas:** al menos una tienda escribe los **productos**, no solo el importe.
 
@@ -180,7 +180,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 
 ### Regla 6 — ¿Se lleva el inventario? *(nueva)*
 
-> *Estado actual: **no ejecutada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto. Si una ronda futura se ejecuta, esta regla se aplica entonces.*
+> *Estado actual: **no ejecutada, y la ronda está cerrada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto, y **esta regla se queda documentada sin aplicarse**: es la respuesta a «qué la confirmaría», no una pregunta pendiente.*
 
 - [ ] **Leído en las notas:** al menos una tienda lleva o aproxima las existencias de algún producto.
 
@@ -192,7 +192,7 @@ Canales **ordenados por rendimiento esperado por hora**. Registrar el avance rea
 
 ### Condición de la capacidad 8 — ¿da el fiado el `dependiente`? *(pregunta N5)*
 
-> *Estado actual: **no ejecutada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto. Si una ronda futura se ejecuta, esta regla se aplica entonces.*
+> *Estado actual: **no ejecutada, y la ronda está cerrada**. La decisión se ha tomado en `proposal.md` como decisión de diseño bajo supuesto, y **esta regla se queda documentada sin aplicarse**: es la respuesta a «qué la confirmaría», no una pregunta pendiente.*
 
 Esta condición **no** es una regla nueva del checklist: decide únicamente si se añade la capacidad condicional `confirmation-facilitation` (el `dependiente` presenta un cargo pendiente y recibe la confirmación, registrando `facilitado_por`, sin alcanzar lista, saldo ni antigüedad).
 
@@ -208,9 +208,9 @@ Esta condición **no** es una regla nueva del checklist: decide únicamente si s
 
 ## 5. Resumen que se incorporará a la propuesta — para una ronda futura
 
-> **No se ha ejecutado.** Este resumen está vacío porque no hay entrevistas que resumir. El bloque equivalente que hoy sí tiene contenido es «Base del conocimiento» en `proposal.md`, que declara la hipótesis de diseño y las decisiones que de ella se derivan.
+> **No se ha ejecutado, y no se va a ejecutar.** Este resumen está vacío porque no hay entrevistas que resumir — y no las habrá. El bloque equivalente que hoy sí tiene contenido es «Base del conocimiento» en `proposal.md`, que declara la hipótesis de diseño y las decisiones que de ella se derivan, y que **es el contenido que se entrega**.
 
-Una vez cerradas las Reglas 1 a 6 y la condición de la capacidad 8, sustituir en `proposal.md` el bloque de estado y el apartado de evidencia con el resumen real:
+Si alguien ejecutara la ronda, estos campos se rellenarían y sustituirían el bloque de estado y el apartado de evidencia de `proposal.md` con el resumen real:
 
 - **Número de entrevistas realizadas:** *PENDIENTE*
 - **Número de respuestas al formulario:** *PENDIENTE*

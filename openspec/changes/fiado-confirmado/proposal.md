@@ -1,6 +1,6 @@
 # Propuesta de proyecto PFM — `fiado confirmado`: el fiado que ratifica el cliente
 
-**Estado: para validación del equipo docente. Base del conocimiento: hipótesis de diseño declarada sobre el contexto del `fiado`; sin evidencia de campo. Ver «Base del conocimiento».**
+**Estado: para validación del equipo docente. Base del conocimiento: hipótesis de diseño declarada sobre el contexto del `fiado`; sin evidencia de campo, y sin ronda de validación prevista (cerrada por el propietario el '2026-11-25'). Ver «Base del conocimiento».**
 **Este cambio (`fiado-confirmado`) sustituye al alcance `fiado` de `tienda-barrio`**, que queda en disco como historial: su propuesta, especificaciones y diseño se abandonan, no se modifican.
 **Revisión v2 — 2026-11-12.** El modelo de producto cambió tras esta propuesta: el mecanismo de disputa y la `nota de crédito` se eliminaron y la confirmación se convirtió en la **puerta** del cargo, no en su ratificación. Ver «Qué cambió en la v2».
 
@@ -149,7 +149,9 @@ Toda la diferencia está en **encaje de alcance (−2)** y **riesgo técnico (�
 
 **Esta propuesta se construye sobre una hipótesis de diseño, no sobre evidencia de campo collected.** La práctica del `fiado` en tiendas de barrio se toma como **contexto del dominio conocido**: el fiado existe, se anota en una libreta o en la cabeza, y el dueño no sabe con exactitud cuánto se le debe. Esa es la base sobre la que se diseña el producto.
 
-**Ninguna fuente pública verificable documenta la práctica del `fiado`.** Las fuentes públicas (Banco Mundial, Eurostat, NRF/LPRC) son **contexto como máximo, nunca estadística local**, y no se ha realizado ninguna entrevista a dueños de tienda para esta variante. Por eso **las decisiones de alcance que en la fase de exploración dependían de las entrevistas se toman aquí como decisiones de diseño bajo supuesto**, y quedan declaradas como tales:
+**Ninguna fuente pública verificable documenta la práctica del `fiado`.** Las fuentes públicas (Banco Mundial, Eurostat, NRF/LPRC) son **contexto como máximo, nunca estadística local**, y no se ha realizado ninguna entrevista a dueños de tienda para esta variante.
+
+**La ronda de validación con dueños de tienda NO se va a realizar.** El propietario la cerró el '2026-11-25' por no considerarla necesaria. Por eso esta hipótesis **no es una pregunta pendiente**: es la base declarada del proyecto, y las decisiones que dependían de ella están **tomadas**. Concretamente, **las decisiones de alcance que en la fase de exploración dependían de las entrevistas se toman aquí como decisiones de diseño bajo supuesto**, y quedan declaradas como tales:
 
 | Decisión | Criterio que se aplicaría con evidencia | Criterio que se aplica aquí (sin evidencia) |
 |---|---|---|
@@ -158,9 +160,13 @@ Toda la diferencia está en **encaje de alcance (−2)** y **riesgo técnico (�
 | **Regla 6** — ¿se lleva el inventario? | que los dueños lo carry | **`existencias_registradas` se incluye como techo opcional, no como conteo.** Ningún endpoint rechaza un `cargo` por falta de existencias y ninguna regla depende de la cifra, así que su presencia o ausencia no altera ninguna regla del sistema. Es la línea de corte más barata del alcance. |
 | **Condición N5** — ¿da el fiado un `dependiente`? | que el hallazgo lo confirme | **La capacidad condicional `confirmation-facilitation` no se añade.** El `dependiente` registra `caja` y el cierre, y el **403 sobre el libro de crédito queda intacto**. Se conserva el diseño de la ruta y su test como trabajo futuro, pero no entra en el alcance. |
 
-**El instrumento de validación existe y no se ha ejecutado.** `evidence-annex.md` conserva el guion revisado (las seis preguntas originales, verbatim, más **N1–N7**), la hoja de captura extendida y la lista de comprobación, para que la validación con campo real pueda ejecutarse más adelante. Sus campos siguen en `PENDIENTE` y **no contienen ninguna cita, cifra ni respuesta**: no hay datos inventados.
+**El instrumento de validación existe, no se ha ejecutado y no se va a ejecutar.** `evidence-annex.md` conserva el guion revisado (las seis preguntas originales, verbatim, más **N1–N7**), la hoja de captura extendida y la lista de comprobación, como **el registro del método que estaba disponible**. Sus campos siguen en `PENDIENTE` y **no contienen ninguna cita, cifra ni respuesta**: no hay datos inventados.
 
-**Qué cambia si la validación se ejecuta y contradice el supuesto.** Si la ronda de entrevistas muestra que los dueños no piden la confirmación (Regla 4 vacía), el alcance se reduce a `fiado desglosado` y se retiran la superficie de cliente, las rutas de cliente y los **10 requisitos condicionados**. Esa reducción está ya diseñada y acotada en `design.md` §19. El proyecto no depende de que el supuesto sea cierto para estar bien construido: depende de que la hipótesis esté **declarada**.
+**Que no se vaya a ejecutar no lo vuelve menos bueno ni más malo: lo vuelve DECLARADO.** Un proyecto que dice "esto es una hipótesis y la sé" es más honesto que uno que dice "esto es una hipótesis y la verificaré" y no lo verifica. La diferencia está en el §4 del anexo, que conserva **qué confirmaría cada regla** — por si algún día alguien con acceso a tiendas quiere ejecutarla.
+
+**Qué cambiaría si algún día alguien ejecutara la validación y contradijera el supuesto.** Si una ronda de entrevistas mostrara que los dueños no piden la confirmación (Regla 4 vacía), el alcance se reduciría a `fiado desglosado` y se retirarían la superficie de cliente, las rutas de cliente y los **10 requisitos condicionados**. Esa reducción está ya diseñada y acotada en `design.md` §19, y **queda documentada aunque la ronda no se vaya a realizar**: es la respuesta a "cómo sería esto sin la superficie de cliente", y el documento le debe esa respuesta a quien lo lea después.
+
+**El proyecto no depende de que el supuesto sea cierto para estar bien construido: depende de que la hipótesis esté DECLARADA.** Y ahora está declarada y cerrada: no es una promesa pendiente, es la base.
 
 ## Criterios de éxito
 
