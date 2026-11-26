@@ -177,6 +177,8 @@ The `dueño` MUST issue one `codigo` per `Customer`, unique within the shop, and
 
 No path of ANY client response — nested field, pagination metadata, aggregate or error body — MAY carry another customer's alias or identifier, a shop-wide total, the `caja`, the `posicion_real`, another customer's `credit_limit` or ageing. A leak in one nested field MUST be treated as a data-protection failure, not a cosmetic defect.
 
+**The owner's decision of '2026-11-25': the client payload MAY carry the client's own `credit_limit` and her own `antiguedad_max_dias`, and only those two.** They are her own per-shop figures, and only on an **accepted** link: a pending link shows the shop's name and nothing else, because if she could see the figures first the consent would be a formality. **The other seven staff-only figures never reach her**, on any route of hers, and neither does another shop's limit or another customer's anything.
+
 **Verification:** integration
 
 #### Scenario: The client payload holds only its own customer
@@ -184,3 +186,11 @@ No path of ANY client response — nested field, pagination metadata, aggregate 
 - GIVEN two customers with different aliases, limits and ageing
 - WHEN the client of one of them reads its statement
 - THEN the whole JSON tree holds that customer only and no shop-wide figure
+
+#### Scenario: The client's own figures are hers, per shop
+
+- GIVEN a client with an accepted link in one shop and a pending link in another
+- WHEN she reads her own links
+- THEN the accepted one carries her own `credit_limit` and her own `antiguedad_max_dias` for THAT shop
+- AND the pending one carries neither
+- AND no route of hers carries the seven staff-only figures

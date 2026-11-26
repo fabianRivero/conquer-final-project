@@ -197,6 +197,30 @@ def test_la_cliente_acepta_el_vinculo(api_cliente, vinculo):
     assert vinculo.aceptado_at is not None
 
 
+def test_la_respuesta_del_aceptar_muestra_lo_mismo_que_la_lista(api_cliente, vinculo):
+    """Her view of a link does not depend on the route she came through.
+
+    **The list and the answer tell the same story**: the limit the owner
+    gave her in THIS shop, what she owes there, and how old her oldest
+    debt there is.
+
+    If the answer showed less than the list, the contract would depend on
+    which URL she used, and the guarantee would be a promise instead of a
+    fact. **One builder, one row.**
+    """
+    respuesta = api_cliente.post(
+        reverse("api:cuenta_vinculo_aceptar"),
+        {"vinculo_id": vinculo.id},
+        format="json",
+    )
+
+    assert respuesta.status_code == 200
+
+    listado = api_cliente.get(reverse("api:cuenta_vinculos")).json()
+
+    assert respuesta.json() == listado[0]
+
+
 def test_la_cliente_rechaza_el_vinculo(api_cliente, vinculo):
     """She refuses, and the link says so."""
     respuesta = api_cliente.post(

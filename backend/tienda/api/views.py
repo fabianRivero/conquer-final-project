@@ -40,7 +40,6 @@ from tienda.api import gates
 from tienda.api import permissions
 from tienda.api.exceptions import DomainValidationError
 from tienda.api.permissions import es_dependiente, es_dueno
-from tienda.api.serializers import cliente as cliente_serializers
 from tienda.api.serializers import staff
 from tienda.models import (
     CashMovement,

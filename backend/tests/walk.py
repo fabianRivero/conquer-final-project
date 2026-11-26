@@ -20,8 +20,10 @@ The forbidden tokens are the ones that must never cross:
   and it belongs to the owner alone.
 
 And the staff-only figures — `caja`, `posicion_real`, `credit_limit` and
-the rest — must never reach a **client** response. The client is entitled
-to its own debt and to nothing else.
+the rest — must never reach a **client** response, with ONE exception
+the owner decided on '2026-11-25': the person sees her own `credit_limit`
+and her own `antiguedad_max_dias` on an accepted link, and they are hers,
+per shop. The other seven never reach her.
 
 **The walk is generic on purpose.** It takes a body and a list of
 forbidden tokens, so the same machinery serves the staff tree (R1), the
@@ -38,17 +40,25 @@ TOKENS_DE_CREDENCIAL = ("codigo", "prefix")
 
 #: The tokens that must never appear in a CLIENT response: the staff-only
 #: figures, plus the credential.
+#:
+#: **SEVEN, not nine.** The owner decided on '2026-11-25' that the person
+#: may see her OWN per-shop figures on an accepted link, so the two of
+#: `FIGURAS_PROPIAS_DE_LA_PERSONA` are not in this list: they are hers, and
+#: they are hers only where her own link is accepted. The other seven are
+#: the owner's, and they never reach her.
 TOKENS_DE_CLIENTE = (
     "caja",
     "fiado_pendiente",
     "posicion_real",
     "buckets",
-    "credit_limit",
-    "antiguedad_max_dias",
     "suspended_reason",
     "codigo",
     "prefix",
 )
+
+#: The two that DO reach the person, and only as her own per-shop figures
+#: on an accepted link.
+FIGURAS_PROPIAS_DE_LA_PERSONA = ("credit_limit", "antiguedad_max_dias")
 
 #: The tokens that must never appear in ANY response of ANY audience.
 TOKENS_DE_AMBOS = ("codigo", "prefix")
