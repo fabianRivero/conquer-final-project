@@ -23,7 +23,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Cinta,
   CerrarDia,
-  Credenciales,
   Ecuacion,
   Escalera,
   PagosPropuestos,
@@ -96,12 +95,7 @@ function esDelDueno(tablero: Tablero): tablero is TableroDueno {
 export function Posicion() {
   const [tablero, setTablero] = useState<Tablero | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [clientes, setClientes] = useState<{
-    id: number;
-    alias: string;
-    prefix: string | null;
-    issued_at: string | null;
-  }[]>([]);
+  const [clientes, setClientes] = useState<{ id: number; alias: string }[]>([]);
   const [productos, setProductos] = useState<{
     id: number;
     nombre: string;
@@ -144,19 +138,18 @@ export function Posicion() {
     return () => clearInterval(temporizador);
   }, [refrescar]);
 
-  const recargarCredenciales = useCallback(async () => {
+  /**
+   * The shop's clients, for the proposal form.
+   *
+   * The form asks for **which** client and shows the **alias**; the limit
+   * the owner gave them is not its business.
+   */
+  const recargarClientes = useCallback(async () => {
     const respuesta = await staff.clientes();
     if (!respuesta.ok) {
       return;
     }
-    const datos = await cuerpo<
-      {
-        id: number;
-        alias: string;
-        prefix: string | null;
-        issued_at: string | null;
-      }[]
-    >(respuesta);
+    const datos = await cuerpo<{ id: number; alias: string }[]>(respuesta);
     setClientes(datos ?? []);
   }, []);
 
@@ -195,8 +188,7 @@ export function Posicion() {
     void (async () => {
       // The three lists answer a BARE LIST, not a paginated object with
       // `results`: the API returns them as arrays.
-      await recargarCredenciales();
-      const catalogo = await staff.catalogo();
+        const catalogo = await staff.catalogo();
       if (catalogo.ok) {
         const datos = await cuerpo<
           { id: number; nombre: string; precio: string }[]
@@ -216,12 +208,14 @@ export function Posicion() {
         >(propuestos);
         setPagos(datos ?? []);
       }
+      // The shop's clients, for the proposal form.
+      await recargarClientes();
       // The `dependiente`'s customers: the reduced schema.
       await recargarClientesDependiente();
       // The shop's staff: the owner's alone.
       await recargarPersonal();
     })();
-  }, [recargarCredenciales, recargarClientesDependiente, recargarPersonal]);
+  }, [recargarClientes, recargarClientesDependiente, recargarPersonal]);
   if (!tablero) {
     return (
       <main>
@@ -256,30 +250,6 @@ export function Posicion() {
                 return;
               }
               await refrescar();
-            }}
-            error={error}
-          />
-          <Credenciales
-            clientes={clientes.map((cliente) => ({
-              id: cliente.id,
-              alias: cliente.alias,
-              prefix: cliente.prefix ?? null,
-              issued_at: cliente.issued_at ?? null,
-            }))}
-            onRotar={async (clienteId) => {
-              const respuesta = await staff.emitirCodigo(clienteId);
-              if (!respuesta.ok) {
-                const fallo = await cuerpo<{ codigo_error?: string }>(respuesta);
-                setError(fallo?.codigo_error ?? "la credencial no se pudo emitir");
-                return null;
-              }
-              await refrescar();
-              await recargarCredenciales();
-              return await cuerpo<{
-                codigo: string;
-                prefix: string;
-                issued_at: string;
-              }>(respuesta);
             }}
             error={error}
           />

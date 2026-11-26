@@ -4,7 +4,6 @@
  * * `/app/posicion` - the owner's board.
  * * `/app/propuesta/:id` - the shop's screen, the place the
  *   confirmation is given.
- * * `/app/cliente` - the client's statement.
  * * `/app/cuenta` - the person's own account.
  *
  * **The routes are paths WITHOUT the trailing slash**, because Django

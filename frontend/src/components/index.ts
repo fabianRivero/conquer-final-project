@@ -10,7 +10,6 @@
 export { Cinta } from "./Cinta";
 export { Cargos } from "./Cargos";
 export { CerrarDia } from "./Cierre";
-export { Credenciales } from "./Credenciales";
 export { Ecuacion } from "./Ecuacion";
 export { Escalera } from "./Escalera";
 export { Fiados } from "./Fiados";

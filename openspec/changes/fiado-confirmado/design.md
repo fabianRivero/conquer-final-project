@@ -81,7 +81,8 @@ All tables live in `backend/tienda/models.py`. Money `Decimal(12,2)`, quantities
 |---|---|
 | `Shop` | `name` (unique), `opening_cash` (≥ 0), `currency`, `is_demo`, `usuarios` M2M → `User` |
 | `User` | Django `auth.User`, **unmodified**; groups `dueno`, `dependiente` |
-| `Customer` | → `Shop` CASCADE, `User`? PROTECT (`created_by_id?`, the staff member who registered the customer; NULL when the customer predates the register), `User`? PROTECT (`suspended_override_by_id?`, the user who lifted the suspension): `alias`, `phone?`, `credit_limit?` (NULL = «sin límite»), `suspended_override_at?`; UNIQUE `(shop_id, alias)` |
+| `Customer` | → `User` **ONE-TO-ONE** PROTECT (`user_id`, **the person behind the row** — NOT NULL, because a row without a person behind it is not a person), `User`? PROTECT (`created_by_id?`, the staff member who registered the customer; NULL when the customer predates the register), `User`? SET_NULL (`suspended_override_by_id?`, the user who lifted the suspension): `alias`, `phone?`, `suspended_override_at?`; UNIQUE `(alias)` and UNIQUE `(user_id)` — she is ONE person in every shop at once |
+| `Vinculo` | → `Shop` CASCADE, `Customer` CASCADE, `User`? SET_NULL (`pedido_por_id?`, the staff member who asked), `User`? SET_NULL (`eliminado_por_id?`, the staff member who took her off the list): `estado` ∈ {`pendiente`, `aceptado`, `rechazado`, `eliminado`}, `credit_limit?` (NULL = «sin límite»— **the limit is the LINK's**, so it is per shop), `pedido_at`, `aceptado_at?`, `rechazado_at?`, `eliminado_at?` |
 | `FiadoPropuesto` | → `Shop` CASCADE, `Customer` CASCADE, `User` PROTECT (`user`, the preparer — and the **ownership**: a `dependiente` confirms only what it prepared): `estado` ∈ {`pendiente`,`confirmado`,`cancelado`}, `total` (≥ 0), `created_at`, `confirmed_at?`, `canceled_at?` |
 | `PropuestaLinea` | → `FiadoPropuesto` CASCADE, `Producto` PROTECT: `producto`, `cantidad` (> 0), `precio_unitario` (≥ 0), `total` = `round(cantidad × precio_unitario, 2)` |
 | `LedgerEntry` | → `Shop` CASCADE, `Customer` PROTECT, `User` PROTECT (`user_id`, the author who recorded the entry — PA-10 requires an author on every entry): `kind` ∈ {`cargo`,`pago`}, `amount` (> 0), `occurred_at` (≤ `created_at`), `created_at`; **no `cargo_id`** |
@@ -93,19 +94,17 @@ All tables live in `backend/tienda/models.py`. Money `Decimal(12,2)`, quantities
 | `Confirmacion` | → `LedgerEntry` PROTECT (`cargo`), `User` PROTECT (`confirmado_por_id`, **NOT NULL**, the actor who recorded it): `estado` ∈ {`confirmado`} — **one state only**, `confirmado_en` (NOT NULL), `origen` ∈ {`tienda`,`dependiente`} (NOT NULL) |
 | `PagoPropuesto` | → `Shop` CASCADE, `Customer` CASCADE, `User`? PROTECT (`resolved_by_id?`, the owner who validated or rejected it): `importe` (> 0), `referencia` (text), `estado` ∈ {`pendiente`,`validado`,`rechazado`}, `created_at`, `resolved_at?`; it writes **nothing** to the book and **names no `cargo`** — the payment imputes FIFO against the customer's open charges |
 | `ImputacionPago` | → `LedgerEntry` PROTECT (`pago`, the payment that brought the money), `LedgerEntry` PROTECT (`cargo`, the charge it retires): `importe` (> 0). **One row per (payment, charge) pair that the payment touches.** A payment that retires three charges writes three rows |
-| `CustomerCodigo` | → `Customer` CASCADE, `User` PROTECT (`issued_by_id`, the user who issued the credential), `User`? PROTECT (`revoked_by_id?`, the user who revoked it): `prefix` (6, non-secret), `codigo_hash`, `issued_at`, `revoked_at?` |
-| `CodigoIntento` | → `Shop` CASCADE: `source_ip`, `presented_hash`, `at`; append-only |
 | `PerfilCliente` | → `User` CASCADE (`user`, the person — **one profile per person**, UNIQUE): `creado_en`; it says only that she is a client at all — the debts, the limits and the ageing belong to the LINK, not to the person |
 | `PerfilTienda` | → `User` CASCADE (`user`, the person who owns the business), `Shop`? SET_NULL (`shop`, the credit book the business owns — NULL while it has none): `nombre`, `direccion?`, `nif?`, `creado_en`; **several per person**, one per business |
 | `MiembroDeTienda` | → `PerfilTienda` CASCADE, `User` CASCADE (`user`, the staff member): `rol` ∈ {`dueno`,`dependiente`}, `creado_en`; UNIQUE `(perfil_tienda_id, user_id)`. **The role is the relation's** — the relation names the business, and the business names the shop |
 
-\* conditional (Regla 6). `StockMovement` → `Producto` is a PROTECT foreign key, so Regla 6 can only be cut together with Regla 5.
+\* **Regla 6 is CUT** (the owner's decision of '2026-11-26'). `StockMovement` stays in the schema and **nothing writes to it**: there is no route that records a movement, and the ceiling `existencias_registradas` is declared not-built. The table is empty and stays empty, and dropping it would be a destructive migration for nothing. `StockMovement` → `Producto` is a PROTECT foreign key, so Regla 6 could only be cut together with Regla 5.
 
-**Per-row constraints.** `amount > 0` and `kind ∈ {cargo,pago}` on `LedgerEntry` · `cantidad > 0`, `precio_unitario ≥ 0`, `total = round(cantidad × precio_unitario, 2)` on `CargoLinea` and `PropuestaLinea` · `estado ∈ {confirmado}`, `confirmado_en NOT NULL` and `confirmado_por_id NOT NULL` on `Confirmacion` · `credit_limit ≥ 0` or NULL on `Customer` · CHECK `confirmado ⇒ confirmed_at NOT NULL` and `cancelado ⇒ canceled_at NOT NULL` on `FiadoPropuesto` · CHECK `validado ⇒ resolved_at NOT NULL ∧ resolved_by_id NOT NULL` and `rechazado ⇒ resolved_at NOT NULL ∧ resolved_by_id NOT NULL` on `PagoPropuesto`.
+**Per-row constraints.** `amount > 0` and `kind ∈ {cargo,pago}` on `LedgerEntry` · `cantidad > 0`, `precio_unitario ≥ 0`, `total = round(cantidad × precio_unitario, 2)` on `CargoLinea` and `PropuestaLinea` · `estado ∈ {confirmado}`, `confirmado_en NOT NULL` and `confirmado_por_id NOT NULL` on `Confirmacion` · `credit_limit ≥ 0` or NULL on `Vinculo` · CHECK `confirmado ⇒ confirmed_at NOT NULL` and `cancelado ⇒ canceled_at NOT NULL` on `FiadoPropuesto` · CHECK `validado ⇒ resolved_at NOT NULL ∧ resolved_by_id NOT NULL` and `rechazado ⇒ resolved_at NOT NULL ∧ resolved_by_id NOT NULL` on `PagoPropuesto`.
 
-**Unique and partial-unique constraints.** **partial UNIQUE `(cargo_id) WHERE estado='confirmado'`** on `Confirmacion` — at most one confirmation per charge · **partial UNIQUE `(customer_id) WHERE revoked_at IS NULL`** on `CustomerCodigo` · UNIQUE `(shop_id, alias)` on `Customer`, `(shop_id, nombre)` on `Producto`, `(shop_id, date)` on `DayClose`, `(shop_id, prefix)` on `CustomerCodigo`.
+**Unique and partial-unique constraints.** **partial UNIQUE `(cargo_id) WHERE estado='confirmado'`** on `Confirmacion` — at most one confirmation per charge · UNIQUE `(alias)` and UNIQUE `(user_id)` on `Customer` — she is ONE person in every shop at once — `(shop_id, nombre)` on `Producto`, `(shop_id, date)` on `DayClose`.
 
-**Sixteen entities** (twelve before, plus `FiadoPropuesto`, `PropuestaLinea`, `PagoPropuesto` and `ImputacionPago`). `LEDGER_ENTRY_KINDS` has **two** values: `cargo`, `pago`. The five constraints that are gone - `uniq_confirmacion_one_disputa_per_cargo`, `uniq_ledgerentry_one_reconciliation_per_cargo`, `chk_ledgerentry_cargo_only_on_credit_note`, `chk_confirmacion_state_fields`, `chk_confirmacion_importe_non_negative` - and the two partial indexes that went with them. `LedgerEntry.cargo_id` and `Confirmacion.importe_reclamado` are gone.
+**Seventeen entities** (twelve before, plus `FiadoPropuesto`, `PropuestaLinea`, `PagoPropuesto` and `ImputacionPago` from the v2 model, and `Vinculo` from the account rewrite; the 10.6 removed `CustomerCodigo` and `CodigoIntento`). `LEDGER_ENTRY_KINDS` has **two** values: `cargo`, `pago`. The five constraints that are gone - `uniq_confirmacion_one_disputa_per_cargo`, `uniq_ledgerentry_one_reconciliation_per_cargo`, `chk_ledgerentry_cargo_only_on_credit_note`, `chk_confirmacion_state_fields`, `chk_confirmacion_importe_non_negative` - and the two partial indexes that went with them. `LedgerEntry.cargo_id` and `Confirmacion.importe_reclamado` are gone.
 
 **The N5 decision removed two more.** The gate is open (design §18.3, §7), and the decision changed the model in three ways: `Confirmacion.facilitado_por_id` is replaced by `Confirmacion.confirmado_por_id` (**NOT NULL** — the row always names its actor); `Confirmacion.origen` carries `tienda`/`dependiente` instead of `tienda`/`facilitado`, because the third actor it named does not exist in this model; and `FiadoPropuesto.facilitado_por_id` is gone, because `FiadoPropuesto.user_id` already says who prepared it — and who prepared it is the ownership. The partial UNIQUE `(customer_id) WHERE estado='pendiente'` on `FiadoPropuesto` is gone too: **a customer may have several pending fiados at once**, because the client buys on credit more than once and each proposal is its own purchase.
 
@@ -116,7 +115,7 @@ All tables live in `backend/tienda/models.py`. Money `Decimal(12,2)`, quantities
 - `FiadoPropuesto` — `estado`, `confirmed_at`, `canceled_at` and `motivo_rechazo`. It moves from `pendiente` to exactly one of `aceptado` or `rechazado`, never back - **the states are the PERSON's answer**, and the reason is her free text. `user_id` is written **at INSERT** and never afterwards: it is the preparer, and with the N5 gate open it is also the **ownership** — a `dependiente` confirms and cancels only the proposals it prepared.
 - `PagoPropuesto` — `estado`, `resolved_at` and `resolved_by_id`. It moves from `pendiente` to exactly one of `validado` or `rechazado`, never back. The owner's validation is an **act**, recorded on the row, exactly like the suspension override and the credential revocation.
 
-The other mutable columns are `Customer.alias`/`phone` and `Customer.created_by_id` (the owner's own records and policy, through `PATCH /api/v1/clientes/{cliente_id}/` and the create route), `Customer.suspended_override_at`/`_by` and `CustomerCodigo.revoked_at`/`_by` — the last two record an **act**, never a derived value. Both `*_by_id` columns are written by the server from the acting session, never from a request body: the suspension override is stamped when the owner lifts it (`POST /api/v1/clientes/{cliente_id}/suspension/anular/`), and the credential revocation when the owner revokes it (`POST /api/v1/clientes/{cliente_id}/codigo/` with a rotation).
+The other mutable columns are `Customer.alias`/`phone` and `Customer.created_by_id` (the owner's own records and policy, through `PATCH /api/v1/clientes/{cliente_id}/` and the create route), `Customer.suspended_override_at`/`_by` — the last two record an **act**, never a derived value. The `*_by_id` columns are written by the server from the acting session, never from a request body: the suspension override is stamped when the owner lifts it (`POST /api/v1/clientes/{cliente_id}/suspension/anular/`).
 
 A `PagoPropuesto` that reaches `validado` is a record of the owner's decision, not a ledger row: the `pago` itself is a separate `LedgerEntry` appended by the owner, so the credit book stays append-only even though the request that preceded it is not.
 
@@ -143,7 +142,7 @@ Server-side, inside `transaction.atomic()`; a `CHECK` sees one row, never an agg
 | 7 | A `FiadoPropuesto` is accepted or rejected twice. The first is the code the API contract names (CC-01); the second guards the one-way transition | `propuesta_ya_aceptada` / `propuesta_ya_rechazada` |
 | 7b | **The confirmation records who acted, and the kind of act it was.** `origen` is **inferred by the server** from the acting session, never taken from the request body: the acting user belongs to the `dependiente` group → `origen='dependiente'`; otherwise `origen='tienda'`. `confirmado_por_id` is that user, **always** — the row names its actor without a condition on the origin. The two are different questions: the origin says **what kind of act** it was (a counter act by the shop's staff, or the owner's own), and `confirmado_por_id` says **who** did it. `FiadoPropuesto.user_id` is written at INSERT and is the **ownership**: a `dependiente` confirms and cancels only the proposals it prepared | — |
 | 8 | A `FiadoPropuesto` is confirmed while its customer is `suspendido` — **no charge exists** afterwards (PA-07) | `limite_superado` / `antiguedad_superada` |
-| 9–11 | A `DayClose` repeats `(shop_id, date)` · a `CustomerCodigo` duplicates `(shop_id, prefix)` or gives a customer a second active credential · a line or movement names a `Producto` outside the shop | `cierre_duplicado` · `codigo_duplicado` · `producto_ajeno` |
+| 9–10 | A `DayClose` repeats `(shop_id, date)` — a line or movement names a `Producto` outside the shop | `cierre_duplicado` — `producto_ajeno` |
 | 12–14 | A `CashMovement` would be stamped in the future · a `DayClose` would store an `esperado` that is not the derived `caja` at close time · a close request carries `esperado` or `desviacion` (the previous rule rejects a wrong value; this one rejects the **presence** of the field) | — · — · `campo_no_admitido` |
 | 15–18 | A ledger entry declares `amount ≤ 0` · a ledger entry declares a `kind` outside {`cargo`, `pago`} · a `PagoPropuesto` declares an amount ≤ 0 · a `PagoPropuesto` is validated or rejected twice | `importe_no_positivo` · `tipo_desconocido` · `importe_no_positivo` · `pago_ya_resuelto` |
 | 19 | **A `pago` exceeds the outstanding it retires.** The shop returns the excess as change; it never enters the book, so no credit can exist and the outstanding can never be negative. The owner records only the amount that settles the debt — a client who hands over 35,00 € against a 20,00 € debt produces a `pago` of 20,00 €. **The outstanding is the customer's total**, not one charge's: the payment imputes FIFO against the customer's open charges, so the bound is the sum of what the customer owes | `pago_excede_deuda` |
@@ -190,7 +189,9 @@ Context → choice → trade-off → consequence. ADR-1…15 keep the shape of t
 | ADR-26 | **No customer credit** | **A `pago` never exceeds the debt it retires.** The shop returns the excess as change; it never enters the book. Rule 19 refuses the overpayment at the transaction | The owner must record the amount that settles the debt, not the cash handed over | The outstanding is never negative, `allocate_payments` never leaves a residual, the ageing buckets always sum exactly to the outstanding, and there is no credit to age, limit, reconcile or explain. A stored credit would have been a derived value with its own lifecycle — the thing §3.1 forbids |
 | ADR-27 | **Where the repartition of a payment is recorded** | **A separate `ImputacionPago` table, one row per (payment, charge) pair.** The grain is the **charge**. | One more table, and a payment that retires three charges writes three rows | The book stays append-only: `LedgerEntry(pago)` plus the rows that say what it settled. The owner reads "8/8 · 7/7 · 5/15" off the client's charges. A mutable `pagado` column was rejected — it breaks the append-only guarantee and is a stored derived value; recomputing on read was rejected — a credit book's numbers must not move when a rule changes. The rejected alternative of naming the target charge on the `PagoPropuesto` was also rejected: the client does not choose which charge it pays, the FIFO does |
 
-## 5. The Client Credential (`codigo`)
+## 5. The Client Credential (`codigo`) — RETIRED
+
+> **This section is the credential's HISTORY, and the credential is GONE.** The 10.6 retired it: a client without an account cannot have a fiado, and without a fiado there is no debt to pay, so the third audience went with the fourth. **The mechanism described below is what was decided (D2—D4, D9, CAC-09) and what was built, not what the system does.** The routes are gone (§9.1), the model is gone (§2), and the person's account is the only door there is.
 
 **Its scope has dropped.** The `codigo` opens **read** over the client's own statement and the right to **propose** a payment. It opens **no write**: no `LedgerEntry`, no `CargoLinea`, no `Confirmacion`, no `FiadoPropuesto`, no `PagoPropuesto` resolution. The confirmation is given on the shop's screen and recorded by the staff session; the payment is recorded by the owner.
 
@@ -284,7 +285,7 @@ Three principals: the two shop **roles** — the `dueno` and the `dependiente`, 
 | Cash movements and the day close | `POST /api/v1/caja/`, `/cierre/` | Yes | Yes | No | No |
 | The credit book: the customers, their debts and their balances | `GET /api/v1/clientes/…` | Yes | **Yes — through the REDUCED schema**: the alias and the debts, and none of the owner's policy | No | No |
 | The owner's credit POLICY: the `credit_limit`, the ageing, the suspension | `PATCH /api/v1/clientes/{cliente_id}/`, `…/suspension/anular/` | Yes | **No → 403** | No | **No** — she never writes the policy; she reads her own `credit_limit` and ageing through her links |
-| Create a customer, issue or rotate a `codigo` | `POST /api/v1/clientes/`, `…/codigo/` | Yes | **No → 403** | No | No |
+| Create a customer | `POST /api/v1/clientes/` | Yes | **No → 403** | No | No |
 | Prepare a `FiadoPropuesto` | `POST /api/v1/propuestas/` | Yes | **Yes — its own** | No | No |
 | Record the confirmation of a proposal | `POST /api/v1/propuestas/{propuesta_id}/confirmar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
 | Cancel a proposal | `POST /api/v1/propuestas/{propuesta_id}/cancelar/` | Yes | **Yes — only the proposal IT prepared** | No | No |
@@ -295,7 +296,7 @@ Three principals: the two shop **roles** — the `dueno` and the `dependiente`, 
 | The risk ladder and the `posicion_real` | `GET /api/v1/posicion/` | Yes | **No** — the ladder, `posicion_real`, `fiado_pendiente` and `buckets` are 403 for the `dependiente`; the same route still answers it a **reduced** payload with `caja`, `clientes` and `cierre_hoy` only | No | No |
 | Users and roles | staff administration | Yes | **No → 403** | No | No |
 | The catalogue (`Producto`) | `GET /api/v1/catalogo/` | Yes | No | No | No |
-| A `StockMovement` | `POST /api/v1/existencias/` | Yes | No | No | No |
+| ~~A `StockMovement`~~ | ~~`POST /api/v1/existencias/`~~ — **CUT** (Regla 6, the owner's decision of '2026-11-26') | ~~Yes~~ | No | No | No |
 | The person's own statement | `GET /api/v1/cuenta/cargos/` | No | No | No | **Yes — her own charges, with their state** |
 | Her own links: the shops that trust her, and her figures in each | `GET /api/v1/cuenta/vinculos/`, `POST /api/v1/cuenta/vinculos/aceptar/`, `…/rechazar/` | No | No | No | **Yes — a pending link shows the shop's name and nothing else; an accepted one shows her own `credit_limit` and `antiguedad_max_dias`, per shop; a refused one shows neither** |
 | Propose a payment | `POST /api/v1/cuenta/pagos/proponer/` | No | No | No | **Yes — her own charges; writes no ledger row** |
@@ -352,9 +353,9 @@ Every denied capability answers **403 with no partial data in any field**: no al
 
 **The role is the membership's.** The `MiembroDeTienda` names the business, and the business names the shop — and the permission filters by **both** the person and the shop. **A global Django group could not say that**: a group says nothing about which shop it belongs to, so one shop's `dependiente` was a `dependiente` in every shop. A request whose session names no shop is refused outright: there is no default shop and no fallback.
 
-### 7.3 The client scope as a structural property
+### 7.3 The two scopes, and the one that is left
 
-The scope comes **only** from the presented `codigo`, resolved to exactly one `Customer` — never from a URL segment, a body field or a session key. A missing or invalid `codigo` yields **422 `codigo_invalido`** with no customer data and no hint. Every client queryset is built from the resolved customer, so a charge outside the scope is refused with `cargo_ajeno` and appends nothing. The client serializer is a schema class of its own, and it declares **none** of the nine staff-only fields — `caja`, `fiado_pendiente`, `posicion_real`, `buckets`, `credit_limit`, `antiguedad_max_dias`, `suspended_reason`, `codigo`, `prefix` — and never another customer's data. A test asserts exactly that: the client field set contains none of those nine. **And CAC-10 is no longer only that**: by the owner's decision of '2026-11-25' the **person** sees two of the nine — her own `credit_limit` and `antiguedad_max_dias`, per shop, on an accepted link — and `test_cifras_de_la_persona.py` is what asserts it, over the routes that run. The staff schemas are **not** pairwise disjoint among themselves, and the client schema shares harmless names with them (`total`, `lineas[]`, `producto`, `cantidad`, `precio_unitario`): what must never cross is *data*, not a *name*. The proposal-screen schema is a staff schema, so it legitimately carries the same shape the client sees for its own charges.
+**There is ONE scope left.** The staff scope comes from the session, and the PERSON's scope comes from **her own account** — `SesionDePersona`, the same mechanism the staff use, without a `shop_id` in it, because a person belongs to no shop. **The credential scope is GONE**: the `codigo` that resolved to exactly one `Customer` was retired in the 10.6, and the route that issued it answers 404 because it does not exist. What the credential taught the design still stands where it is about DATA and not about the mechanism: the client payload carries nothing but that customer's own data, no shop-wide figure and none of the seven staff-only figures that are never hers — and the person sees two of the nine, her own `credit_limit` and `antiguedad_max_dias`, per shop, on an accepted link, by the owner's decision of '2026-11-25'. **That is where CAC-10 lives now**: `test_cifras_de_la_persona.py` asserts it, over the routes that run.
 
 **Invariants:** (1) no client endpoint reads `request.session` for scope, and a request carrying a staff session cookie is refused with 403; (2) no staff endpoint accepts a `codigo` — there is no route where the two meet any more, because the confirmation no longer needs the client's credential; (3) no upgrade in either direction; (4) no response mixes two schema classes; (5) **no client endpoint writes to the credit book** — the only row a client request may create is its own `PagoPropuesto`, which is not a ledger row.
 
@@ -362,7 +363,14 @@ The scope comes **only** from the presented `codigo`, resolved to exactly one `C
 
 Each principal class has **exactly one source of scope**, and the scope is a property of the **route**, never of the request.
 
-| | Staff scope | Client scope |
+> **The client column below is the credential's HISTORY.** The `codigo` scope was
+> retired in the 10.6 and **there is one scope left**: the session. The staff
+> session carries a `shop_id`; **the person's session carries none**, because a
+> person belongs to no shop, and that absence is what keeps her away from the
+> staff routes. The right-hand column is what was decided and built, and the
+> mechanism that replaced it is `SesionDePersona` (§7.3).
+
+| | Staff scope | Client scope (`codigo`) " + EM + " RETIRED |
 |---|---|---|
 | Mechanism | Server-side Django session | A per-request bearer credential in `X-Codigo` |
 | Single source | `request.session["shop_id"]`, read only through `current_shop(request)` | The `X-Codigo` header, read only through `resolver_credencial(request)` |
@@ -398,10 +406,8 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET | `/api/v1/cierre/` | staff | — | 200 `{date, esperado, contado, desviacion}` (`dueño`); 200 `{esperado, contado, desviacion}` (`dependiente`); 403 |
 | POST | `/api/v1/cierre/` | staff | `{date, contado}` — `esperado`/`desviacion` refused (rule 14) | 201; 422 `cierre_duplicado`, `campo_no_admitido`; 403 |
 | GET | `/api/v1/catalogo/` | `dueño` | — | 200 `Producto[]`, `activo` only; 403 |
-| POST | `/api/v1/existencias/` | `dueño` \* | `{producto_id, kind, cantidad, concept}` | 201; 422; 403 |
 | GET / POST | `/api/v1/clientes/` | `dueño` | `{alias, phone?, credit_limit?}` — the server stamps `created_by_id` with the acting user | 200/201; 422; 403 |
 | GET / PATCH | `/api/v1/clientes/{cliente_id}/` | `dueño` | `{credit_limit}` | 200; 422; 403; 404 |
-| POST | `/api/v1/clientes/{cliente_id}/codigo/` | `dueño` | — | 201 `{codigo, prefix, issued_at}` — the only time the plaintext exists; 422; 403; 404 |
 | POST | `/api/v1/clientes/{cliente_id}/libreta/` | `dueño` | `{kind, amount}` - `kind` ∈ {`pago`} **only**: a `cargo` is written by the confirmation of a proposal, never directly. `amount` MUST NOT exceed the outstanding it retires — the excess is returned as change and never enters the book. A `pago` also writes its `ImputacionPago` rows, one per charge it retires | 201; 422 `pago_excede_deuda`; 403; 404 |
 | POST | `/api/v1/clientes/{cliente_id}/suspension/anular/` | `dueño` | `{}` | 200; 403; 404 |
 | POST | `/api/v1/propuestas/` | staff \* | `{cliente_id, lineas[{producto_id, cantidad, precio_unitario?}], total?}` | 201 `FiadoPropuesto` + `lineas`; 422 `lineas_descuadradas`, `producto_ajeno`; 403; 404 |
@@ -432,7 +438,7 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET / POST | `/api/v1/tienda/vinculos/` | `dueño` | `{alias, credit_limit?}` | 200 the shop's links; 201 — the `POST` is the shop ASKING; 422 `cliente_no_existe`; 403 |
 | DELETE | `/api/v1/tienda/vinculos/{cliente_id}/` | `dueño` | — | 200 — the owner removes WITHOUT asking; 404 |
 
-\* conditional. `POST /api/v1/existencias/` is gated by **Regla 6**; the four proposal routes by **N5** — which on the current decision is open, so those four answer to the `dependiente` for its OWN proposals. No `PUT`, `PATCH` or `DELETE` route exists for `LedgerEntry`, `CargoLinea`, `Confirmacion`, `PropuestaLinea` or `PagoPropuesto`: the ledger is append-only at the URL surface too.
+\* conditional. `POST /api/v1/existencias/` was gated by **Regla 6**, which the owner CUT on '2026-11-26': the route is gone and CP-07 is declared not-built. The four proposal routes were gated by **N5** — which on the current decision is open.
 
 **The credential's routes are GONE.** There is no `cliente/` prefix any more: the person has an account, and her account is her only door. The `codigo` that opened a third audience was removed in the 10.6 — *a client without an account cannot have a fiado*, and without a fiado there is no debt to pay.
 
@@ -526,13 +532,10 @@ frontend/src/
 ├── main.tsx, router.tsx        the mount and the three routes
 ├── api/http.ts                 the ONLY place a URL is built; asserts a relative path
 ├── api/staff.ts                session + X-CSRFToken
-├── api/cliente.ts              X-Codigo only; no credentials sent
 ├── surfaces/Posicion.tsx       /app/posicion
 ├── surfaces/Propuesta.tsx      /app/propuesta/{id}   the shop's screen
-├── surfaces/Cliente.tsx        /app/cliente
 └── components/                 Ecuacion, Escalera, Cinta, Cierre, PropuestaForm,
                                 Pantalla, ProponerPago, Acceso, Estado,
-                                Credenciales
 ```
 
 **The same-origin contract.** Every request uses a **relative path** (`/api/v1/…`); the single fetch helper rejects any absolute URL, so a second host cannot be introduced by accident. Staff requests send `credentials: 'same-origin'` and `X-CSRFToken` on every mutation; client requests send `credentials: 'omit'` — the client has no cookie to send, and sending one would blur the two scopes. No third-party script, no external font, no analytics: the client page carries a credential, so a strict CSP (`default-src 'self'`) is set on its mount. The API is served by the same deployable service, over HTTPS.

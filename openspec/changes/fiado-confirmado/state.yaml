@@ -217,14 +217,13 @@ v2_redesign:
     design hypothesis that is not waiting for anything. What remains
     is therefore NOT a slice either, and it is three things of a
     different kind:
-    (1) **three routes still in `501`**: `existencias/` (the optional
-    stock ceiling), `suspension/` (lifting a suspension), and
-    `clientes/{id}/codigo/` - which is now MOOT, because the
-    credential it would issue was retired by the 10.6, and it should
-    disappear rather than be built; **and the design's §2 tables still
-    describe `CustomerCodigo`**, which the 10.6 removed - the model
-    tables and their constraints need the same pass, and that is the
-    10.6's leftover, not this slice's;
+    (1) **ONE route still in `501`**: `suspension/` - lifting a
+    suspension. It is PA-08, a declared requirement, and **its service
+    already exists and is tested** (`services.anular_suspension`): only
+    the route is missing. The other two are GONE: `existencias/` was cut
+    by the owner on '2026-11-26' (Regla 6 is a declared cut and CP-07 is
+    declared not-built), and `clientes/{id}/codigo/` was the credential
+    the 10.6 retired, so it disappeared instead of being built;
     (2) **the project's own delivery**: the README, the memoria
     sections 3.1-3.8 and the 30-minute defence script - none of them
     exists yet, and none of them is code;
@@ -2747,6 +2746,66 @@ product_decisions:
     decision: >-
       No external research lane is selected. The owner interviews remain the
       only evidence for the fiado practice, exactly as in the previous change.
+  - id: the-documents-describe-the-system-that-exists
+    status: confirmed
+    by: agent
+    decided: '2026-11-26'
+    decision: >-
+      **The documents had drifted from the code, and the drift was in the
+      places the defence reads.** The §2 table of entities did not name
+      `Vinculo` - the model the whole account rewrite is built on - and
+      still named `CustomerCodigo` and `CodigoIntento`, which the 10.6
+      removed. The `Customer` row still claimed a `Shop` and a
+      `credit_limit` it had not had since the 10.4. The proposal's
+      success criteria still described the retired credential surface and
+      two demonstrations the system cannot perform.
+    what_it_changes: >-
+      The §2 table, its footnote, its constraints and its count; §3.1's
+      mutable columns; §3.2's transactional rules; §7's two rows; §7.3's
+      scope; §9.1's two routes; §5's header; §10's frontend tree; and
+      the proposal's criteria. **And the code that was dead**: the
+      `Credenciales` section of the owner's board, which rendered a table
+      of "-" with a button that answered 501, is gone.
+    how_it_is_made_durable: >-
+      `backend/tests/integration/test_entidades.py` pins the §2 table to
+      the models, in BOTH directions and with the count - the same shape
+      as the route table's test. The drift happened three times and
+      nothing failed; now the table cannot drift again.
+    what_it_leaves: >-
+      The credential's DESIGN history - §5's body, D2-D4, D9, CAC-09 and
+      the RED suite - still reads in the present tense. It is history, and
+      §5 now says so at its head. The §12 leak list and the §16
+      traceability rows that name the credential's decisions are left
+      alone on purpose: they are the record of what was decided, not a
+      claim about what the system does.
+
+  - id: existencias-cut
+    status: confirmed
+    by: user
+    decided: '2026-11-26'
+    decision: >-
+      **Regla 6 is CUT.** The route `POST /api/v1/existencias/` disappears
+      and CP-07 (`existencias_registradas` is a ceiling, never a count) is
+      declared NOT BUILT. The owner chose it over building the capability:
+      the defence is thirty minutes, and every capability is more surface
+      to defend and less time to defend it.
+    what_it_changes: >-
+      The route goes, `VIEWS_PENDIENTES` loses the name, and the design
+      says so in §2 (the footnote of the `StockMovement` row), §7 (the
+      permission matrix) and §9.1 (the route table). The TABLE stays: the
+      `StockMovement` model is empty, nothing writes to it, and dropping
+      it would be a destructive migration for nothing.
+    what_it_does_not_change: >-
+      The domain rule. `existencias_registradas` and its qualifier stay in
+      `backend/tienda/domain/stock.py` with their unit tests - the method
+      that was available - and they stay documented as the ceiling that
+      could be wired if the shop ever wants it.
+    why_it_is_not_a_loss: >-
+      The proposal listed suppressing `existencias_registricas` as an
+      ACCEPTABLE scope reduction ("it is an optional ceiling and no rule
+      depends on it"), and no success criterion mentions it. Nothing in
+      the four live demonstrations needed it.
+
   - id: the-person-sees-her-own-limit
     status: confirmed
     by: user

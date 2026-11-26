@@ -42,7 +42,7 @@ Legend: `C` = conditional requirement (it carries a `**Conditional:**` marker in
 | CAC-06 | The views consume the application's own API at the public URL | e2e | 2 |  |  |
 | CAC-07 | Production is locked and secrets stay out of the repository | e2e | 2 |  |  |
 | CAC-08 | One account per shop role is seeded | integration, e2e | 2 |  |  |
-| CAC-09 | The `codigo` is a scoped, per-shop credential | integration | 2 | C |  |
+| CAC-09 | The `codigo` is a scoped, per-shop credential | integration | 2 | C | §5 — **RETIRED** in the 10.6: the credential is gone and the person's account is the only door |
 | CAC-10 | The client payload carries nothing but that customer's own data | integration | 1 | C |  |
 | PC-01 | The catalogue holds only the goods eligible for fiado | integration | 2 |  |  |
 | PC-02 | `precio` is a default, not a constraint | integration | 2 |  |  |

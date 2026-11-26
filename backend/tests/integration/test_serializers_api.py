@@ -246,10 +246,8 @@ def test_the_api_map_declares_every_route_of_the_design():
         "caja/",
         "cierre/",
         "catalogo/",
-        "existencias/",
         "clientes/",
         "clientes/<int:cliente_id>/",
-        "clientes/<int:cliente_id>/codigo/",
         "clientes/<int:cliente_id>/libreta/",
         "clientes/<int:cliente_id>/suspension/anular/",
         "propuestas/",
@@ -516,7 +514,7 @@ def test_the_client_routes_live_under_their_own_prefix():
     assert len(cliente_rutas) == 0
     assert len(persona_rutas) == 14
     assert len(tienda_rutas) == 5
-    assert len(personal_rutas) == 18
+    assert len(personal_rutas) == 16
     # And no route serves two audiences.
     assert not set(cliente_rutas) & set(personal_rutas)
     assert not set(persona_rutas) & set(personal_rutas)
@@ -552,18 +550,22 @@ def test_the_api_mount_is_live():
 def test_a_pending_route_still_answers_501():
     """A route whose view has not landed says so.
 
-    The client's routes landed with Phase 5 and Phase 6, so the example
-    is `existencias/`, which Phase 7 owes. They answer 501 naming the
-    slice that owes them, not 404: a 404 would say the route does not
+    **There is ONE left**: `clientes/{id}/suspension/anular/`, which is
+    PA-08 and whose service already exists. It answers 501 naming the
+    slice that owes it, not 404: a 404 would say the route does not
     exist, which is a statement about the CONTRACT.
 
     The mechanism is still in place, and the routes that use it still
-    use it.
+    use it. **The other two are GONE, and they are gone for different
+    reasons**: `existencias/` was cut by the owner (Regla 6), and
+    `clientes/{id}/codigo/` was the credential the 10.6 retired.
     """
     from django.test import Client
 
     cliente = Client()
-    respuesta = cliente.get("/api/v1/existencias/", HTTP_HOST="testserver")
+    respuesta = cliente.get(
+        "/api/v1/clientes/1/suspension/anular/", HTTP_HOST="testserver"
+    )
 
     assert respuesta.status_code == 501
     import json
