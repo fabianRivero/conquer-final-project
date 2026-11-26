@@ -322,24 +322,53 @@ def test_la_ficha_de_la_persona_no_bloquea_el_borrado_del_dueno(seeded):
             User.objects.filter(username="dueno").delete()
 
 
-def test_the_seed_creates_one_confirmed_charge_with_its_lines(seeded):
-    """CC-01: one confirmed charge, with its confirmation and its lines.
+def test_the_seed_creates_three_confirmed_charges_with_their_lines(seeded):
+    """CC-01: three confirmed charges, with their confirmations and their lines.
 
     The charge carries its `CargoLinea` rows with the `precio_unitario`
     snapshot, and the `Confirmacion(confirmado)` that makes it debt.
+
+    **They are the ones the success criterion describes**: 8,00, 7,00 and
+    15,00, each with TWO lines and each older than the next, so that a
+    payment of 20,00 retires them FIFO and leaves 8/8, 7/7 and 5/15.
+
+    **And the oldest one carries a price the catalogue no longer has**: its
+    "Café molido" line is at 3,50 and the catalogue says 3,20. That is
+    the snapshot, and it is how the defence shows it - the catalogue has
+    no write route and never had (PC-03).
     """
     cargos = LedgerEntry.objects.filter(shop=seeded, kind="cargo")
-    assert cargos.count() == 1
-    cargo = cargos.get()
+    assert cargos.count() == 3
+    assert sorted(cargos.values_list("amount", flat=True)) == [
+        Decimal("7.00"),
+        Decimal("8.00"),
+        Decimal("15.00"),
+    ]
 
-    assert cargo.confirmaciones.count() == 1
-    assert cargo.confirmaciones.get().estado == "confirmado"
+    for cargo in cargos:
+        assert cargo.confirmaciones.count() == 1
+        assert cargo.confirmaciones.get().estado == "confirmado"
 
-    lineas = CargoLinea.objects.filter(cargo=cargo)
-    assert lineas.count() >= 1
-    for linea in lineas:
-        assert linea.precio_unitario >= 0
-        assert linea.total == linea.cantidad * linea.precio_unitario
+        lineas = CargoLinea.objects.filter(cargo=cargo)
+        assert lineas.count() == 2
+        for linea in lineas:
+            assert linea.precio_unitario >= 0
+            assert linea.total == linea.cantidad * linea.precio_unitario
+
+    # **The ages are the FIFO order**, and the oldest is under the
+    # suspension age, so the client is not suspended.
+    orden = sorted(cargos, key=lambda c: c.occurred_at)
+    assert orden[0].amount == Decimal("8.00")
+    assert orden[1].amount == Decimal("7.00")
+    assert orden[2].amount == Decimal("15.00")
+
+    # **And the price is a photo**: the line keeps the price of its moment
+    # and the catalogue has moved on since.
+    cafe = orden[0].lineas.get(producto__nombre="Café molido")
+    assert cafe.precio_unitario == Decimal("3.50")
+    assert Producto.objects.get(
+        nombre="Café molido", shop=seeded
+    ).precio == Decimal("3.20")
 
 
 def test_the_seed_creates_one_pending_and_one_cancelled_proposal(seeded):
@@ -378,16 +407,22 @@ def test_the_pending_proposal_moves_no_outstanding(seeded):
     from tienda.services import estado_de
 
     cliente = Vinculo.objects.get(tienda=seeded).cliente
-    cargo = LedgerEntry.objects.filter(shop=seeded, kind="cargo").get()
     pendiente = FiadoPropuesto.objects.get(shop=seeded, estado="pendiente")
 
     # The proposal is there, and it is the shop's screen waiting.
     assert pendiente.customer_id == cliente.id
     assert PropuestaLinea.objects.filter(propuesta=pendiente).count() >= 1
 
-    # And the outstanding is the charge and not the proposal.
-    assert estado_de(cliente).total == cargo.amount
-    assert cargo.amount > Decimal("0.00")
+    # And the outstanding is the CHARGES and not the proposal: the three
+    # seeded debts and nothing of the pending figure.
+    total = sum(
+        LedgerEntry.objects.filter(shop=seeded, kind="cargo").values_list(
+            "amount", flat=True
+        ),
+        Decimal("0.00"),
+    )
+    assert estado_de(cliente).total == total
+    assert total > Decimal("0.00")
 
 
 def test_the_seeded_book_is_legal(seeded):

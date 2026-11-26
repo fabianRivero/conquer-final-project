@@ -245,7 +245,7 @@ crédito a clientes sin cuenta, esa regla les rompe el día — y con la ronda c
 **nada lo va a decir nunca**. Se registra; no se discute: la decisión es del propietario
 y se sostiene.
 
-**Lo que sí está comprobado:** **571 pruebas** —128 unitarias sin base de datos y 443
+**Lo que sí está comprobado:** **572 pruebas** —128 unitarias sin base de datos y 444
 de integración contra PostgreSQL 16— más 11 *end-to-end* contra la URL pública
 desplegada. Y hay tests que **fijan el documento al código**: la tabla de rutas del
 §9.1 contra el mapa de la API, y la tabla de entidades del §2 contra los modelos, en
@@ -265,7 +265,8 @@ las dos direcciones y con el recuento.
    pago**, sin ninguna acción de escribir sobre el libro.
 5. **Cuatro demostraciones en vivo**:
    1. un `cargo` de dos líneas cuyo `desglose` y suma cuadran, y cuyo `precio_unitario`
-      no cambia al editar el catálogo;
+      es **el del momento**: la línea conserva el precio que tenía entonces,
+      aunque el catálogo ya sea otro;
    2. un `dependiente` recibe **403** en la **política** del dueño y **200** en
       `/api/v1/clientes/`, donde lee el libro con el esquema **reducido**;
    3. el dueño prepara una propuesta y **la persona la acepta desde su propia cuenta**,

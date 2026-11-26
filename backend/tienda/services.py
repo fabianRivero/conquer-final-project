@@ -620,6 +620,24 @@ def cargos_del_cliente(cliente) -> list:
                 "pagado": pagado_de(cargo),
                 "saldo": saldo_de(cargo),
                 "estado": estado_cargo(cargo),
+                # **The itemisation** (CC-06): the product, the quantity
+                # and the price of EVERY line. A charge of 8,00 that says
+                # nothing about what it is for is not a statement, it is
+                # a number - and she has to be able to see what she is
+                # being charged for.
+                #
+                # **The price is the one of the moment** - a photo, not
+                # the catalogue's current price. The catalogue may have
+                # moved since, and that is exactly the point.
+                "lineas": [
+                    {
+                        "producto": linea.producto.nombre,
+                        "cantidad": str(linea.cantidad),
+                        "precio_unitario": str(linea.precio_unitario),
+                        "total": str(linea.total),
+                    }
+                    for linea in cargo.lineas.select_related("producto").order_by("id")
+                ],
             }
         )
     return filas
