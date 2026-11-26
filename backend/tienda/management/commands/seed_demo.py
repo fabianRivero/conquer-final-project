@@ -201,7 +201,7 @@ class Command(BaseCommand):
             usuarios = self._usuarios(tienda)
             productos = self._catalogo(tienda)
             cliente = self._cliente(tienda, usuarios["dueno"])
-            self._cargo_confirmado(tienda, cliente, usuarios["dueno"], productos)
+            self._cargos_confirmados(tienda, cliente, usuarios["dueno"], productos)
             self._propuesta_pendiente(tienda, cliente, usuarios["dueno"], productos)
             self._propuesta_cancelada(tienda, cliente, usuarios["dueno"], productos)
 
@@ -375,41 +375,61 @@ class Command(BaseCommand):
         )
         return cliente
 
-    def _cargo_confirmado(self, tienda, cliente, dueno, productos):
-        """One CONFIRMED charge, with its lines and its confirmation.
+    def _cargos_confirmados(self, tienda, cliente, dueno, productos):
+        """**Three CONFIRMED charges, and they are the ones the success
+        criterion describes**: 8,00, 7,00 and 15,00, each with TWO lines
+        and each older than the next.
+
+        **The oldest one carries a price the catalogue no longer has.**
+        Its "Café molido" line is at 3,50 and the catalogue says 3,20:
+        the price of a line is a PHOTO of the moment, and that is how the
+        defence shows it - without a catalogue editor, which does not
+        exist and never did (PC-03: the catalogue is readable and
+        seeded).
+
+        **The ages are the FIFO order.** A payment of 20,00 retires the
+        8,00 first, then the 7,00, and only 5,00 of the 15,00 - which is
+        what the criterion says. The oldest is 25 days, under the
+        30-day suspension age, so the client is not suspended and can
+        still be given credit.
 
         The charge is written the way the application writes it: the
         server stamps the instant, the lines carry the `precio_unitario`
         snapshot, and the `Confirmacion(confirmado)` is what makes it
         debt.
         """
-        momento = timezone.now() - timezone.timedelta(days=3)
-        cargo = LedgerEntry.objects.create(
-            shop=tienda,
-            customer=cliente,
-            user=dueno,
-            kind=EntryKind.CARGO.value,
-            amount=Decimal("3.60"),
-            occurred_at=momento,
-        )
-        # Three units of bread at 1,20.
-        producto = productos["Pan"]
-        cantidad = Decimal("3")
-        precio = producto.precio
-        CargoLinea.objects.create(
-            cargo=cargo,
-            producto=producto,
-            cantidad=cantidad,
-            precio_unitario=precio,
-            total=reglas_cargos.total_de_linea(cantidad, precio),
-        )
-        Confirmacion.objects.create(
-            cargo=cargo,
-            estado=ConfirmState.CONFIRMADO.value,
-            confirmado_en=momento,
-            origen="tienda",
-            confirmado_por=dueno,
-        )
+        for total, dias, lineas in (
+            ("8.00", 25, (("Café molido", "3.50"), ("Vino", "4.50"))),
+            ("7.00", 12, (("Queso curado", "4.75"), ("Tomates", "2.25"))),
+            ("15.00", 4, (("Gambas", "12.50"), ("Café", "2.50"))),
+        ):
+            momento = timezone.now() - timezone.timedelta(days=dias)
+            cargo = LedgerEntry.objects.create(
+                shop=tienda,
+                customer=cliente,
+                user=dueno,
+                kind=EntryKind.CARGO.value,
+                amount=Decimal(total),
+                occurred_at=momento,
+            )
+            for nombre, precio in lineas:
+                producto = productos[nombre]
+                cantidad = Decimal("1")
+                precio_unitario = Decimal(precio)
+                CargoLinea.objects.create(
+                    cargo=cargo,
+                    producto=producto,
+                    cantidad=cantidad,
+                    precio_unitario=precio_unitario,
+                    total=reglas_cargos.total_de_linea(cantidad, precio_unitario),
+                )
+            Confirmacion.objects.create(
+                cargo=cargo,
+                estado=ConfirmState.CONFIRMADO.value,
+                confirmado_en=momento,
+                origen="tienda",
+                confirmado_por=dueno,
+            )
         return cargo
 
     def _propuesta_pendiente(self, tienda, cliente, dueno, productos):

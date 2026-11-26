@@ -2762,6 +2762,46 @@ product_decisions:
     decision: >-
       No external research lane is selected. The owner interviews remain the
       only evidence for the fiado practice, exactly as in the previous change.
+  - id: el-guion-de-defensa-ensayado
+    status: confirmed
+    by: agent
+    decided: '2026-11-26'
+    decision: >-
+      **The defence script was REHEARSED against the deployment, and two
+      of the four demonstrations could not be performed.** The script had
+      been written by reading the code, and reading the code is not the
+      same as doing it.
+    what_the_rehearsal_found: >-
+      (1) The criterion's first demonstration asked to EDIT THE CATALOGUE,
+      and the catalogue has no write route: `CatalogoView` is GET-only and
+      the spec says it is "readable and seeded" (PC-03). The criterion and
+      the spec - both the owner's - contradicted each other. (2) The
+      fourth demonstration could not produce 8/8, 7/7 and 5/15: the demo
+      seeded ONE debt of 3,60 from three days ago, and the FIFO takes it
+      first. (3) The e2e never exercised the PERSON's account - the heart
+      of the demo - and the first rehearsal signed her in through the
+      staff login and got a 403.
+    what_the_seed_does_now: >-
+      **It builds the scenario the criterion describes**: three debts of
+      8,00, 7,00 and 15,00, each with TWO lines, aged 25, 12 and 4 days
+      so the FIFO retires them in that order, and the oldest one carries a
+      price the catalogue no longer has - its "Cafe molido" line is at 3,50
+      and the catalogue says 3,20. **The snapshot is shown with evidence
+      and without a catalogue editor, which does not exist.**
+    and_what_it_also_fixed: >-
+      **CC-06 had stopped being true and nobody noticed.** The retired
+      credential statement showed the itemisation ("one row per charge -
+      date, amount, confirmation date, and its `desglose`", design §11) and
+      the person's account of the 10.6 did not: `cargos_del_cliente` sent
+      no `lineas` and the component rendered none. The requirement is
+      declared with "Verification: integration" and **no test covered
+      it**. The itemisation is back - in the service, in the component and
+      in a test that also pins the price as a photo.
+    how_it_is_made_durable: >-
+      The e2e signs the PERSON in - through her own login, which is not
+      the staff's - and checks her links, her charges, her itemisation and
+      the price the catalogue no longer has.
+
   - id: the-documents-describe-the-system-that-exists
     status: confirmed
     by: agent

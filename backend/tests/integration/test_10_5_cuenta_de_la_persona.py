@@ -355,6 +355,79 @@ def test_a_charge_that_was_paid_in_full_is_pagado(
 # ---------------------------------------------------------------------------
 
 
+def test_a_confirmed_charge_shows_its_itemisation(
+    api_persona, persona, cliente, tienda, dueno, producto
+):
+    """CC-06: a confirmed charge shows its FULL itemisation.
+
+    **The product, the quantity and the price of every line.** A charge
+    of 3,00 that says nothing about what it is for is not a statement,
+    it is a number - and she has to be able to see what she is being
+    charged for.
+
+    **The price is the one of the moment, a PHOTO.** The catalogue may
+    have moved since, and that is exactly the point: the line keeps the
+    price it was made with, and changing the catalogue does not rewrite
+    the history of the book.
+    """
+    momento = timezone.now()
+    cargo = LedgerEntry.objects.create(
+        shop=tienda,
+        customer=cliente,
+        user=dueno,
+        kind="cargo",
+        amount=Decimal("3.00"),
+        occurred_at=momento,
+    )
+    CargoLinea.objects.create(
+        cargo=cargo,
+        producto=producto,
+        cantidad=Decimal("2"),
+        precio_unitario=Decimal("1.00"),
+        total=Decimal("2.00"),
+    )
+    leche = Producto.objects.create(
+        shop=tienda, nombre="Leche", precio=Decimal("1.00"), unidad="brick"
+    )
+    CargoLinea.objects.create(
+        cargo=cargo,
+        producto=leche,
+        cantidad=Decimal("1"),
+        precio_unitario=Decimal("1.00"),
+        total=Decimal("1.00"),
+    )
+    Confirmacion.objects.create(
+        cargo=cargo,
+        estado="confirmado",
+        confirmado_en=momento,
+        origen="tienda",
+        confirmado_por=dueno,
+    )
+
+    respuesta = api_persona.get(reverse("api:cuenta_cargos"))
+
+    assert respuesta.status_code == 200, respuesta.content
+    filas = {f["id"]: f for f in respuesta.json()}
+    lineas = filas[cargo.id]["lineas"]
+
+    assert len(lineas) == 2
+    assert {l["producto"] for l in lineas} == {"Pan", "Leche"}
+    # The quantity is a `Decimal(10,3)`, so it reads "1.000" - the same
+    # spelling the retired credential statement used.
+    assert {l["cantidad"] for l in lineas} == {"1.000", "2.000"}
+    assert sum(Decimal(l["total"]) for l in lineas) == Decimal("3.00")
+
+    # **And the price is a photo**: the catalogue moves, the line does not.
+    producto.precio = Decimal("1.50")
+    producto.save(update_fields=["precio"])
+
+    respuesta = api_persona.get(reverse("api:cuenta_cargos"))
+    filas = {f["id"]: f for f in respuesta.json()}
+    precios = {l["producto"]: l["precio_unitario"] for l in filas[cargo.id]["lineas"]}
+
+    assert precios["Pan"] == "1.00"
+
+
 def test_a_pending_link_still_shows_only_the_shop_and_the_buttons(
     api_persona, persona, cliente, tienda, dueno
 ):

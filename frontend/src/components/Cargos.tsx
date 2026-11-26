@@ -75,6 +75,21 @@ export function Cargos({ cargos, onProponerPago, error }: CargosProps) {
             <p>
               Pagado: {cargo.pagado} €. Te queda: {cargo.saldo} €.
             </p>
+            {/*
+              **The itemisation** (CC-06): what the charge is FOR. The
+              price is the one of the moment, so it may be a price the
+              catalogue no longer has - that is the snapshot.
+            */}
+            {cargo.lineas.length ? (
+              <ul>
+                {cargo.lineas.map((linea, indice) => (
+                  <li key={`${cargo.id}-${indice}`}>
+                    {linea.producto} — {linea.cantidad} ×{" "}
+                    {linea.precio_unitario} € = {linea.total} €
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </li>
         ))}
       </ul>

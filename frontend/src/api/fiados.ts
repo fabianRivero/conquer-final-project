@@ -42,6 +42,17 @@ export interface Cargo {
   saldo: string;
   /** `pendiente`, `parcial` or `pagado`. */
   estado: string;
+  /**
+   * The itemisation: the product, the quantity and the price of every
+   * line (CC-06). The price is the one of the moment, so it may differ
+   * from the catalogue's current price - that is the snapshot.
+   */
+  lineas: {
+    producto: string;
+    cantidad: string;
+    precio_unitario: string;
+    total: string;
+  }[];
 }
 
 export const fiados = {

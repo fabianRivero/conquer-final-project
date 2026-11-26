@@ -430,7 +430,7 @@ All routes live under `/api/v1/`. Outside it: `GET /health/` (liveness, touching
 | GET | `/api/v1/cuenta/fiados/` | person | — | 200 the fiados with their state, and their lines while they wait |
 | POST | `/api/v1/cuenta/fiados/aceptar/` | person | `{fiado_id}` — **nothing else**: the figure is the shop's | 200 the `cargo`; 422 `campo_no_admitido`, `propuesta_ya_aceptada`, `lineas_descuadradas`, `limite_superado`, `antiguedad_superada` |
 | POST | `/api/v1/cuenta/fiados/rechazar/` | person | `{fiado_id, motivo?}` — the reason is free text and **may be empty** | 200; 422 `campo_no_admitido`, `propuesta_ya_rechazada` |
-| GET | `/api/v1/cuenta/cargos/` | person | — | 200 the charges with their state — `pendiente`, `parcial` or `pagado` |
+| GET | `/api/v1/cuenta/cargos/` | person | — | 200 the charges with their state — `pendiente`, `parcial` or `pagado` — **and each one's `desglose`**: the product, the quantity and the price of every line (CC-06) |
 | POST | `/api/v1/cuenta/pagos/proponer/` | person | `{importe, referencia?, tienda_id?}` — **names no charge**: the FIFO decides which debt it retires | 201 `PagoPropuesto(pendiente)` — **writes no ledger row**; 422 `importe_no_positivo`, `tienda_requerida`; 403 |
 | POST | `/api/v1/tienda/login/` | public | `{username, password}` | 200 — **three questions**: which shop, which role, which credentials; 422 `credenciales_invalidas` |
 | GET / POST | `/api/v1/tienda/personal/` | `dueño` | `{username, email?, rol}` | 200/201 the staff; 422; 403 |
