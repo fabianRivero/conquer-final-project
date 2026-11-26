@@ -302,7 +302,6 @@ def test_el_personal_solo_lo_ve_el_dueno():
         "Escalera.tsx",
         "Cinta.tsx",
         "Cierre.tsx",
-        "Credenciales.tsx",
         "PropuestaForm.tsx",
         "PagosPropuestos.tsx",
         "Pantalla.tsx",

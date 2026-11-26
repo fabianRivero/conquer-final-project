@@ -82,9 +82,7 @@ VIEWS_PENDIENTES = {
     "caja": "PR 4c",
     "cierre": "PR 4c",
     "catalogo": "PR 4c",
-    "existencias": "PR 4c",
     "clientes": "PR 4c",
-    "codigo": "PR 4c",
     "libreta": "PR 4c",
     "suspension": "PR 4c",
     "propuestas": "PR 5",
@@ -137,7 +135,6 @@ urlpatterns = [
     path("caja/", CajaView.as_view(), name="caja"),
     path("cierre/", CierreView.as_view(), name="cierre"),
     path("catalogo/", CatalogoView.as_view(), name="catalogo"),
-    path("existencias/", vista_pendiente("existencias"), name="existencias"),
     # The COUNTER. The attendant asks her for her username and types it,
     # and the system finds her. It is a search and not an
     # authentication: the answer to the fiado is hers.
@@ -151,11 +148,6 @@ urlpatterns = [
         "clientes/<int:cliente_id>/",
         ClienteDetalleView.as_view(),
         name="cliente_detalle",
-    ),
-    path(
-        "clientes/<int:cliente_id>/codigo/",
-        vista_pendiente("codigo"),
-        name="cliente_codigo",
     ),
     path(
         "clientes/<int:cliente_id>/libreta/",
