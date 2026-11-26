@@ -396,6 +396,53 @@ class CierreView(_ApiViewBase):
 # ---------------------------------------------------------------------------
 
 
+class ClienteSuspensionAnularView(_ApiViewBase):
+    """`POST /api/v1/clientes/{id}/suspension/anular/` - the owner lifts it.
+
+    **The suspension is DERIVED and the override is an ACT** (PA-08). The
+    state is computed on read (PA-05, PA-06): a customer is suspended
+    because the outstanding exceeds the limit, or because the oldest debt
+    is older than the suspension age. This route records the owner's act,
+    and the act is what lifts it - **the derived state is never written**.
+
+    **The owner's alone.** The `dependiente` reads the credit book but
+    does not set the policy (design §7.1), and the person is not an
+    audience of the owner's routes at all.
+
+    A customer of another shop answers **404**: a 403 would confirm that
+    it exists.
+    """
+
+    http_method_names = ["post"]
+    permission_classes = [permissions.SoloPersonal]
+
+    def post(self, request, cliente_id):
+        if not es_dueno(request.user, _scope(request)):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        shop_id = _scope(request)
+
+        cliente = services.cliente_de_la_tienda(shop_id, cliente_id)
+        if cliente is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        services.anular_suspension(cliente, request.user)
+
+        # The state AFTER the act, and the act itself: PA-08 wants the
+        # lift to be auditable, and the answer says who did it and when.
+        estado = services.estado_de(cliente, tienda=shop_id)
+        return Response(
+            {
+                "id": cliente.id,
+                "alias": cliente.alias,
+                "suspendido": estado.suspendido,
+                "motivo": estado.motivo,
+                "override_at": cliente.suspended_override_at,
+                "override_by": cliente.suspended_override_by_id,
+            }
+        )
+
+
 class ClienteLibretaView(_ApiViewBase):
     """`POST /api/v1/clientes/{id}/libreta/` — a payment in the ledger.
 

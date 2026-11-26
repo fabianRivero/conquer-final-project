@@ -62,6 +62,7 @@ from tienda.api.views import (
     CatalogoView,
     CierreView,
     ClienteDetalleView,
+    ClienteSuspensionAnularView,
     ClienteLibretaView,
     ClientesView,
     PagoRechazarView,
@@ -74,9 +75,13 @@ from tienda.api.views import (
     PropuestasView,
 )
 
-#: The slices of the Phase 4 chain that owe the views. A route whose view
+#: The slices of the Phase 4 chain that owed the views. A route whose view
 #: has not landed answers 501 with this map, so the answer says what is
 #: missing and not merely that something is.
+#:
+#: **No route is pending today** - the last one, `suspension/`, was
+#: delivered on '2026-11-26'. The map stays because the NEXT view that
+#: lands late has to name the slice that owes it.
 VIEWS_PENDIENTES = {
     "posicion": "PR 4c",
     "caja": "PR 4c",
@@ -84,7 +89,6 @@ VIEWS_PENDIENTES = {
     "catalogo": "PR 4c",
     "clientes": "PR 4c",
     "libreta": "PR 4c",
-    "suspension": "PR 4c",
     "propuestas": "PR 5",
     "pantalla": "PR 5",
     "confirmar": "PR 5",
@@ -156,7 +160,7 @@ urlpatterns = [
     ),
     path(
         "clientes/<int:cliente_id>/suspension/anular/",
-        vista_pendiente("suspension"),
+        ClienteSuspensionAnularView.as_view(),
         name="cliente_suspension",
     ),
     # The proposal routes. The N5 gate is closed, so the four proposal
