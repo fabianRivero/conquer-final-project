@@ -547,40 +547,20 @@ def test_the_api_mount_is_live():
     assert cuerpo["codigo_error"] == "permiso_insuficiente"
 
 
-def test_a_pending_route_still_answers_501():
-    """A route whose view has not landed says so.
-
-    **There is ONE left**: `clientes/{id}/suspension/anular/`, which is
-    PA-08 and whose service already exists. It answers 501 naming the
-    slice that owes it, not 404: a 404 would say the route does not
-    exist, which is a statement about the CONTRACT.
-
-    The mechanism is still in place, and the routes that use it still
-    use it. **The other two are GONE, and they are gone for different
-    reasons**: `existencias/` was cut by the owner (Regla 6), and
-    `clientes/{id}/codigo/` was the credential the 10.6 retired.
-    """
-    from django.test import Client
-
-    cliente = Client()
-    respuesta = cliente.get(
-        "/api/v1/clientes/1/suspension/anular/", HTTP_HOST="testserver"
-    )
-
-    assert respuesta.status_code == 501
-    import json
-
-    cuerpo = json.loads(respuesta.content.decode())
-    assert cuerpo["codigo_error"] == "vista_pendiente"
-    assert cuerpo["slice"] == "PR 4c"
-
-
 def test_a_view_that_has_not_landed_answers_501_and_names_the_slice():
     """A pending view says what is missing.
 
     A 404 would say "this route does not exist", which is a statement
     about the contract. A 501 says "this contract exists and is not built
     yet", which is a statement about the work.
+
+    **No route is pending today** - the last one, `suspension/`, was
+    delivered on '2026-11-26', and the other two are gone for different
+    reasons: `existencias/` was cut by the owner (Regla 6) and
+    `clientes/{id}/codigo/` was the credential the 10.6 retired. **The
+    mechanism stays anyway**, because the NEXT view that lands late has
+    to use it, and a 404 by accident would say something false about
+    the contract.
     """
     from tienda.api.urls import vista_pendiente
 

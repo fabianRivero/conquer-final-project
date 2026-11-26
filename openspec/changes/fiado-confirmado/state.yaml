@@ -217,13 +217,14 @@ v2_redesign:
     design hypothesis that is not waiting for anything. What remains
     is therefore NOT a slice either, and it is three things of a
     different kind:
-    (1) **ONE route still in `501`**: `suspension/` - lifting a
-    suspension. It is PA-08, a declared requirement, and **its service
-    already exists and is tested** (`services.anular_suspension`): only
-    the route is missing. The other two are GONE: `existencias/` was cut
-    by the owner on '2026-11-26' (Regla 6 is a declared cut and CP-07 is
-    declared not-built), and `clientes/{id}/codigo/` was the credential
-    the 10.6 retired, so it disappeared instead of being built;
+    (1) **there is NO route left in `501`**. `suspension/` - lifting a
+    suspension, which is PA-08 - now answers 200, 403 and 404, and its
+    service (`services.anular_suspension`) was already there and
+    tested: only the route was missing, and now it is not. The other two
+    are GONE: `existencias/` was cut by the owner on '2026-11-26' (Regla 6
+    is a declared cut and CP-07 is declared not-built), and
+    `clientes/{id}/codigo/` was the credential the 10.6 retired, so it
+    disappeared instead of being built;
     (2) **the project's own delivery**: the README, the memoria
     sections 3.1-3.8 and the 30-minute defence script - none of them
     exists yet, and none of them is code;
@@ -2213,7 +2214,7 @@ v2_redesign:
     CAC-10 and the §7.2 and §9.2 lists were amended, and the guarantee
     now runs on the routes that run.
 
-    What remains is WORK, not decisions: the three routes still in `501`,
+    What remains is WORK, not decisions: **no route is left in `501`**,
     and the project's own delivery - the README, the memoria 3.1-3.8 and
     the 30-minute defence script.
   no_customer_credit:
@@ -2778,6 +2779,30 @@ product_decisions:
       traceability rows that name the credential's decisions are left
       alone on purpose: they are the record of what was decided, not a
       claim about what the system does.
+
+  - id: pa-08-delivered
+    status: confirmed
+    by: agent
+    decided: '2026-11-26'
+    decision: >-
+      **PA-08 is delivered**: `POST /api/v1/clientes/{cliente_id}/suspension/anular/`
+      answers 200, 403 and 404. It was the LAST route in `501`.
+    what_it_changes: >-
+      **A route, and nothing else.** The service (`services.anular_suspension`)
+      already existed and was already tested - the route was the only thing
+      missing. The view records the owner's act and returns the state AFTER
+      it, with who did it and when: the derived state is never written, and
+      the book is never touched.
+    what_it_does_not_change: >-
+      The model, the rules and the permissions. The suspension is still
+      DERIVED (PA-05, PA-06) and the override is still an ACT; the design's
+      §9.1 already described this route, because the route was written
+      down before it was built.
+    the_boundary_it_keeps: >-
+      The owner's alone. The `dependiente` reads the credit book but does not
+      set the policy, so he gets a total 403 with no data, and the person is
+      not an audience of the owner's routes at all. A customer of another
+      shop answers 404: a 403 would confirm that it exists.
 
   - id: existencias-cut
     status: confirmed
