@@ -225,9 +225,9 @@ v2_redesign:
     is a declared cut and CP-07 is declared not-built), and
     `clientes/{id}/codigo/` was the credential the 10.6 retired, so it
     disappeared instead of being built;
-    (2) **the project's own delivery**: the README, the memoria
-    sections 3.1-3.8 and the 30-minute defence script - none of them
-    exists yet, and none of them is code;
+    (2) **the project's own delivery is DONE**: the README, the memoria
+    (whose sections 3.1-3.8 are the eight capabilities) and the 30-minute
+    defence script - all three delivered on '2026-11-26';
     (3) **nothing else is a DECISION**: the owner's last open question -
     design section 19, item 7, whether the person may see her own
     `credit_limit` - was ANSWERED on '2026-11-25'. **She does**: her own
@@ -2779,6 +2779,37 @@ product_decisions:
       traceability rows that name the credential's decisions are left
       alone on purpose: they are the record of what was decided, not a
       claim about what the system does.
+
+  - id: la-entrega-del-pfm
+    status: confirmed
+    by: agent
+    decided: '2026-11-26'
+    decision: >-
+      **The three things the success criteria ask for are delivered**: a
+      README, a memoria and a defence script.
+    what_it_is: >-
+      `README.md` (the repository's front door: what it is, how to run it,
+      the accounts, the deploy, the tests and - importantly - **what the
+      project does NOT claim**). `memoria.md` (the delivery document: the
+      problem, the principals, and **§3.1 to §3.8 = the eight
+      capabilities**, then the technical approach, the validation with the
+      annex, the success criteria and what is not built).
+      `defensa.md` (the thirty-minute script: the opening, the four live
+      demonstrations with the exact clicks, the architecture in five minutes
+      and the ten questions the tribunal will ask).
+    the_language: >-
+      The README follows the project's language contract (English prose,
+      Spanish identifiers); the memoria and the defence script follow the
+      proposal, which is the PFM's own Spanish-facing document.
+    what_the_script_solved: >-
+      **The fourth demonstration was not performable as it was.** The
+      criterion asks for a client owing 8,00, 7,00 and 15,00, and the
+      seeded demo had ONE debt of 3,60. The script fixes it without
+      touching the seed: the catalogue reaches the three totals with TWO
+      lines each - Jamon 6,90 + Lechuga 1,10 = 8,00, Queso 4,75 + Tomates
+      2,25 = 7,00, and Gambas 12,50 + Cafe 2,50 = 15,00 - so the debts are
+      created live, in order, and the FIFO payment lands where the
+      criterion says: 8/8, 7/7 and 5/15.
 
   - id: pa-08-delivered
     status: confirmed

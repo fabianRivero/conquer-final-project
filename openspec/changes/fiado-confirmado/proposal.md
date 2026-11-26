@@ -39,6 +39,8 @@ Capacidades **modificadas**: ninguna. Las especificaciones de `tienda-barrio` qu
 
 ## Entidades de datos
 
+> **Esta tabla es el modelo de la v2 de la propuesta, y la propuesta es un documento con su fecha.** El modelo que **se construyó** está en `design.md` §2, que es la tabla vigente: la reescritura de cuentas movió el `credit_limit` al vínculo, quitó la credencial (`CustomerCodigo` y `CodigoIntento`) y añadió el `Vinculo`.
+
 | Entidad | Campos y relaciones |
 | --- | --- |
 | `Producto` | `id, nombre, precio, unidad, activo` — vocabulario del libro; solo los productos aptos para fiado |
