@@ -1,10 +1,16 @@
 """The client schema of design §9.2 — the allowlist of the client's own data.
 
-This class is where the leak guarantee lives. It declares the client's own
+It declares the client's own
 statement and **none of the nine staff-only fields** — no `caja`, no
 `fiado_pendiente`, no `posicion_real`, no `buckets`, no `credit_limit`, no
 `antiguedad_max_dias`, no `suspended_reason`, no `codigo`, no `prefix` —
 and it never carries another customer's data.
+
+**It is a belt-and-braces guard, not where the guarantee lives.** The
+credential surface is retired and **no live route renders this class**;
+the guarantee is asserted on the **routes that run**
+(`test_cifras_de_la_persona.py`), and the person's own account is not a
+serializer at all.
 
 The guarantee is about **data, not names**. The client class shares
 `total`, `lineas[]`, `producto`, `cantidad` and `precio_unitario` with the
@@ -72,10 +78,15 @@ class CargoClienteSerializer(serializers.Serializer):
 class EstadoClienteSerializer(serializers.Serializer):
     """The client's own statement: the alias, the total and the charges.
 
-    This is the schema that carries CAC-10, and it is asserted rather
-    than assumed: the class declares **none** of the nine staff-only
-    fields, and the test of §15.2 reads its declared `fields` and fails if
-    it names any of them.
+    **This is NOT the schema that carries CAC-10.** It is the retired
+    credential surface's, and no live route renders it: the class
+    declares **none** of the nine staff-only fields, and the test of
+    §15.2 reads its declared `fields` and fails if it names any of
+    them — a guard for a surface that may come back.
+    **CAC-10 lives on the routes that run**: the person's account is not
+    a serializer, and `test_cifras_de_la_persona.py` is what asserts the
+    seven never reach her and that the two of hers are hers, per shop,
+    on an accepted link.
     """
 
     alias = serializers.CharField()

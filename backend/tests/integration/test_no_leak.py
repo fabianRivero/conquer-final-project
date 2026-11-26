@@ -41,7 +41,6 @@ from tienda.models import (
 )
 from tests.walk import (
     TOKENS_DE_AMBOS,
-    TOKENS_DE_CLIENTE,
     afirmar_sin_fuga,
     buscar,
 )

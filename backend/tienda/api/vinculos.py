@@ -96,14 +96,9 @@ class VinculoAceptarView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        return Response(
-            {
-                "id": vinculo.id,
-                "tienda": vinculo.tienda.name,
-                "estado": vinculo.estado,
-                "credit_limit": vinculo.credit_limit,
-            }
-        )
+        from tienda.services import vinculo_para_la_persona
+
+        return Response(vinculo_para_la_persona(vinculo, cliente))
 
 
 class VinculoRechazarView(VinculoAceptarView):

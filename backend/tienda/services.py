@@ -488,8 +488,13 @@ def buscar_en_el_mostrador(shop_id, username) -> list:
     ]
 
 
-def vinculos_del_cliente(cliente) -> list:
-    """The links of a client, as **she** sees them.
+def vinculo_para_la_persona(vinculo, cliente) -> dict:
+    """The link, as **she** sees it.
+
+    **ONE builder, one row.** The list and the answer to the shop's
+    question tell her the same story, and this function is where that
+    story is written. That is what makes the guarantee a fact and not a
+    promise: the contract cannot depend on which URL she used.
 
     **A pending link shows the shop's name and nothing else.** If she
     could see the debt and the ageing first, the consent would be a
@@ -497,34 +502,43 @@ def vinculos_del_cliente(cliente) -> list:
     reveals. The link she is asked about says which shop is asking, and
     no more.
 
-    **An ACCEPTED link opens the figures**, and they are hers to read:
-    how much she owes **in that shop**, how old the oldest debt is
-    there, and the limit the owner gave her.
+    **An ACCEPTED link opens HER OWN figures**, and they are hers to
+    read: how much she owes **in that shop**, how old the oldest debt
+    is there, and the limit the owner gave her there.
 
     **The figures are PER SHOP.** "She owes 30 here" and "she owes 20
     there" are two facts, and one account that mixed them would be
     lying about both. The limit and the ageing belong to the link, and
     the link names the shop.
     """
-    filas = []
-    for vinculo in Vinculo.objects.filter(cliente=cliente).select_related("tienda"):
-        fila = {
-            "id": vinculo.id,
-            "tienda": vinculo.tienda.name,
-            "estado": vinculo.estado,
-        }
-        if vinculo.estado == "aceptado":
-            # The acceptance is what opens the owner's figures to her.
-            fila["credit_limit"] = vinculo.credit_limit
-            fila["pendiente"] = pendiente_de(cliente, tienda=vinculo.tienda)
-            # The ageing of THIS shop. The age of the debt she has in
-            # this shop says something; her age as a person says
-            # nothing.
-            fila["antiguedad_max_dias"] = estado_de(
-                cliente, tienda=vinculo.tienda
-            ).antiguedad_max_dias
-        filas.append(fila)
-    return filas
+    fila = {
+        "id": vinculo.id,
+        "tienda": vinculo.tienda.name,
+        "estado": vinculo.estado,
+    }
+    if vinculo.estado == "aceptado":
+        # The acceptance is what opens the owner's figures to her.
+        fila["credit_limit"] = vinculo.credit_limit
+        fila["pendiente"] = pendiente_de(cliente, tienda=vinculo.tienda)
+        # The ageing of THIS shop. The age of the debt she has in
+        # this shop says something; her age as a person says
+        # nothing.
+        fila["antiguedad_max_dias"] = estado_de(
+            cliente, tienda=vinculo.tienda
+        ).antiguedad_max_dias
+    return fila
+
+
+def vinculos_del_cliente(cliente) -> list:
+    """The links of a client, as **she** sees them.
+
+    **The row is written by `vinculo_para_la_persona`**, and that
+    function is the whole contract of what she may see of a link.
+    """
+    return [
+        vinculo_para_la_persona(vinculo, cliente)
+        for vinculo in Vinculo.objects.filter(cliente=cliente).select_related("tienda")
+    ]
 
 
 def fiados_del_cliente(cliente) -> list:
@@ -669,9 +683,13 @@ def aceptar_vinculo(cliente, vinculo_id):
     **Only she may do it**: the shop does not have her credentials, and
     it must not decide for her.
     """
-    vinculo = Vinculo.objects.filter(
-        id=vinculo_id, cliente=cliente, estado="pendiente"
-    ).first()
+    vinculo = (
+        Vinculo.objects.filter(
+            id=vinculo_id, cliente=cliente, estado="pendiente"
+        )
+        .select_related("tienda")
+        .first()
+    )
     if vinculo is None:
         raise DomainValidationError("vinculo_no_pendiente")
 
