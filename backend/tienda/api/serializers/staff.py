@@ -26,8 +26,10 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-#: The nine fields that are the staff's alone. The staff-only schemas
-#: declare **none** of them, and that is the assertion that carries CAC-10.
+#: The nine fields that are the staff's alone. **The client class and the
+#: `dependiente`'s reduced schema declare none of them**, and that is what
+#: the field-set assertion of §15.2 reads; the other staff classes
+#: declare some of them by design.
 #:
 #: **The person sees TWO of them** — `credit_limit` and
 #: `antiguedad_max_dias` — and only as her own per-shop figures on an

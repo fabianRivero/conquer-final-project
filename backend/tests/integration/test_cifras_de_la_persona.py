@@ -11,6 +11,10 @@ schema that used to carry CAC-10 (`EstadoClienteSerializer`) belongs to
 the retired credential surface: no live route renders it, so a test that
 only read it protected nothing. The person reads hand-built rows, and
 the guarantee belongs where the rows are.
+
+**And it walks the routes that are not a GET too**: her answer to the
+shop's question is a response as well, and a guarantee that only walked
+the reads would miss it.
 """
 
 from __future__ import annotations
@@ -69,34 +73,76 @@ def persona_con_dos_tiendas(db, negocio):
         amount=Decimal("30.00"),
         occurred_at=timezone.now() - timedelta(days=40),
     )
-    return usuario, cliente, negocio.shop, otra
+    return usuario, cliente, negocio, otra
 
 
 @pytest.fixture
 def api_persona(persona_con_dos_tiendas):
     """A client whose session is the PERSON's."""
-    usuario, _cliente, _tienda, _otra = persona_con_dos_tiendas
+    usuario, _cliente, _negocio, _otra = persona_con_dos_tiendas
     api = APIClient()
     api.force_authenticate(usuario)
     return api
 
 
-def test_las_rutas_de_la_persona_no_traen_las_cifras_del_dueno(api_persona):
+def test_las_rutas_de_la_persona_no_traen_las_cifras_del_dueno(
+    api_persona, persona_con_dos_tiendas
+):
     """CAC-10, asserted on the routes that actually run.
 
     **The seven never reach her**, on any route of hers: not the cash,
     not the position, not the buckets, not the suspension reason, and
     never the credential.
+
+    **And that includes the routes that are not a GET.** Her answer to
+    the shop's question is a response too, and a guarantee that only
+    walked the reads would miss it.
     """
+    _usuario, cliente, negocio, otra = persona_con_dos_tiendas
+    pendiente = Vinculo.objects.get(cliente=cliente, tienda=otra)
+
     for nombre, url in (
         ("los vinculos", reverse("api:cuenta_vinculos")),
         ("los fiados", reverse("api:cuenta_fiados")),
         ("los cargos", reverse("api:cuenta_cargos")),
+        ("los perfiles", reverse("api:perfiles")),
     ):
         respuesta = api_persona.get(url)
 
         assert respuesta.status_code == 200, nombre
         afirmar_sin_fuga(respuesta.json(), TOKENS_DE_CLIENTE, nombre)
+
+    # Y las dos que son la respuesta a su propia pregunta.
+    aceptada = api_persona.post(
+        reverse("api:cuenta_vinculo_aceptar"),
+        {"vinculo_id": pendiente.id},
+        format="json",
+    )
+
+    assert aceptada.status_code == 200
+    afirmar_sin_fuga(aceptada.json(), TOKENS_DE_CLIENTE, "el aceptar")
+
+    # El rechazar necesita OTRO vinculo pendiente.
+    tercera = Shop.objects.create(
+        name="Tienda de mas alla", opening_cash=Decimal("150.00")
+    )
+    Vinculo.objects.create(
+        tienda=tercera,
+        cliente=cliente,
+        estado="pendiente",
+        credit_limit=Decimal("5.00"),
+        pedido_at=timezone.now(),
+        pedido_por=negocio.user,
+    )
+    el_otro = Vinculo.objects.get(cliente=cliente, tienda=tercera)
+    rechazada = api_persona.post(
+        reverse("api:cuenta_vinculo_rechazar"),
+        {"vinculo_id": el_otro.id},
+        format="json",
+    )
+
+    assert rechazada.status_code == 200
+    afirmar_sin_fuga(rechazada.json(), TOKENS_DE_CLIENTE, "el rechazar")
 
 
 def test_sus_cifras_propias_solo_en_el_vinculo_aceptado(
@@ -111,7 +157,7 @@ def test_sus_cifras_propias_solo_en_el_vinculo_aceptado(
     could see the figures first, the consent would be a formality — she
     would already have seen everything the acceptance reveals.
     """
-    _usuario, _cliente, _tienda, _otra = persona_con_dos_tiendas
+    _usuario, _cliente, _negocio, _otra = persona_con_dos_tiendas
 
     cuerpo = api_persona.get(reverse("api:cuenta_vinculos")).json()
 
@@ -135,7 +181,7 @@ def test_el_limite_que_ve_es_el_suyo(api_persona, persona_con_dos_tiendas):
     person may have 100 in one shop and 25 in another, and those are two
     facts — an account that mixed them would be lying about both.
     """
-    _usuario, cliente, _tienda, _otra = persona_con_dos_tiendas
+    _usuario, cliente, _negocio, _otra = persona_con_dos_tiendas
 
     cuerpo = api_persona.get(reverse("api:cuenta_vinculos")).json()
 

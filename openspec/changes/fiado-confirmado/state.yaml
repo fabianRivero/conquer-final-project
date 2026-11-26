@@ -2759,18 +2759,26 @@ product_decisions:
       entirely - and the contract is amended to match the code, which is
       what was already built and shipped.
     what_it_changes: >-
-      D11, ADR-24, the §7.2 matrix and §9.2's enumeration of the nine
-      staff-only fields; CAC-10's requirement and a new scenario; and the
-      guarantee, which moves from a SCHEMA to the ROUTES that run. The
-      nine stay nine for the staff-only schemas - the credential client's
-      and the `dependiente`'s - and the person is the exception.
+      D11, ADR-24, §5.2's leak-surface row, §7's permission
+      matrix, §7.3's attribution of CAC-10, §9.2's enumeration
+      of the nine staff-only fields and §15.2's description of the
+      tests; CAC-10's requirement and a new scenario; and the guarantee,
+      which moves from a SCHEMA to the ROUTES that run. The nine stay
+      nine for the client class and the `dependiente`'s reduced schema,
+      which declare none of them - and the person is the exception.
     what_it_does_not_change: >-
-      The API's shape for the person. The delivered account already
-      carried the limit, the frontend already shows it ("Te pueden fiar
-      hasta ..."), and the pending link already showed nothing. The
-      change is that the CONTRACT now says the truth, and that the truth
-      is enforced by a test over the routes instead of over a serializer
-      that no live route renders.
+      **The set of facts the person can read.** The delivered account
+      already carried the limit, the frontend already shows it ("Te
+      pueden fiar hasta ..."), and the pending link already showed
+      nothing. The change is that the CONTRACT now says the truth, and
+      that the truth is enforced by a test over the routes instead of
+      over a serializer that no live route renders.
+      **What DID change in the wire**: the accept response
+      (`cuenta/vinculos/aceptar/`) now carries the SAME row as the list
+      - `pendiente` and `antiguedad_max_dias` besides the limit - because
+      both read one builder (`vinculo_para_la_persona`). It shows her
+      nothing the list did not already show her; it makes her view of a
+      link independent of the route she came through.
     how_it_is_made_true: >-
       One builder: `vinculo_para_la_persona` in
       `backend/tienda/services.py` writes the row, and both the list and
