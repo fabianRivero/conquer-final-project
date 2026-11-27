@@ -17,9 +17,12 @@
 `tienda-demo-2026` para las tres.
 
 **Lo que tiene el demo sembrado:** una tienda, treinta productos, **Ana** como clienta
-de confianza con un límite de 100 €, y **tres deudas** — 8,00 € de hace 25 días, 7,00 €
-de hace 12 y 15,00 € de hace 4 — más una propuesta pendiente de 2,40 € y otra rechazada
-de 4,30 €.
+de confianza con un límite de 100 €, y **tres deudas** — 8,00 €, 7,00 € y 15,00 €, **de más antigua a más
+reciente** — más una propuesta pendiente de 2,40 € y otra rechazada de 4,30 €.
+
+> **El orden es lo que importa, no los días exactos:** el aging se cuenta por días
+> de calendario y el reloj lo mueve, pero las tres deudas keeps su antigüedad
+> relativa, y el FIFO la respeta.
 
 ---
 
@@ -56,7 +59,7 @@ de 4,30 €.
    servidor lo **comprueba** al escribirlo: un cargo cuyo importe no sea la suma de sus
    líneas se rechaza. El desglose no es decorativo, es obligatorio».
 6. **Ahora el precio.** El catálogo de hoy tiene el **Café molido a 3,20 €**. Esa línea
-   —**de hace 25 días**— lo tiene a **3,50 €**.
+   —**la más vieja de las tres**— lo tiene a **3,50 €**.
 7. **Dilo:** «el precio de una línea es una **foto** del momento en que se pactó. El
    catálogo cambió después, y por eso el demo trae esa deuda vieja con el precio viejo.
    **Cambiar el catálogo no reescribe la historia del libro.**»
@@ -127,8 +130,9 @@ la deuda que salda**: el exceso es cambio y **no entra en el libro** (`PA-02`,
    devuelve el cambio».
 5. **Y si preguntan por las deudas que no se han tocado:** «el cargo de 7,70 de la
    demostración 3 y la propuesta pendiente de 2,40 son **más nuevos**, y el FIFO es por
-   **antigüedad**, no por orden de creación. El de 15,00 es el más viejo de los tres
-   que pagan, y por eso es el que se queda a medias».
+   **antigüedad**, no por orden de creación. Y el de 15,00 es el más **nuevo** de las
+   tres: no es que se quede a medias por ser viejo, sino porque **el dinero se acaba
+   ahí**, y la deuda más reciente es la última a la que llega».
 
 ---
 
