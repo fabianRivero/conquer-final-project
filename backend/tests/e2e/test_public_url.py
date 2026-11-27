@@ -131,6 +131,31 @@ class Navegador:
             formulario=True,
         )
 
+    def entrar_persona(self, usuario: str, contrasena: str) -> tuple[int, str]:
+        """Sign in as the PERSON, with her own account.
+
+        **The two logins are not the same.** `/login/` is the staff's,
+        and its session names a shop; hers names none, because a person
+        belongs to no shop. Signing her in through the staff login
+        answers 403 on every route of hers, and it looks like a
+        permissions bug - it is not.
+
+        The API takes JSON, and the CSRF token goes in the header with
+        the `Referer` a browser would send.
+        """
+        self.pedir("/app/cuenta/")
+        token = self.token_csrf()
+        return self.pedir(
+            "/api/v1/cuenta/login/",
+            {"username": usuario, "password": contrasena},
+            {
+                "Referer": f"{self.base}/app/cuenta/",
+                "Origin": self.base,
+                "X-CSRFToken": token or "",
+            },
+            formulario=False,
+        )
+
 
 @pytest.fixture(scope="module")
 def navegador():
@@ -408,20 +433,24 @@ def test_las_cifras_sembradas_coinciden(navegador):
     tablero = json.loads(cuerpo)
 
     # The drawer opens at 150,00 and the credit owed is the seeded
-    # charge of 3,60.
+    # debt: 8,00 + 7,00 + 15,00.
     assert float(tablero["caja"]) == 150.00
-    assert float(tablero["fiado_pendiente"]) == 3.60
-    assert float(tablero["posicion_real"]) == 153.60
+    assert float(tablero["fiado_pendiente"]) == 30.00
+    assert float(tablero["posicion_real"]) == 180.00
 
     # The four ribbons, and their total is the outstanding.
     cintas = tablero["buckets"]
     assert set(cintas.keys()) == {"vigente", "envejecido", "viejo", "cronico"}
-    assert sum(float(v) for v in cintas.values()) == 3.60
+    assert sum(float(v) for v in cintas.values()) == 30.00
+    # The 15,00 of four days, and the 8,00 and the 7,00 of twenty-five
+    # and twelve.
+    assert float(cintas["vigente"]) == 15.00
+    assert float(cintas["envejecido"]) == 15.00
 
     # The ladder: one customer with something pending.
     escalera = tablero["clientes"]
     assert len(escalera) == 1
-    assert escalera[0]["pendiente"] == "3.60"
+    assert escalera[0]["pendiente"] == "30.00"
 
     # The catalogue: about thirty products, the seeded one at 1,20.
     estado, cuerpo = dueno.pedir("/api/v1/catalogo/")
@@ -469,6 +498,66 @@ def test_la_pagina_del_personal_redirige_sin_sesion():
     except urllib.error.HTTPError as exc:
         assert exc.code == 302
         assert "/login/" in exc.headers.get("Location", "")
+
+
+def test_la_persona_entra_por_su_cuenta_y_ve_sus_cifras(navegador):
+    """The person signs in with HER account, and the demo's heart works.
+
+    **The e2e used to cover the staff only.** The person's account is the
+    heart of the product - the shop asks and SHE answers - and it was
+    verified only against the database, never against the deployment.
+
+    **And the two logins are not the same.** `/login/` is the staff's,
+    and its session names a shop; hers names none, because a person
+    belongs to no shop. Signing her in through the staff login answers
+    403 on every route of hers, and it looks like a permissions bug.
+    """
+    persona = Navegador(URL_PUBLICA)
+    estado, cuerpo = persona.entrar_persona("ana", PASSWORD)
+
+    assert estado == 200, cuerpo
+    assert json.loads(cuerpo)["username"] == "ana"
+
+    # Her links: the shop that trusts her, and her own limit in it.
+    estado, cuerpo = persona.pedir("/api/v1/cuenta/vinculos/")
+    assert estado == 200, cuerpo
+    vinculos = json.loads(cuerpo)
+    assert len(vinculos) == 1
+    assert vinculos[0]["estado"] == "aceptado"
+    assert float(vinculos[0]["credit_limit"]) == 100.00
+
+    # Her charges: the three the seed left, and they sum 30,00.
+    estado, cuerpo = persona.pedir("/api/v1/cuenta/cargos/")
+    assert estado == 200, cuerpo
+    cargos = json.loads(cuerpo)
+    assert len(cargos) == 3
+    assert sum(float(c["saldo"]) for c in cargos) == 30.00
+    assert sum(float(c["pagado"]) for c in cargos) == 0.00
+
+    # **THE PRICE IS A PHOTO**: the oldest charge's line is at 3,50 and
+    # the catalogue says 3,20. That is the snapshot, shown with evidence
+    # and without a catalogue editor - which does not exist (PC-03).
+    linea_8 = next(
+        linea
+        for cargo in cargos
+        if float(cargo["saldo"]) == 8.00
+        for linea in cargo["lineas"]
+        if linea["producto"] == "Café molido"
+    )
+    assert float(linea_8["precio_unitario"]) == 3.50
+
+    dueno = Navegador(URL_PUBLICA)
+    dueno.entrar("dueno")
+    estado, cuerpo = dueno.pedir("/api/v1/catalogo/")
+    assert estado == 200
+    cafe = next(p for p in json.loads(cuerpo) if p["nombre"] == "Café molido")
+    assert float(cafe["precio"]) == 3.20
+
+    # And the fiados the shop is asking about: one pending, one refused.
+    estado, cuerpo = persona.pedir("/api/v1/cuenta/fiados/")
+    assert estado == 200, cuerpo
+    estados = sorted(f["estado"] for f in json.loads(cuerpo))
+    assert estados == ["pendiente", "rechazado"]
 
 
 def test_la_pagina_del_cliente_es_publica(navegador):
