@@ -2801,6 +2801,13 @@ product_decisions:
       The e2e signs the PERSON in - through her own login, which is not
       the staff's - and checks her links, her charges, her itemisation and
       the price the catalogue no longer has.
+    and_what_the_rehearsal_corrected_in_the_script: >-
+      Two errors in the script itself, found by running it rather than
+      reading it: the **ages drift with the clock** (the ageing counts
+      calendar days, so "25 days" reads 26 the next morning, and the
+      script now says the ORDER instead), and **the charge that stays
+      half-paid is the NEWEST of the three, not the oldest** - it is the
+      last one the money reaches, not the first.
 
   - id: the-documents-describe-the-system-that-exists
     status: confirmed
